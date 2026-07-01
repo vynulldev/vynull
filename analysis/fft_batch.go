@@ -2,7 +2,10 @@
 
 package analysis
 
-import "sync"
+import (
+	"runtime"
+	"sync"
+)
 
 // batchFFT runs a batch of real-input FFTs in parallel across CPU workers.
 // Each window is copied to length fftSize; the returned slices hold the first
@@ -14,7 +17,13 @@ func batchFFT(windows [][]float64, fftSize int) (realOut, imagOut [][]float64) {
 	outBins := fftSize/2 + 1
 
 	var wg sync.WaitGroup
-	workers := 4
+	workers := runtime.NumCPU()
+	if workers > batchCount {
+		workers = batchCount // no point spawning more workers than windows
+	}
+	if workers < 1 {
+		workers = 1
+	}
 	chunkSize := (batchCount + workers - 1) / workers
 
 	for w := 0; w < workers; w++ {
