@@ -40,6 +40,7 @@ type Config struct {
 	TUI            bool   // if true (default), show the interactive terminal monitor; false runs headless
 	Listen         string // API + web listen address (default: 127.0.0.1:9443; use 0.0.0.0:9443 to expose to LAN)
 	LogLevel       string // log verbosity: error|warn|info|debug|trace (default: info)
+	LogFile        string // if set, append logs to this file instead of the default destination
 }
 
 func parseFlags() Config {
@@ -73,6 +74,7 @@ func parseFlags() Config {
 	flag.BoolVar(&cfg.TUI, "tui", true, "show the interactive terminal monitor UI (on by default). Use --tui=false to run headless: no altscreen, logs stay on stdout — for systemd/nohup or non-TTY environments")
 	flag.StringVar(&cfg.Listen, "listen", "127.0.0.1:9443", "API + web listen address. Use 0.0.0.0:9443 to expose on all interfaces (e.g. for access from another device on the LAN)")
 	flag.StringVar(&cfg.LogLevel, "log-level", "info", "log verbosity: error, warn, info, debug, or trace. Trace adds per-packet NFS / dbserver hex dumps; debug adds mount and portmap detail. Default info keeps the operationally-useful lines visible without per-packet spam.")
+	flag.StringVar(&cfg.LogFile, "log-file", "", "append logs to this file (default: an auto temp file while the TUI is shown, or stdout when headless with --tui=false)")
 
 	flag.Usage = printGroupedUsage
 	flag.Parse()
@@ -168,7 +170,7 @@ var flagGroups = []flagGroup{
 		"listen", "web", "tui",
 	}},
 	{"Logging", []string{
-		"log-level",
+		"log-level", "log-file",
 	}},
 	{"USB export (alternative to serving)", []string{
 		"generate", "copy-files", "export-playlist",

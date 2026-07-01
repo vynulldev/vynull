@@ -114,11 +114,22 @@ func main() {
 		return
 	}
 
-	// Redirect logs to a file when the TUI is active (it owns the terminal).
-	// Headless (--tui=false) keeps logs on stdout so you can see them.
-	if cfg.TUI && cfg.GenerateDir == "" && cfg.AnalyzeFile == "" {
-		logFile, err := os.Create(filepath.Join(os.TempDir(), fmt.Sprintf("vynull-%s.log", time.Now().Format("20060102-150405"))))
-		if err == nil {
+	// Log destination while serving:
+	//   --log-file PATH  → append to that file (TUI or headless)
+	//   TUI (default)    → an auto temp file, since the TUI owns the terminal
+	//   headless         → stdout (no redirect)
+	if cfg.GenerateDir == "" && cfg.AnalyzeFile == "" {
+		var logFile *os.File
+		var err error
+		switch {
+		case cfg.LogFile != "":
+			logFile, err = os.OpenFile(cfg.LogFile, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+		case cfg.TUI:
+			logFile, err = os.Create(filepath.Join(os.TempDir(), fmt.Sprintf("vynull-%s.log", time.Now().Format("20060102-150405"))))
+		}
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "warning: could not open log file: %v (logging to stdout)\n", err)
+		} else if logFile != nil {
 			log.SetOutput(logFile)
 			defer logFile.Close()
 			fmt.Printf("Logging to %s\n", logFile.Name())
