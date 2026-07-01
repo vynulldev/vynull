@@ -1,5 +1,11 @@
 # Vynull
 
+[![CI](https://github.com/vynulldev/vynull/actions/workflows/ci.yml/badge.svg)](https://github.com/vynulldev/vynull/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/vynulldev/vynull?color=ff7714&label=release)](https://github.com/vynulldev/vynull/releases)
+[![License: GPLv3](https://img.shields.io/badge/license-GPLv3-ff7714)](LICENSE)
+[![Go](https://img.shields.io/github/go-mod/go-version/vynulldev/vynull?color=ff7714)](go.mod)
+![Platform](https://img.shields.io/badge/platform-linux%20x86--64%20%7C%20arm64-ff7714)
+
 Vynull is a virtual Pioneer CDJ/rekordbox source for Linux. It serves music files to Pioneer CDJs (primarily tested on the CDJ; CDJ-3000 and DJM mixers are also seen on the link) over the Pro DJ Link protocol. Point it at your music collection and CDJs see it as a connected USB drive or rekordbox instance. Includes a browser-based library manager and one-click import from your existing rekordbox library.
 
 ## Before you start
