@@ -84,7 +84,7 @@ func DetectBeats(samples []float32, sampleRate int) *BeatResult {
 	// Complex Spectral Difference onset for phase refinement (low-freq only).
 	// Restricted to bins below 500Hz to focus on kick transients and ignore
 	// hi-hats/tonal changes that confuse phase alignment.
-	// FFTs are batched (GPU or parallel CPU), then CSD is computed sequentially.
+	// FFTs are batched across parallel CPU workers, then CSD is computed sequentially.
 	csdHop := 256
 	csdFrameSize := 1024
 	csdNumFrames := (len(samples) - csdFrameSize) / csdHop
@@ -124,7 +124,7 @@ func DetectBeats(samples []float32, sampleRate int) *BeatResult {
 				windows[ci] = w
 			}
 
-			fftReals, fftImags := batchFFTGPU(windows, csdFrameSize)
+			fftReals, fftImags := batchFFT(windows, csdFrameSize)
 
 			for ci := 0; ci < n && ci < len(fftReals); ci++ {
 				fftR := fftReals[ci]
@@ -668,7 +668,7 @@ func multiBandOnset(samples []float32, sampleRate int) ([]float64, float64) {
 		}
 		windows[k] = w
 	}
-	re, im := batchFFTGPU(windows, frameSize)
+	re, im := batchFFT(windows, frameSize)
 
 	freqPerBin := float64(sampleRate) / float64(frameSize)
 	nyq := float64(sampleRate) / 2

@@ -49,7 +49,7 @@ func detectVocals(samples []float32, sampleRate int) ([]float64, float64) {
 		}
 		windows[k] = w
 	}
-	re, im := batchFFTGPU(windows, frameSize)
+	re, im := batchFFT(windows, frameSize)
 
 	freqPerBin := float64(sampleRate) / float64(frameSize)
 	loBin := int(VocalBandLoHz / freqPerBin)

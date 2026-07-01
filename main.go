@@ -11,7 +11,6 @@ import (
 	"net/http"
 	_ "net/http/pprof"
 	"os"
-	"os/exec"
 	"os/signal"
 	"path/filepath"
 	"runtime"
@@ -250,11 +249,6 @@ func main() {
 
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
-
-	// Enable GPU analysis if requested.
-	if cfg.GPU {
-		analysis.EnableGPU(true)
-	}
 
 	// Always create a cached analysis store so API-added tracks get analyzed.
 	cacheDir := filepath.Join(cfg.DataDir, "analysis")
@@ -702,8 +696,7 @@ func logStatsLine(db *dbserver.Server, dev *device.VirtualDevice, analysisStore 
 		analyzed = analysisStore.Count()
 		cached = analysisStore.CachedCount()
 	}
-	vram := gpuVRAMUsage()
-	log.Printf("stats: goroutines=%d heap=%dMB sys=%dMB heap-idle=%dMB heap-released=%dMB gc=%d dbserver-sessions=%d peers=%d analysis(pending=%d analyzed=%d cached=%d)%s",
+	log.Printf("stats: goroutines=%d heap=%dMB sys=%dMB heap-idle=%dMB heap-released=%dMB gc=%d dbserver-sessions=%d peers=%d analysis(pending=%d analyzed=%d cached=%d)",
 		runtime.NumGoroutine(),
 		ms.HeapAlloc>>20,
 		ms.Sys>>20,
@@ -713,7 +706,6 @@ func logStatsLine(db *dbserver.Server, dev *device.VirtualDevice, analysisStore 
 		sessions,
 		peers,
 		pending, analyzed, cached,
-		vram,
 	)
 	// Hint the runtime to return unused spans to the OS. After the startup
 	// analysis spike (PCM + FFT working memory across the worker pool),
@@ -836,31 +828,6 @@ func appendToHistoryPlaylist(ps *api.PlaylistStore, trackID uint32, when time.Ti
 	if err := ps.SetTracks(plID, current); err != nil {
 		log.Printf("history: append to %q: %v", plName, err)
 	}
-}
-
-// gpuVRAMUsage returns a " gpu-vram=NMB" suffix for the stats line, or ""
-// if nvidia-smi isn't installed / errors out. Used to correlate desktop
-// freezes with VRAM pressure: on Nvidia GPUs that also drive the display,
-// VRAM exhaustion can stall the compositor while leaving the Go process
-// healthy (observed 2026-05-19). Capped at 1s so a hung driver can't
-// block the stats logger.
-func gpuVRAMUsage() string {
-	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
-	defer cancel()
-	out, err := exec.CommandContext(ctx,
-		"nvidia-smi",
-		"--query-gpu=memory.used",
-		"--format=csv,noheader,nounits",
-	).Output()
-	if err != nil {
-		return ""
-	}
-	// Output: one integer (MiB) per GPU on its own line.
-	lines := strings.Fields(strings.TrimSpace(string(out)))
-	if len(lines) == 0 {
-		return ""
-	}
-	return " gpu-vram=" + strings.Join(lines, ",") + "MB"
 }
 
 func displayAddr(listen string) string {

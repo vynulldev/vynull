@@ -104,8 +104,8 @@ func computeChromagram(samples []float32, sampleRate int) [12]float64 {
 		idx++
 	}
 
-	// Batch FFT (parallel CPU or GPU).
-	realParts, imagParts := batchFFTGPU(windows, windowSize)
+	// Batch FFT (parallel CPU).
+	realParts, imagParts := batchFFT(windows, windowSize)
 
 	// Accumulate chroma from FFT results.
 	for i := 0; i < numWindows && i < len(realParts); i++ {

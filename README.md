@@ -34,7 +34,6 @@ Use it at your own risk, and back up your rekordbox library before importing any
 - **Remote track loading** via API (auto-adds tracks not in library)
 - **USB export** — write a rekordbox-compatible USB structure (PDB + ANLZ + settings) from the library
 - **Live monitor** TUI showing connected CDJs, playback state, track history, and analysis status
-- **GPU acceleration** — optional cuFFT-based parallel FFT (build with `-tags cuda`)
 - **Analysis tools** — CLI beat grid analysis, HTML comparison reports with PWV4/PWV5/PWV6/PWV7, pcap packet analysis
 
 ## Requirements
@@ -79,12 +78,6 @@ sudo iptables -t nat -A PREROUTING -i eth1 -p udp --dport 111 -j REDIRECT --to-p
 
 ```bash
 make build
-```
-
-For GPU-accelerated analysis (requires CUDA toolkit + cuFFT):
-
-```bash
-make build-cuda
 ```
 
 ### Library Mode (recommended)
@@ -194,7 +187,6 @@ Create a rekordbox-compatible USB structure from a music directory:
 | `--lazy-analysis` | `false` | Analyze tracks on-demand instead of at startup |
 | `--transcode` | `false` | Transcode FLAC/WAV/AIFF to MP3 (default: serve natively) |
 | `--rgb-3band` | `false` | Encode PWV4/PWV5 with per-band global normalization (3-band style) |
-| `--gpu` | (cuda build) | GPU-accelerated analysis (requires `-tags cuda` build; `--gpu=false` to force CPU) |
 | `--settings` | `<data-dir>/settings.json` | Path to the JSON CDJ settings config |
 | `--import-settings` | | Import rekordbox MYSETTING/DEVSETTING `.DAT` files from a `/PIONEER` dir, then exit |
 | `--generate` | | Generate rekordbox USB structure at this path (no server) |
@@ -564,8 +556,7 @@ vynull/
     waveform.go        PWV4/PWV5 color waveform + monochrome generation
     pqt2.go            PQT2 extended beat grid format
     fft.go             Radix-2 Cooley-Tukey FFT
-    gpu_fft_cuda.go    cuFFT batch wrapper (build with -tags cuda)
-    gpu_fft_nocuda.go  CPU parallel FFT fallback
+    fft_batch.go       Parallel-CPU batch FFT
     bench_test.go      Analysis performance benchmarks
     phrase.go          Song structure / phrase detection (PSSI)
     key.go             Musical key detection (chromagram + Pearson correlation)

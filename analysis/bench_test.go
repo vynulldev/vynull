@@ -15,13 +15,6 @@ func TestAnalysisTiming(t *testing.T) {
 		t.Skip("Set TEST_AUDIO_FILE to run analysis timing")
 	}
 
-	if os.Getenv("TEST_GPU") == "1" {
-		EnableGPU(true)
-		t.Logf("GPU mode: %s (available=%v, enabled=%v)", gpuInfo(), HasGPU(), UseGPU())
-	} else {
-		t.Logf("CPU mode (set TEST_GPU=1 to test GPU)")
-	}
-
 	t0 := time.Now()
 	samples, err := DecodePCM(path, analysisRate)
 	if err != nil {
