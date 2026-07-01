@@ -47,7 +47,7 @@ func parseFlags() Config {
 	var mode string
 
 	flag.StringVar(&cfg.Interface, "interface", "", "network interface to use (required for serving)")
-	flag.StringVar(&cfg.MusicDir, "music-dir", "", "path to music directory (required)")
+	flag.StringVar(&cfg.MusicDir, "music-dir", "", "path to music directory to scan at startup (optional: omit for library mode and add tracks via the API; required with --generate)")
 	flag.IntVar(&deviceNum, "device-number", 0, "device number (default: 17 for rekordbox, 3 for cdj)")
 	flag.StringVar(&cfg.DeviceName, "device-name", "", "device name broadcast to CDJs")
 	flag.StringVar(&mode, "mode", "rekordbox", "emulation mode: rekordbox or cdj")
