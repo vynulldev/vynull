@@ -1,14 +1,16 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-.PHONY: build run run-rb generate clean
+.PHONY: build run run-cdj generate clean
 
 build:
 	go build -o vynull -buildvcs=false .
 
+# rekordbox mode (the default) — no privileged ports needed
 run: build
 	sudo ./vynull --music-dir $(MUSIC)
 
-run-rb: build
-	sudo ./vynull --mode rekordbox --music-dir $(MUSIC)
+# CDJ-USB source mode — needs UDP 111 (see README Requirements)
+run-cdj: build
+	sudo ./vynull --mode cdj --music-dir $(MUSIC)
 
 generate: build
 	./vynull --generate $(OUT) --music-dir $(MUSIC)
