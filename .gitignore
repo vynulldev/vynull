@@ -1,0 +1,12 @@
+/vynull
+/monitor
+/waveform
+/gen-test-tones
+/pdbdiff
+/pdbdump
+/audioscan
+__pycache__/
+*.pcap
+*.wav
+*.flac
+data-dir*/

@@ -1,0 +1,52 @@
+<!-- SPDX-License-Identifier: GPL-3.0-or-later -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512" role="img" aria-label="Vynull">
+  <!-- Vynull = vinyl + null. A record (vinyl) struck through by the empty-set
+       slash ∅ (null), in the app's dark + orange theme. -->
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#1b1b21"/>
+      <stop offset="1" stop-color="#0c0c0f"/>
+    </linearGradient>
+    <radialGradient id="disc" cx="50%" cy="40%" r="68%">
+      <stop offset="0" stop-color="#2a2a31"/>
+      <stop offset="0.72" stop-color="#191920"/>
+      <stop offset="1" stop-color="#0f0f14"/>
+    </radialGradient>
+    <linearGradient id="label" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#ffb24d"/>
+      <stop offset="1" stop-color="#ff6a00"/>
+    </linearGradient>
+    <linearGradient id="slash" x1="0" y1="1" x2="1" y2="0">
+      <stop offset="0" stop-color="#ff7714"/>
+      <stop offset="1" stop-color="#ffc061"/>
+    </linearGradient>
+  </defs>
+
+  <!-- app-icon rounded-square background -->
+  <rect width="512" height="512" rx="116" fill="url(#bg)"/>
+
+  <g transform="translate(256 256)">
+    <!-- vinyl disc -->
+    <circle r="178" fill="url(#disc)"/>
+    <!-- grooves -->
+    <g fill="none" stroke="#36363f" stroke-width="2.5" opacity="0.85">
+      <circle r="160"/><circle r="144"/><circle r="128"/><circle r="112"/><circle r="96"/>
+    </g>
+    <!-- warm groove accents -->
+    <g fill="none" stroke="#ff6a00" stroke-width="2" opacity="0.13">
+      <circle r="152"/><circle r="120"/>
+    </g>
+    <!-- vinyl sheen -->
+    <path d="M -118 -126 A 172 172 0 0 1 126 -118" fill="none" stroke="#ffffff" stroke-width="6" stroke-linecap="round" opacity="0.10"/>
+
+    <!-- center label -->
+    <circle r="66" fill="url(#label)"/>
+    <circle r="66" fill="none" stroke="#000000" stroke-opacity="0.22" stroke-width="2"/>
+    <!-- spindle hole -->
+    <circle r="11" fill="#0c0c0f"/>
+
+    <!-- the NULL slash (empty-set ∅) cutting across and poking past the disc -->
+    <line x1="-200" y1="200" x2="200" y2="-200" stroke="#0c0c0f" stroke-width="42" stroke-linecap="round"/>
+    <line x1="-200" y1="200" x2="200" y2="-200" stroke="url(#slash)" stroke-width="24" stroke-linecap="round"/>
+  </g>
+</svg>
