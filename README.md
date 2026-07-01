@@ -72,6 +72,10 @@ sudo iptables -t nat -A PREROUTING -i eth1 -p udp --dport 111 -j REDIRECT --to-p
 # Or simply run with sudo
 ```
 
+The Makefile wraps the run commands: `make run MUSIC=<dir>` starts the default
+rekordbox mode, and `make run-cdj MUSIC=<dir>` starts CDJ mode (which needs
+port 111 granted as above).
+
 ## Quick Start
 
 ### Build
