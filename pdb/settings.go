@@ -28,8 +28,8 @@ func WriteSettingsFiles(outDir string, bodies SettingsBodies) error {
 		return err
 	}
 
-	// Per-file metadata. Verified byte-for-byte against
-	// /media/usb/PIONEER_REAL/ (rekordbox export):
+	// Per-file metadata. Verified byte-for-byte against a rekordbox
+	// USB export's PIONEER/ directory:
 	//
 	//   file              brand          software        version  pad
 	//   MYSETTING.DAT     "PIONEER"      "rekordbox"     "0.001"  NUL

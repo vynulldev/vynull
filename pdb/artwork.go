@@ -12,7 +12,7 @@ import (
 // artwork JPEG (e.g. `/PIONEER/Artwork/00001/a42.jpg`). Same scheme
 // for the matching thumbnail `_m.jpg`.
 //
-// Verified against /media/usb/PIONEER_REAL: every JPEG
+// Verified against a rekordbox USB export: every JPEG
 // lives under the bucket `00001`; the bucket appears to be a 5-digit
 // page index that increments past ~1000 artworks per bucket. We use
 // the same 1000-per-bucket scheme here — fine for typical libraries

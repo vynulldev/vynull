@@ -8,9 +8,12 @@ import (
 )
 
 func TestOpenPDB(t *testing.T) {
-	path := "/media/usb/PIONEER/rekordbox/export.pdb"
+	path := os.Getenv("TEST_PDB")
+	if path == "" {
+		t.Skip("set TEST_PDB to a real export.pdb to run")
+	}
 	if _, err := os.Stat(path); os.IsNotExist(err) {
-		t.Skip("USB not mounted")
+		t.Skip("TEST_PDB does not exist")
 	}
 
 	db, err := Open(path)

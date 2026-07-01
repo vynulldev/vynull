@@ -16,9 +16,8 @@ import (
 // The exact per-row formats vary per table and are reverse-engineered
 // piecewise. v1 here writes empty tables for every type so the file
 // is present and structurally valid — populated rows can be added one
-// table at a time later (we have a rekordbox `exportExt.pdb` at
-// /media/usb/PIONEER_REAL/rekordbox/exportExt.pdb to
-// compare against).
+// table at a time later (compare against a rekordbox
+// `exportExt.pdb` from a USB export).
 const (
 	TableExt0 = 0x00
 	TableExt1 = 0x01
