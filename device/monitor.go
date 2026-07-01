@@ -3,10 +3,15 @@
 package device
 
 import (
+	"bytes"
+	"encoding/csv"
+	"encoding/json"
 	"fmt"
 	"log"
 	"os"
+	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -54,10 +59,18 @@ type PlayerMonitor struct {
 	APIAddr      string // e.g., "127.0.0.1:9443"
 
 	// Track history.
-	histMu      sync.RWMutex
-	history     []HistoryEntry
-	lastTrackID map[uint8]uint32    // per-device last known track ID
-	lastPlaying map[uint8]time.Time // when track started playing
+	histMu  sync.RWMutex
+	history []HistoryEntry
+	// History output: when historyPath is set, each finalized play is appended
+	// to histFile (in historyFormat) as it completes, so the file rolls across
+	// sessions and a crash loses at most the currently-playing track.
+	// historyPath/historyFormat/histFile are guarded by histWriteMu.
+	historyPath   string
+	historyFormat string
+	histFile      *os.File
+	histWriteMu   sync.Mutex
+	lastTrackID   map[uint8]uint32    // per-device last known track ID
+	lastPlaying   map[uint8]time.Time // when track started playing
 	// Play-count tracking (rekordbox-style 50%-played threshold). All keyed
 	// by deviceNumber; all reset when a new track is loaded on that device.
 	playMs       map[uint8]float64   // accumulated playing time on the current load
@@ -107,48 +120,216 @@ func (m *PlayerMonitor) History() []HistoryEntry {
 	return append([]HistoryEntry(nil), m.history...)
 }
 
-// SaveHistory writes the track history to a text file.
-func (m *PlayerMonitor) SaveHistory(path string) error {
-	m.histMu.RLock()
-	defer m.histMu.RUnlock()
+// SetHistoryOutput enables a rolling, crash-safe track-history file: every
+// finalized play is appended to path (in the given format — "text", "csv", or
+// "json") as it completes, so the file accumulates across sessions and a crash
+// loses at most the currently-playing track. An empty path disables it. The
+// parent directory is created if needed; a header is written once when the
+// file is first created (a column row for csv; none for json, which is
+// newline-delimited JSON).
+func (m *PlayerMonitor) SetHistoryOutput(path, format string) {
+	if format != "csv" && format != "json" {
+		format = "text"
+	}
+	m.histWriteMu.Lock()
+	defer m.histWriteMu.Unlock()
 
-	f, err := os.Create(path)
+	if m.histFile != nil { // re-config: close the old handle
+		m.histFile.Close()
+		m.histFile = nil
+	}
+	m.historyPath = path
+	m.historyFormat = format
+	if path == "" {
+		return
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		log.Printf("history: mkdir %s: %v", filepath.Dir(path), err)
+		return
+	}
+	// Write the header only for a brand-new (or empty) file so appends across
+	// sessions don't repeat it.
+	st, statErr := os.Stat(path)
+	isNew := os.IsNotExist(statErr) || (statErr == nil && st.Size() == 0)
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
 	if err != nil {
-		return err
+		log.Printf("history: open %s: %v", path, err)
+		return
 	}
-	defer f.Close()
-
-	fmt.Fprintf(f, "# Track History — %s\n\n", time.Now().Format("2006-01-02"))
-
-	for i, h := range m.history {
-		duration := ""
-		if !h.EndedAt.IsZero() {
-			dur := h.EndedAt.Sub(h.StartedAt)
-			duration = fmt.Sprintf("%d:%02d", int(dur.Minutes()), int(dur.Seconds())%60)
+	m.histFile = f
+	if isNew {
+		if hdr := historyHeader(format); len(hdr) > 0 {
+			_, _ = f.Write(hdr)
+			_ = f.Sync()
 		}
+	}
+}
 
-		title := h.Title
-		if title == "" {
-			title = fmt.Sprintf("Track #%d", h.TrackID)
+// HistoryPath returns the configured history output path (empty if disabled).
+func (m *PlayerMonitor) HistoryPath() string {
+	m.histWriteMu.Lock()
+	defer m.histWriteMu.Unlock()
+	return m.historyPath
+}
+
+// FinalizeHistory closes any still-open entries (sets EndedAt = now so the
+// last-played track on each deck gets a duration), appends them, and closes
+// the file. Call on shutdown.
+func (m *PlayerMonitor) FinalizeHistory() {
+	now := time.Now()
+	var finalized []HistoryEntry
+	m.histMu.Lock()
+	for i := range m.history {
+		if m.history[i].EndedAt.IsZero() {
+			m.history[i].EndedAt = now
+			finalized = append(finalized, m.history[i])
 		}
+	}
+	m.histMu.Unlock()
 
-		extra := ""
-		if h.BPM > 0 {
-			extra = fmt.Sprintf(" [%.0f BPM", h.BPM)
-			if h.Key != "" {
-				extra += fmt.Sprintf(" %s", h.Key)
-			}
-			extra += "]"
-		}
-
-		fmt.Fprintf(f, "%2d. %s  %s — %s%s  %s\n",
-			i+1,
-			h.StartedAt.Format("15:04:05"),
-			title, h.Artist,
-			extra, duration)
+	for _, h := range finalized {
+		m.appendHistoryEntry(h)
 	}
 
-	return nil
+	m.histWriteMu.Lock()
+	if m.histFile != nil {
+		m.histFile.Close()
+		m.histFile = nil
+	}
+	m.histWriteMu.Unlock()
+}
+
+// appendHistoryEntry appends one finalized play to the history file (fsync'd
+// so a crash can't lose an already-completed track). No-op if disabled.
+func (m *PlayerMonitor) appendHistoryEntry(h HistoryEntry) {
+	m.histWriteMu.Lock()
+	defer m.histWriteMu.Unlock()
+	if m.histFile == nil {
+		return
+	}
+	if _, err := m.histFile.Write(renderEntry(h, m.historyFormat)); err != nil {
+		log.Printf("history: append %s: %v", m.historyPath, err)
+		return
+	}
+	_ = m.histFile.Sync()
+}
+
+// historyHeader returns the one-time header for a new history file (a column
+// row for csv, a banner for text, nothing for json which is line-delimited).
+func historyHeader(format string) []byte {
+	switch format {
+	case "csv":
+		return csvHeaderRow()
+	case "json":
+		return nil
+	default:
+		return []byte("# Vynull track history\n\n")
+	}
+}
+
+// renderEntry serializes a single finalized play for appending, in the given
+// format ("csv", "json" as one JSON object per line, or text by default).
+func renderEntry(h HistoryEntry, format string) []byte {
+	switch format {
+	case "csv":
+		return renderEntryCSV(h)
+	case "json":
+		return renderEntryJSON(h)
+	default:
+		return renderEntryText(h)
+	}
+}
+
+func historyDeck(h HistoryEntry) string {
+	if h.DeviceName != "" {
+		return fmt.Sprintf("%s #%d", h.DeviceName, h.DeviceNumber)
+	}
+	return fmt.Sprintf("player %d", h.DeviceNumber)
+}
+
+func renderEntryText(h HistoryEntry) []byte {
+	duration := ""
+	if !h.EndedAt.IsZero() {
+		dur := h.EndedAt.Sub(h.StartedAt)
+		duration = fmt.Sprintf("%d:%02d", int(dur.Minutes()), int(dur.Seconds())%60)
+	}
+	title := h.Title
+	if title == "" {
+		title = fmt.Sprintf("Track #%d", h.TrackID)
+	}
+	extra := ""
+	if h.BPM > 0 {
+		extra = fmt.Sprintf(" [%.0f BPM", h.BPM)
+		if h.Key != "" {
+			extra += fmt.Sprintf(" %s", h.Key)
+		}
+		extra += "]"
+	}
+	return []byte(fmt.Sprintf("%s  %s — %s%s  %s  (%s)\n",
+		h.StartedAt.Format("2006-01-02 15:04:05"),
+		title, h.Artist, extra, duration, historyDeck(h)))
+}
+
+func csvHeaderRow() []byte {
+	var b bytes.Buffer
+	w := csv.NewWriter(&b)
+	_ = w.Write([]string{"started", "ended", "duration_sec", "device_number", "device_name", "track_id", "title", "artist", "bpm", "key"})
+	w.Flush()
+	return b.Bytes()
+}
+
+func renderEntryCSV(h HistoryEntry) []byte {
+	var b bytes.Buffer
+	w := csv.NewWriter(&b)
+	ended, durSec := "", ""
+	if !h.EndedAt.IsZero() {
+		ended = h.EndedAt.Format(time.RFC3339)
+		durSec = strconv.Itoa(int(h.EndedAt.Sub(h.StartedAt).Seconds()))
+	}
+	bpm := ""
+	if h.BPM > 0 {
+		bpm = strconv.FormatFloat(h.BPM, 'f', -1, 64)
+	}
+	_ = w.Write([]string{
+		h.StartedAt.Format(time.RFC3339),
+		ended, durSec,
+		strconv.Itoa(int(h.DeviceNumber)), h.DeviceName,
+		strconv.FormatUint(uint64(h.TrackID), 10),
+		h.Title, h.Artist, bpm, h.Key,
+	})
+	w.Flush()
+	return b.Bytes()
+}
+
+func renderEntryJSON(h HistoryEntry) []byte {
+	type entry struct {
+		Started      string  `json:"started"`
+		Ended        string  `json:"ended,omitempty"`
+		DurationSec  int     `json:"duration_sec,omitempty"`
+		DeviceNumber uint8   `json:"device_number"`
+		DeviceName   string  `json:"device_name,omitempty"`
+		TrackID      uint32  `json:"track_id"`
+		Title        string  `json:"title"`
+		Artist       string  `json:"artist"`
+		BPM          float64 `json:"bpm,omitempty"`
+		Key          string  `json:"key,omitempty"`
+	}
+	e := entry{
+		Started:      h.StartedAt.Format(time.RFC3339),
+		DeviceNumber: h.DeviceNumber,
+		DeviceName:   h.DeviceName,
+		TrackID:      h.TrackID,
+		Title:        h.Title,
+		Artist:       h.Artist,
+		BPM:          h.BPM,
+		Key:          h.Key,
+	}
+	if !h.EndedAt.IsZero() {
+		e.Ended = h.EndedAt.Format(time.RFC3339)
+		e.DurationSec = int(h.EndedAt.Sub(h.StartedAt).Seconds())
+	}
+	data, _ := json.Marshal(e)
+	return append(data, '\n')
 }
 
 // Update processes a CDJ status packet.
@@ -205,14 +386,17 @@ func (m *PlayerMonitor) Update(status *proto.CDJStatus) {
 
 	// Track history + play-count detection: both keyed off "current track
 	// loaded on this device", under the same lock so the two stay consistent.
+	var finalized *HistoryEntry // a play that just completed → append it below
 	m.histMu.Lock()
 	prevTrackID := m.lastTrackID[dev]
 
 	if status.TrackID > 0 && status.IsPlaying && status.TrackID != prevTrackID {
-		// New track started playing — close previous entry if any.
+		// New track started playing — close (and append) the previous entry.
 		for i := len(m.history) - 1; i >= 0; i-- {
 			if m.history[i].DeviceNumber == dev && m.history[i].EndedAt.IsZero() {
 				m.history[i].EndedAt = now
+				e := m.history[i]
+				finalized = &e
 				break
 			}
 		}
@@ -237,10 +421,12 @@ func (m *PlayerMonitor) Update(status *proto.CDJStatus) {
 		m.playLastSeen[dev] = now
 		m.playCounted[dev] = false
 	} else if status.TrackID == 0 && prevTrackID > 0 {
-		// Track was unloaded — close the entry.
+		// Track was unloaded — close (and append) the entry.
 		for i := len(m.history) - 1; i >= 0; i-- {
 			if m.history[i].DeviceNumber == dev && m.history[i].EndedAt.IsZero() {
 				m.history[i].EndedAt = now
+				e := m.history[i]
+				finalized = &e
 				break
 			}
 		}
@@ -289,6 +475,10 @@ func (m *PlayerMonitor) Update(status *proto.CDJStatus) {
 		}
 	}
 	m.histMu.Unlock()
+
+	if finalized != nil {
+		m.appendHistoryEntry(*finalized)
+	}
 
 	// Persist outside the lock — IncrementPlayCount takes the library mutex
 	// and calls Save() which touches disk; we don't want to hold histMu

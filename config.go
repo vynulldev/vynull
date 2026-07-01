@@ -13,26 +13,26 @@ import (
 )
 
 type Config struct {
-	Interface    string
-	MusicDir     string
-	DeviceNumber uint8
-	DeviceName   string
-	DeviceType   proto.DeviceType
-	MediaSlot    uint8
-	GenerateDir  string // if set, generate USB structure instead of serving
-	GenerateCopy bool   // copy files instead of symlinking
-	LazyAnalysis bool   // if true, analyze tracks on-demand instead of upfront
-	Transcode    bool   // if true, transcode FLAC/WAV/AIFF to MP3 for NFS serving
-	DataDir      string // directory for cached analysis and settings data
-	RGB3Band     bool   // if true, encode PWV5/PWV4 with per-band global normalization (3-band RGB style)
-	ReplayDir    string // if set, replay captured rekordbox responses from this directory
-	AnalyzeFile  string // if set, analyze this file and print beat info
-	AnalyzePDB   string // optional PDB file to show rekordbox data for comparison
-	AnalyzeANLZ  string // if set, dump ANLZ file sections (.DAT or .EXT)
-	AnalyzeHTML  string // if set, write HTML comparison report to this file
-	AnalyzeCSV   string // if set, write per-section CSV files for --anlz into this directory
-	PWV4Override string // path to raw PWV4 bytes to inject for every track at serve time
-	PWV5Override string // path to raw PWV5 bytes to inject for every track at serve time
+	Interface      string
+	MusicDir       string
+	DeviceNumber   uint8
+	DeviceName     string
+	DeviceType     proto.DeviceType
+	MediaSlot      uint8
+	GenerateDir    string // if set, generate USB structure instead of serving
+	GenerateCopy   bool   // copy files instead of symlinking
+	LazyAnalysis   bool   // if true, analyze tracks on-demand instead of upfront
+	Transcode      bool   // if true, transcode FLAC/WAV/AIFF to MP3 for NFS serving
+	DataDir        string // directory for cached analysis and settings data
+	RGB3Band       bool   // if true, encode PWV5/PWV4 with per-band global normalization (3-band RGB style)
+	ReplayDir      string // if set, replay captured rekordbox responses from this directory
+	AnalyzeFile    string // if set, analyze this file and print beat info
+	AnalyzePDB     string // optional PDB file to show rekordbox data for comparison
+	AnalyzeANLZ    string // if set, dump ANLZ file sections (.DAT or .EXT)
+	AnalyzeHTML    string // if set, write HTML comparison report to this file
+	AnalyzeCSV     string // if set, write per-section CSV files for --anlz into this directory
+	PWV4Override   string // path to raw PWV4 bytes to inject for every track at serve time
+	PWV5Override   string // path to raw PWV5 bytes to inject for every track at serve time
 	SettingsFile   string // path to JSON settings config (default: <data-dir>/settings.json)
 	ImportSettings string // path to a PIONEER directory containing rekordbox .DAT files to import
 	ExportPlaylist string // with --generate, exports only this playlist (matched by name) — USB tree contains just that playlist
@@ -41,6 +41,8 @@ type Config struct {
 	Listen         string // API + web listen address (default: 127.0.0.1:9443; use 0.0.0.0:9443 to expose to LAN)
 	LogLevel       string // log verbosity: error|warn|info|debug|trace (default: info)
 	LogFile        string // if set, append logs to this file instead of the default destination
+	HistoryFile    string // if set, write the track-history file here instead of the default
+	HistoryFormat  string // track-history format: text|csv|json (default: text)
 }
 
 func parseFlags() Config {
@@ -75,6 +77,8 @@ func parseFlags() Config {
 	flag.StringVar(&cfg.Listen, "listen", "127.0.0.1:9443", "API + web listen address. Use 0.0.0.0:9443 to expose on all interfaces (e.g. for access from another device on the LAN)")
 	flag.StringVar(&cfg.LogLevel, "log-level", "info", "log verbosity: error, warn, info, debug, or trace. Trace adds per-packet NFS / dbserver hex dumps; debug adds mount and portmap detail. Default info keeps the operationally-useful lines visible without per-packet spam.")
 	flag.StringVar(&cfg.LogFile, "log-file", "", "append logs to this file (default: an auto temp file while the TUI is shown, or stdout when headless with --tui=false)")
+	flag.StringVar(&cfg.HistoryFile, "history-file", "", "append the played-track history to this file as tracks finish; one rolling file across sessions (default: <data-dir>/history.<ext>)")
+	flag.StringVar(&cfg.HistoryFormat, "history-format", "text", "track-history format: text, csv, or json (json is one object per line / JSONL)")
 
 	flag.Usage = printGroupedUsage
 	flag.Parse()
@@ -133,6 +137,9 @@ func parseFlags() Config {
 	if deviceNum < 1 || deviceNum > 127 {
 		errs = append(errs, "--device-number must be between 1 and 127")
 	}
+	if cfg.HistoryFormat != "text" && cfg.HistoryFormat != "csv" && cfg.HistoryFormat != "json" {
+		errs = append(errs, "--history-format must be text, csv, or json")
+	}
 
 	if len(errs) > 0 {
 		for _, e := range errs {
@@ -171,6 +178,9 @@ var flagGroups = []flagGroup{
 	}},
 	{"Logging", []string{
 		"log-level", "log-file",
+	}},
+	{"Track history", []string{
+		"history-file", "history-format",
 	}},
 	{"USB export (alternative to serving)", []string{
 		"generate", "copy-files", "export-playlist",

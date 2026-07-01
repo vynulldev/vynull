@@ -190,6 +190,8 @@ Create a rekordbox-compatible USB structure from a music directory:
 | `--listen` | `127.0.0.1:9443` | API + web listen address (use `0.0.0.0:9443` to expose on the LAN) |
 | `--log-level` | `info` | `error`, `warn`, `info`, `debug`, or `trace` (trace adds per-packet hex dumps) |
 | `--log-file` | (auto) | Append logs to this file (default: a temp file while the TUI is shown, or stdout when headless) |
+| `--history-file` | (auto) | Append each completed play to one rolling history file (default: `<data-dir>/history.<ext>`) |
+| `--history-format` | `text` | Track-history format: `text`, `csv`, or `json` (JSONL — one object per line) |
 | `--lazy-analysis` | `false` | Analyze tracks on-demand instead of at startup |
 | `--transcode` | `false` | Transcode FLAC/WAV/AIFF to MP3 (default: serve natively) |
 | `--rgb-3band` | `false` | Encode PWV4/PWV5 with per-band global normalization (3-band style) |

@@ -465,6 +465,24 @@ func main() {
 		appendToHistoryPlaylist(playlistStore, trackID, time.Now())
 	}
 
+	// Track-history file: a single rolling, crash-safe log — each completed
+	// play is appended as it finishes, accumulating across sessions.
+	// --history-file overrides the default of <data-dir>/history.<ext>;
+	// --history-format picks text/csv/json.
+	histPath := cfg.HistoryFile
+	if histPath == "" {
+		ext := "txt"
+		switch cfg.HistoryFormat {
+		case "csv":
+			ext = "csv"
+		case "json":
+			ext = "json"
+		}
+		histPath = filepath.Join(cfg.DataDir, "history."+ext)
+	}
+	monitor.SetHistoryOutput(histPath, cfg.HistoryFormat)
+	log.Printf("track history: %s (%s)", histPath, cfg.HistoryFormat)
+
 	dev = &device.VirtualDevice{
 		Name:         cfg.DeviceName,
 		DeviceNumber: cfg.DeviceNumber,
@@ -521,10 +539,10 @@ func main() {
 
 	// Start HTTP API server for external application integration.
 	apiSrv := &api.Server{
-		Device:       dev,
-		Library:      lib,
-		PDB:          pdbDB,
-		Analysis:     analysisStore,
+		Device:   dev,
+		Library:  lib,
+		PDB:      pdbDB,
+		Analysis: analysisStore,
 		Cues: &api.CueStoreAdapter{
 			Store: cueStore,
 			OnChange: func(trackID uint32) {
@@ -631,10 +649,10 @@ func main() {
 		log.Printf("shutdown: timed out — some services did not stop within 5s")
 	}
 
-	// Save track history.
-	histPath := filepath.Join(os.TempDir(), fmt.Sprintf("vynull-history-%s.txt", time.Now().Format("20060102-150405")))
-	if err := monitor.SaveHistory(histPath); err == nil && len(monitor.History()) > 0 {
-		fmt.Printf("\nTrack history saved to %s\n", histPath)
+	// Finalize track history: close the still-playing entry and flush.
+	monitor.FinalizeHistory()
+	if p := monitor.HistoryPath(); p != "" && len(monitor.History()) > 0 {
+		fmt.Printf("\nTrack history saved to %s\n", p)
 	}
 }
 
