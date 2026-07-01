@@ -114,8 +114,9 @@ func main() {
 		return
 	}
 
-	// Redirect logs to file when serving (monitor uses the terminal).
-	if cfg.GenerateDir == "" && cfg.AnalyzeFile == "" {
+	// Redirect logs to a file when the TUI is active (it owns the terminal).
+	// Headless (--tui=false) keeps logs on stdout so you can see them.
+	if cfg.TUI && cfg.GenerateDir == "" && cfg.AnalyzeFile == "" {
 		logFile, err := os.Create(filepath.Join(os.TempDir(), fmt.Sprintf("vynull-%s.log", time.Now().Format("20060102-150405"))))
 		if err == nil {
 			log.SetOutput(logFile)
@@ -580,20 +581,28 @@ func main() {
 		}
 	}()
 
-	// Launch the TUI on the main goroutine. It owns the terminal until
-	// the user presses 'q' or ctx is cancelled from elsewhere (SIGINT,
-	// service error). Bridge ctx → program.Quit so SIGINT unwinds cleanly.
-	tuiProgram := device.NewTUI(monitor, lib, cdjSettings, dev.Peers, displayAddr(cfg.Listen))
-	go func() {
-		<-ctx.Done()
-		tuiProgram.Quit()
-	}()
-	if _, err := tuiProgram.Run(); err != nil {
-		log.Printf("tui error: %v", err)
-	}
-	cancel() // user pressed 'q' → tell services to stop
+	if cfg.TUI {
+		// Launch the TUI on the main goroutine. It owns the terminal until
+		// the user presses 'q' or ctx is cancelled from elsewhere (SIGINT,
+		// service error). Bridge ctx → program.Quit so SIGINT unwinds cleanly.
+		tuiProgram := device.NewTUI(monitor, lib, cdjSettings, dev.Peers, displayAddr(cfg.Listen))
+		go func() {
+			<-ctx.Done()
+			tuiProgram.Quit()
+		}()
+		if _, err := tuiProgram.Run(); err != nil {
+			log.Printf("tui error: %v", err)
+		}
+		cancel() // user pressed 'q' → tell services to stop
 
-	fmt.Print("\033[H\033[2J") // clear monitor screen
+		fmt.Print("\033[H\033[2J") // clear monitor screen
+	} else {
+		// Headless: no terminal UI. Block the main goroutine until a signal
+		// (SIGINT/SIGTERM) or a service error cancels the context.
+		log.Printf("running headless (--tui=false); press Ctrl-C to stop")
+		<-ctx.Done()
+		cancel()
+	}
 	log.Printf("shutdown: waiting for services to finish (up to 5s)...")
 
 	// Wait for dbserver / nfs / api to finish their teardown (close

@@ -37,6 +37,7 @@ type Config struct {
 	ImportSettings string // path to a PIONEER directory containing rekordbox .DAT files to import
 	ExportPlaylist string // with --generate, exports only this playlist (matched by name) — USB tree contains just that playlist
 	Web            bool   // if true, serve an HTML UI at the API listen address
+	TUI            bool   // if true (default), show the interactive terminal monitor; false runs headless
 	Listen         string // API + web listen address (default: 127.0.0.1:9443; use 0.0.0.0:9443 to expose to LAN)
 	LogLevel       string // log verbosity: error|warn|info|debug|trace (default: info)
 }
@@ -69,6 +70,7 @@ func parseFlags() Config {
 	flag.StringVar(&cfg.ImportSettings, "import-settings", "", "import rekordbox MYSETTING/MYSETTING2/DJMMYSETTING/DEVSETTING .DAT files from this directory into the JSON config and exit (point at a /PIONEER directory on a rekordbox USB)")
 	flag.StringVar(&cfg.ExportPlaylist, "export-playlist", "", "with --generate, export only this playlist (matched by name, case-insensitive). The resulting USB contains just the playlist's tracks and a single-playlist tree.")
 	flag.BoolVar(&cfg.Web, "web", false, "serve an HTML UI alongside the existing JSON API (off by default)")
+	flag.BoolVar(&cfg.TUI, "tui", true, "show the interactive terminal monitor UI (on by default). Use --tui=false to run headless: no altscreen, logs stay on stdout — for systemd/nohup or non-TTY environments")
 	flag.StringVar(&cfg.Listen, "listen", "127.0.0.1:9443", "API + web listen address. Use 0.0.0.0:9443 to expose on all interfaces (e.g. for access from another device on the LAN)")
 	flag.StringVar(&cfg.LogLevel, "log-level", "info", "log verbosity: error, warn, info, debug, or trace. Trace adds per-packet NFS / dbserver hex dumps; debug adds mount and portmap detail. Default info keeps the operationally-useful lines visible without per-packet spam.")
 
@@ -162,8 +164,8 @@ var flagGroups = []flagGroup{
 	{"CDJ settings", []string{
 		"settings", "import-settings",
 	}},
-	{"HTTP API and Web UI", []string{
-		"listen", "web",
+	{"HTTP API + user interfaces", []string{
+		"listen", "web", "tui",
 	}},
 	{"Logging", []string{
 		"log-level",

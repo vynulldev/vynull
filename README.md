@@ -182,6 +182,7 @@ Create a rekordbox-compatible USB structure from a music directory:
 | `--device-name` | auto | Name shown on CDJs |
 | `--data-dir` | `~/.vynull` | Directory for analysis cache, cue points, settings, library DB |
 | `--web` | `false` | Serve the browser UI alongside the JSON API |
+| `--tui` | `true` | Show the interactive terminal monitor; `--tui=false` runs headless (logs to stdout, for systemd/nohup/non-TTY) |
 | `--listen` | `127.0.0.1:9443` | API + web listen address (use `0.0.0.0:9443` to expose on the LAN) |
 | `--log-level` | `info` | `error`, `warn`, `info`, `debug`, or `trace` (trace adds per-packet hex dumps) |
 | `--lazy-analysis` | `false` | Analyze tracks on-demand instead of at startup |
