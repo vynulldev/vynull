@@ -1,0 +1,6 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+blank_issues_enabled: false
+contact_links:
+  - name: Setup help & general questions
+    url: https://github.com/vynulldev/vynull#readme
+    about: Read the README first — requirements, flags, modes, and the "Before you start" notes cover most questions. Vynull is a hobby project.

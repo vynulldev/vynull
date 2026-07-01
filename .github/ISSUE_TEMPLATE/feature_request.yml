@@ -1,0 +1,37 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+name: Feature request
+description: Suggest an idea or improvement for Vynull
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem would this solve?
+      description: The motivation / use case — "I'm trying to … but …"
+    validations:
+      required: true
+  - type: textarea
+    id: solution
+    attributes:
+      label: Proposed solution
+      description: What you'd like to happen.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+  - type: textarea
+    id: hardware
+    attributes:
+      label: Hardware context
+      description: Does this depend on a specific deck/mixer or firmware? Which?
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before submitting
+      options:
+        - label: I searched existing issues for a similar request.
+          required: true
+        - label: I understand Vynull is a hobby project with a deliberately narrow scope (a Linux Pro DJ Link source).
+          required: true

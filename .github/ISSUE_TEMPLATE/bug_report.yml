@@ -1,0 +1,76 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+name: Bug report
+description: Something isn't working with Vynull (deck won't load, crash, wrong behaviour…)
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to file a bug. Vynull talks to real hardware over an
+        undocumented protocol, so **hardware and log details matter a lot** — the more
+        specific you are, the more likely it can be reproduced and fixed.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: What did you do, what did you expect, and what actually happened?
+      placeholder: Loaded a track from the CDJ browse menu; the deck showed "LOADING" then returned to the menu without loading.
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Vynull version
+      description: Release tag (e.g. v0.1.0) or the git commit SHA if built from source.
+      placeholder: v0.1.0 / 1a2b3c4
+    validations:
+      required: true
+  - type: textarea
+    id: command
+    attributes:
+      label: How did you run it?
+      description: The full command line / flags (mode, interface, etc.).
+      placeholder: sudo ./vynull --interface eth1 --mode rekordbox --music-dir ~/Music --web
+      render: shell
+    validations:
+      required: true
+  - type: textarea
+    id: hardware
+    attributes:
+      label: Hardware
+      description: CDJ/XDJ model(s) and firmware, any DJM mixer, and how everything is connected (switch, direct, link cable).
+      placeholder: |
+        - CDJ ×2, firmware 1.42
+        - DJM
+        - Connected via a Gigabit switch; PC on eth1 (169.254.x.x link-local)
+    validations:
+      required: true
+  - type: input
+    id: os
+    attributes:
+      label: OS / distro (and Go version if built from source)
+      placeholder: Ubuntu 24.04, Go 1.25
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: |
+        Run with `--log-file /tmp/vynull.log` (or grab the auto log path printed at startup) and paste
+        the relevant portion, or attach the file. `--log-level debug` (or `trace`) adds detail.
+      render: text
+  - type: textarea
+    id: pcap
+    attributes:
+      label: Packet capture (optional, very helpful)
+      description: A tcpdump/Wireshark capture of the CDJ ↔ Vynull traffic around the problem is gold for protocol bugs. Attach it if you can.
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before submitting
+      options:
+        - label: I'm running on Linux with `ffmpeg` available on the PATH.
+          required: true
+        - label: I searched existing issues for a duplicate.
+          required: true
