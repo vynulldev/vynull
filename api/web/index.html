@@ -9776,7 +9776,7 @@ function openImportRekordboxDialog() {
         <label class="export-label">Path remap <span class="export-hint" style="display:inline">(optional)</span></label>
         <div style="display:flex; gap:6px;">
           <input type="text" id="imp-from" class="input" placeholder="From prefix: Z:/Music/" autocomplete="off" spellcheck="false" style="flex:1">
-          <input type="text" id="imp-to"   class="input" placeholder="To prefix: /run/media/usb/Music/" autocomplete="off" spellcheck="false" style="flex:1">
+          <input type="text" id="imp-to"   class="input" placeholder="To prefix: /media/usb/Music/" autocomplete="off" spellcheck="false" style="flex:1">
         </div>
         <div class="export-hint">Rewrites any track path starting with the From prefix. Leave blank to import paths as-is.</div>
       </div>
@@ -9941,7 +9941,7 @@ function openFixPathsDialog() {
       </div>
       <div class="export-row">
         <label class="export-label">To prefix</label>
-        <input type="text" id="fp-to" class="input" placeholder="/run/media/usb/Music/" autocomplete="off" spellcheck="false">
+        <input type="text" id="fp-to" class="input" placeholder="/media/usb/Music/" autocomplete="off" spellcheck="false">
         <div class="export-hint">
           Every track whose path starts with the From prefix is rewritten with the To prefix.
           The on-disk analysis cache is renamed in lockstep so you don't have to re-analyze.

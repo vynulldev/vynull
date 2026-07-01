@@ -1073,7 +1073,7 @@ func runAnalyze(audioPath, pdbPath, htmlPath string) {
 func printPDB(db *pdb.Database, filterPath string) {
 	fmt.Printf("=== PDB: %d tracks, %d artists, %d albums ===\n\n", len(db.Tracks), len(db.Artists), len(db.Albums))
 
-	// Derive export root from the PDB path (e.g., /run/media/usb/PIONEER/rekordbox/export.pdb → /run/media/usb)
+	// Derive export root from the PDB path (e.g., /media/usb/PIONEER/rekordbox/export.pdb → /media/usb)
 	exportRoot := db.ExportRoot
 
 	for _, t := range db.Tracks {

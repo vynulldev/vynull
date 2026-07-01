@@ -967,7 +967,7 @@ func (s *Server) handleImportRekordbox(w http.ResponseWriter, r *http.Request) {
 		result = &library.ImportResult{}
 	}
 
-	// Optional path-prefix remap (e.g. "Z:/Music/" → "/run/media/usb/Music/").
+	// Optional path-prefix remap (e.g. "Z:/Music/" → "/media/usb/Music/").
 	// Applied after import so it covers tracks added in *this* import as
 	// well as any already present with the matching prefix.
 	if req.RemapFrom != "" && req.RemapTo != "" {

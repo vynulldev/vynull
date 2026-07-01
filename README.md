@@ -305,10 +305,10 @@ follow the track, and re-checks file presence.
 #### `POST /api/library/remap-paths`
 
 Bulk-rewrite a file-path prefix across the whole library (e.g.
-`Z:/Music/` → `/run/media/usb/Music/`), rekeying analysis caches.
+`Z:/Music/` → `/media/usb/Music/`), rekeying analysis caches.
 
 ```json
-{"from": "Z:/Music/", "to": "/run/media/usb/Music/"}
+{"from": "Z:/Music/", "to": "/media/usb/Music/"}
 ```
 
 #### `POST /api/export`
