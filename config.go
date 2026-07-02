@@ -27,11 +27,6 @@ type Config struct {
 	DataDir        string // directory for cached analysis and settings data
 	RGB3Band       bool   // if true, encode PWV5/PWV4 with per-band global normalization (3-band RGB style)
 	ReplayDir      string // if set, replay captured rekordbox responses from this directory
-	AnalyzeFile    string // if set, analyze this file and print beat info
-	AnalyzePDB     string // optional PDB file to show rekordbox data for comparison
-	AnalyzeANLZ    string // if set, dump ANLZ file sections (.DAT or .EXT)
-	AnalyzeHTML    string // if set, write HTML comparison report to this file
-	AnalyzeCSV     string // if set, write per-section CSV files for --anlz into this directory
 	PWV4Override   string // path to raw PWV4 bytes to inject for every track at serve time
 	PWV5Override   string // path to raw PWV5 bytes to inject for every track at serve time
 	SettingsFile   string // path to JSON settings config (default: <data-dir>/settings.json)
@@ -63,11 +58,6 @@ func parseFlags() Config {
 	flag.BoolVar(&cfg.RGB3Band, "rgb-3band", false, "encode PWV5/PWV4 waveforms with per-band global normalization (3-band RGB style — CDJs show more dynamic mid/high content). Bumps cache key; existing cached analyses regenerate.")
 	flag.StringVar(&cfg.DataDir, "data-dir", "", "directory for cached analysis/settings (default: ~/.vynull)")
 	flag.StringVar(&cfg.ReplayDir, "replay", "", "replay captured rekordbox response packets from this directory")
-	flag.StringVar(&cfg.AnalyzeFile, "analyze", "", "analyze a single audio file and print beat/BPM info (no server)")
-	flag.StringVar(&cfg.AnalyzePDB, "pdb", "", "PDB file to show rekordbox track data (use with --analyze or standalone)")
-	flag.StringVar(&cfg.AnalyzeANLZ, "anlz", "", "dump all sections from an ANLZ .DAT or .EXT file")
-	flag.StringVar(&cfg.AnalyzeHTML, "html", "", "write HTML analysis comparison report to this file")
-	flag.StringVar(&cfg.AnalyzeCSV, "anlz-csv", "", "with --anlz, write per-section CSV files (pwv4.csv, pwv5.csv) to this directory")
 	flag.StringVar(&cfg.PWV4Override, "pwv4-override", "", "inject raw PWV4 bytes from this file for every track at serve time (for CDJ rendering experiments)")
 	flag.StringVar(&cfg.PWV5Override, "pwv5-override", "", "inject raw PWV5 bytes from this file for every track at serve time (for CDJ rendering experiments)")
 	flag.StringVar(&cfg.SettingsFile, "settings", "", "path to JSON CDJ settings config (default: <data-dir>/settings.json; created with defaults if missing; legacy settings.yaml is migrated automatically)")
@@ -123,8 +113,8 @@ func parseFlags() Config {
 
 	cfg.DeviceNumber = uint8(deviceNum)
 
-	// --analyze / --pdb / --anlz / --html / --import-settings mode needs no other flags.
-	if cfg.AnalyzeFile != "" || cfg.AnalyzePDB != "" || cfg.AnalyzeANLZ != "" || cfg.AnalyzeHTML != "" || cfg.ImportSettings != "" {
+	// --import-settings mode needs no other flags.
+	if cfg.ImportSettings != "" {
 		cfg.DeviceNumber = uint8(deviceNum)
 		return cfg
 	}
@@ -186,9 +176,6 @@ var flagGroups = []flagGroup{
 	}},
 	{"USB export (alternative to serving)", []string{
 		"generate", "copy-files", "export-playlist",
-	}},
-	{"One-shot inspection (exits after)", []string{
-		"analyze", "pdb", "anlz", "anlz-csv", "html",
 	}},
 	{"Waveform reverse-engineering / experiments", []string{
 		"rgb-3band", "pwv4-override", "pwv5-override", "replay",

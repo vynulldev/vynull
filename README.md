@@ -40,7 +40,6 @@ Use it at your own risk, and back up your rekordbox library before importing any
 - **Remote track loading** via API (auto-adds tracks not in library)
 - **USB export** — write a rekordbox-compatible USB structure (PDB + ANLZ + settings) from the library
 - **Live monitor** TUI showing connected CDJs, playback state, track history, and analysis status
-- **Analysis tools** — CLI beat grid analysis, HTML comparison reports with PWV4/PWV5/PWV6/PWV7, pcap packet analysis
 
 ## Requirements
 
@@ -206,10 +205,6 @@ Create a rekordbox-compatible USB structure from a music directory:
 | `--generate` | | Generate rekordbox USB structure at this path (no server) |
 | `--copy-files` | `false` | Copy files when generating USB (default: symlink) |
 | `--export-playlist` | | With `--generate`, export only this playlist (by name) |
-| `--analyze` | | Analyze a single audio file (beat grid, BPM, key) |
-| `--pdb` | | Show rekordbox PDB track data |
-| `--anlz` | | Dump all sections from an ANLZ .DAT or .EXT file |
-| `--html` | | Write HTML analysis comparison report |
 | `--replay` | | Replay captured rekordbox response packets |
 
 ## HTTP API
