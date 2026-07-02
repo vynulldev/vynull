@@ -39,7 +39,7 @@ Settings files (`MYSETTING.DAT`, `DJMMYSETTING.DAT`, `DEVSETTING.DAT`, `MYSETTIN
 
 - `rekordcrate dump-pdb` parses our 2-track PDB without ANY error or warning. The parsed `Track` structs match expected values (correct title, file_path, IDs).
 - `rekordcrate list-playlists` correctly lists the playlist and both track titles.
-- Structural `pdbdiff` against user's real 4-track export (which loads) shows **zero structural differences** on the tracks data page beyond legitimate data-count diffs (different num_rows, different row offsets because rows are different sizes).
+- Structural `pdbdiff` (now in the companion **vynull-tools** repo) against user's real 4-track export (which loads) shows **zero structural differences** on the tracks data page beyond legitimate data-count diffs (different num_rows, different row offsets because rows are different sizes).
 - Per-page comparator against rekordcrate's `demo_tracks` fixture shows the same — only legitimate data differences remain.
 
 ## Fixes already applied (each grounded against real exports)
