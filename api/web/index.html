@@ -5926,7 +5926,7 @@ function renderMenuItems() {
     {key:'bpm',label:'BPM'}, {key:'artist',label:'Artist'}, {key:'key',label:'Key'},
   ]).map(f => `<option value="${escape(f.key)}" ${f.key === trackDetailCache ? 'selected' : ''}>${escape(f.label)}</option>`).join('');
   // Two-list layout mirrors rekordbox's category configuration UI
-  // (see docs/reference/cdj-menu-config.md). Inactive items live on the
+  // (see docs/reference/cdj-menu-config.md in vynull-tools). Inactive items live on the
   // left; active items on the right, in CDJ render order. Locked items
   // (TRACK / PLAYLIST / HISTORY / SEARCH / FOLDER) stay greyed in the
   // active list and can't be moved out.

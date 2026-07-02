@@ -33,7 +33,7 @@ type MenuItem struct {
 
 // defaultMenuItems lists every category the user can show or hide in the
 // CDJ root menu. Order matches rekordbox's "Active Categories"
-// default arrangement (see docs/reference/cdj-menu-config.md).
+// default arrangement (see docs/reference/cdj-menu-config.md in the vynull-tools repo).
 //
 // Wire IDs and ItemTypes verified against rekordbox's root-menu
 // response in a packet capture.
