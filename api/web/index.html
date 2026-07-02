@@ -626,6 +626,22 @@
     margin-bottom: 12px;
     animation: rotate 4s linear infinite;
   }
+  /* Library-source settings actions + first-run import call-to-action. */
+  .source-action { padding: 16px; }
+  .source-action + .source-action { border-top: 1px solid #0c0c0e; }
+  .source-btn {
+    display: inline-block; padding: 10px 18px; border-radius: 4px;
+    border: 1px solid var(--wire); background: var(--panel2); color: var(--text);
+    font: inherit; letter-spacing: 0.06em; cursor: pointer;
+  }
+  .source-btn:hover { border-color: var(--orange); color: var(--amber); }
+  .lib-empty-cta {
+    border: 1px dashed var(--wire); padding: 56px 20px; text-align: center;
+    display: flex; flex-direction: column; align-items: center; gap: 14px;
+  }
+  .lib-empty-title { color: var(--text2); font-size: 13px; letter-spacing: 0.1em; text-transform: uppercase; }
+  .lib-empty-cta .source-btn { font-size: 14px; padding: 12px 22px; }
+  .lib-empty-sub { color: var(--text3); font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; }
 
   /* ───────── LIBRARY ───────── */
   /* Two-column layout: sidebar (Collection + playlist tree) + main
@@ -3130,8 +3146,6 @@
           <button type="button" id="pl-new-pl"     title="New playlist">+ PL</button>
           <button type="button" id="pl-new-smart"  title="New smart playlist">+ SMART</button>
           <button type="button" id="pl-new-folder" title="New folder">+ FLD</button>
-          <button type="button" id="lib-import-rb" title="Import rekordbox library (XML, master.db, or backup .zip)">↓ RB</button>
-          <button type="button" id="lib-fix-paths" title="Search-and-replace a path prefix across the whole library">↪ FIX</button>
         </div>
       </aside>
       <div class="lib-main">
@@ -5450,7 +5464,18 @@ function renderLibrary(tracks) {
   rows = applyLibraryFilters(rows);
   stats.innerHTML = `<strong>${rows.length}</strong> / ${tracks.length} TRACKS`;
   if (rows.length === 0) {
-    el.innerHTML = '<div class="empty-state">NO TRACKS MATCH</div>';
+    if (selectedSource === 'collection' && allTracks.length === 0) {
+      // First-run onboarding: the whole library is empty → invite an import.
+      el.innerHTML = `<div class="lib-empty-cta">
+        <div class="lib-empty-title">Your library is empty</div>
+        <button type="button" id="lib-empty-import" class="source-btn">↓ Import your rekordbox library</button>
+        <div class="lib-empty-sub">XML · master.db · backup .zip</div>
+      </div>`;
+      const b = document.getElementById('lib-empty-import');
+      if (b) b.onclick = () => openImportRekordboxDialog();
+    } else {
+      el.innerHTML = '<div class="empty-state">NO TRACKS MATCH</div>';
+    }
     return;
   }
   const cols = activeColumns();
@@ -6105,8 +6130,9 @@ async function saveMenuItems() {
 
 // Section catalog for the SETTINGS tab sidebar.
 const SETTINGS_SECTIONS = [
-  { key: 'webui',          label: 'WEB UI'       }, // browser-local display prefs (not a CDJ setting)
-  { key: 'cdj_menu',       label: 'CDJ MENU'     },
+  { key: 'webui',          label: 'WEB UI'         }, // browser-local display prefs (not a CDJ setting)
+  { key: 'source',         label: 'LIBRARY SOURCE' }, // rekordbox import + path fix (not a CDJ setting)
+  { key: 'cdj_menu',       label: 'CDJ MENU'       },
   { key: 'my_setting',     label: 'MYSETTING'    },
   { key: 'my_setting_2',   label: 'MYSETTING2'   },
   { key: 'djm_my_setting', label: 'DJMMYSETTING' },
@@ -6155,7 +6181,7 @@ function renderSettings(cfg) {
 
   // CDJ MENU and WEB UI are virtual sections (not part of the settings config);
   // they're always shown, the others appear only when present in cfg.
-  const sectionAvailable = s => s.key === 'cdj_menu' || s.key === 'webui' || !!cfg[s.key];
+  const sectionAvailable = s => s.key === 'cdj_menu' || s.key === 'webui' || s.key === 'source' || !!cfg[s.key];
 
   // Render the sidebar with all sections; the body only shows the active one.
   if (nav) {
@@ -6183,7 +6209,7 @@ function renderSettings(cfg) {
   // The top note describes pushing changes to the CDJ — hide it for the
   // browser-local WEB UI section so it doesn't imply those sync to the device.
   const topNote = document.querySelector('#settings .settings-note');
-  if (topNote) topNote.style.display = section.key === 'webui' ? 'none' : '';
+  if (topNote) topNote.style.display = (section.key === 'webui' || section.key === 'source') ? 'none' : '';
 
   // WEB UI: browser-local display preferences (rendered from localStorage, not cfg).
   if (section.key === 'webui') {
@@ -6198,6 +6224,28 @@ function renderSettings(cfg) {
       <div class="body"><div id="cdj-menu-config" class="menu-config"><div class="empty-state">LOADING</div></div></div>
     </div>`;
     if (menuItemsCache.length) renderMenuItems(); else loadMenuItems();
+    return;
+  }
+
+  // LIBRARY SOURCE: import from rekordbox + bulk path fix (not a CDJ setting).
+  if (section.key === 'source') {
+    el.innerHTML = `<div class="settings-block">
+      <div class="head"><span class="inner">LIBRARY SOURCE</span></div>
+      <div class="body">
+        <div class="source-action">
+          <button type="button" id="set-import-rb" class="source-btn">↓ Import from rekordbox…</button>
+          <div class="export-hint">Bring in tracks, playlists, tags, cues, and analysis from a rekordbox <b>XML</b> export, an encrypted <b>master.db</b>, or a library backup <b>.zip</b>.</div>
+        </div>
+        <div class="source-action">
+          <button type="button" id="set-fix-paths" class="source-btn">↪ Fix track paths…</button>
+          <div class="export-hint">Search-and-replace a path prefix across the whole library — e.g. after moving your music, or importing from another machine.</div>
+        </div>
+      </div>
+    </div>`;
+    const imp = el.querySelector('#set-import-rb');
+    if (imp) imp.onclick = () => openImportRekordboxDialog();
+    const fix = el.querySelector('#set-fix-paths');
+    if (fix) fix.onclick = () => openFixPathsDialog();
     return;
   }
 
@@ -8864,10 +8912,6 @@ function wireLibrarySidebar() {
   if (newFolder) newFolder.onclick = () => createPlaylistPrompt(true);
   const newSmart = document.getElementById('pl-new-smart');
   if (newSmart) newSmart.onclick = () => openSmartEditor(null);
-  const impRb = document.getElementById('lib-import-rb');
-  if (impRb) impRb.onclick = () => openImportRekordboxDialog();
-  const fixPaths = document.getElementById('lib-fix-paths');
-  if (fixPaths) fixPaths.onclick = () => openFixPathsDialog();
 
   // Tree node clicks: select playlist (or folder). Same handler for
   // both the regular playlist tree and the History section.
