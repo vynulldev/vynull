@@ -12,7 +12,7 @@ import (
 	"strings"
 	"sync"
 
-	"vynull/internal/fsutil"
+	"github.com/vynulldev/vynull/internal/fsutil"
 )
 
 // HashID generates a stable rekordbox-style 32-bit ID from a type and name.

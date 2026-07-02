@@ -26,7 +26,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"vynull/analysis"
+	"github.com/vynulldev/vynull/analysis"
 )
 
 type track struct {
@@ -340,7 +340,7 @@ func gridPhase(ours *analysis.BeatResult, rbBPM float64, rb *analysis.Result) (b
 	// Diagnostic: the rotation r for which using beats[r] as the downbeat would
 	// be correct (barOff==0). Histogramming this over phase-aligned tracks shows
 	// whether the true downbeat is a half-bar choice (only 0/2) or full (0-3).
-	idealRot = ((oi - rbBar) % 4 + 4) % 4
+	idealRot = ((oi-rbBar)%4 + 4) % 4
 	return beatPhaseMs, earlyPhaseMs, barOff, idealRot, true
 }
 

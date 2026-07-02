@@ -1,4 +1,4 @@
-module vynull
+module github.com/vynulldev/vynull
 
 go 1.25.7
 

@@ -10,7 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"vynull/analysis"
+	"github.com/vynulldev/vynull/analysis"
 )
 
 func main() {

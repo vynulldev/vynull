@@ -29,11 +29,11 @@ import (
 	"time"
 
 	"github.com/dhowden/tag"
-	"vynull/analysis"
-	"vynull/device"
-	"vynull/export"
-	"vynull/library"
-	"vynull/pdb"
+	"github.com/vynulldev/vynull/analysis"
+	"github.com/vynulldev/vynull/device"
+	"github.com/vynulldev/vynull/export"
+	"github.com/vynulldev/vynull/library"
+	"github.com/vynulldev/vynull/pdb"
 )
 
 // Server exposes device state via a JSON HTTP API.

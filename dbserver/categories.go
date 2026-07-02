@@ -8,8 +8,8 @@ import (
 	"sort"
 	"strings"
 
-	"vynull/library"
-	"vynull/proto"
+	"github.com/vynulldev/vynull/library"
+	"github.com/vynulldev/vynull/proto"
 )
 
 // categories.go contains the top-level "list of X" category handlers
@@ -475,7 +475,6 @@ func (h *Handler) handleGetHotCueBank(msg *proto.DBMessage) []*proto.DBMessage {
 	return []*proto.DBMessage{h.successWithCount(msg)}
 }
 
-
 func (h *Handler) handleGetKeys(msg *proto.DBMessage) []*proto.DBMessage {
 	if h.pdb != nil {
 		var items []*menuItem
@@ -576,4 +575,3 @@ func (h *Handler) handleGetOriginalArtists(msg *proto.DBMessage) []*proto.DBMess
 	log.Printf("dbserver: get original artists returning %d items", len(items))
 	return []*proto.DBMessage{h.successWithCount(msg)}
 }
-

@@ -12,7 +12,7 @@ import (
 	"sync"
 	"sync/atomic"
 
-	"vynull/pdb"
+	"github.com/vynulldev/vynull/pdb"
 )
 
 const analysisRate = 44100

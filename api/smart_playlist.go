@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"vynull/library"
+	"github.com/vynulldev/vynull/library"
 )
 
 // SmartRules describes a tree of conditions evaluated against

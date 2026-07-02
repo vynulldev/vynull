@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"vynull/library"
+	"github.com/vynulldev/vynull/library"
 )
 
 // rbFieldMap maps rekordbox SmartList PropertyName values to the app's

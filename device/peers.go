@@ -9,7 +9,7 @@ import (
 	"sync"
 	"time"
 
-	"vynull/proto"
+	"github.com/vynulldev/vynull/proto"
 )
 
 const peerTimeout = 5 * time.Second

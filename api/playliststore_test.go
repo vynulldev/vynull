@@ -10,7 +10,7 @@ import (
 	"strings"
 	"testing"
 
-	"vynull/library"
+	"github.com/vynulldev/vynull/library"
 )
 
 // TestPlaylistAPI exercises every playlist endpoint end-to-end through
@@ -299,4 +299,3 @@ func TestPlaylistStoreReload(t *testing.T) {
 		t.Fatalf("want next ID 3, got %d", next.ID)
 	}
 }
-

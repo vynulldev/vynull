@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"vynull/api"
+	"github.com/vynulldev/vynull/api"
 )
 
 // TestHistoryPlaylistAppend verifies the auto-history hook:

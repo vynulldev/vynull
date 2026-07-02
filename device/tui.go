@@ -10,8 +10,8 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-	"vynull/library"
-	"vynull/proto"
+	"github.com/vynulldev/vynull/library"
+	"github.com/vynulldev/vynull/proto"
 )
 
 // ---------- styles ----------
@@ -66,9 +66,9 @@ type tuiModel struct {
 	peers    *PeerTracker
 	apiAddr  string
 
-	active   tuiTab
-	width    int
-	height   int
+	active tuiTab
+	width  int
+	height int
 
 	// Library tab state
 	libCursor int

@@ -12,8 +12,8 @@ import (
 	"sync"
 	"time"
 
-	"vynull/internal/fsutil"
-	"vynull/library"
+	"github.com/vynulldev/vynull/internal/fsutil"
+	"github.com/vynulldev/vynull/library"
 )
 
 // PlaylistInfo is the API/persistence representation of a user playlist

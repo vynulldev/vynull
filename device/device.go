@@ -13,7 +13,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"vynull/proto"
+	"github.com/vynulldev/vynull/proto"
 )
 
 const (

@@ -9,7 +9,7 @@ import (
 	"os"
 	"strings"
 
-	"vynull/proto"
+	"github.com/vynulldev/vynull/proto"
 )
 
 type Config struct {

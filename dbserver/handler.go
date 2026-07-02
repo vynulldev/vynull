@@ -9,11 +9,11 @@ import (
 	"strings"
 	"time"
 
-	"vynull/analysis"
-	"vynull/device"
-	"vynull/library"
-	"vynull/pdb"
-	"vynull/proto"
+	"github.com/vynulldev/vynull/analysis"
+	"github.com/vynulldev/vynull/device"
+	"github.com/vynulldev/vynull/library"
+	"github.com/vynulldev/vynull/pdb"
+	"github.com/vynulldev/vynull/proto"
 )
 
 // Handler processes individual dbserver messages and returns responses.
@@ -33,8 +33,8 @@ type Handler struct {
 	// The CDJ sends a query (which sets pending items), then a render
 	// request with the same txid to fetch the items.
 	pendingByTxID map[uint32][]*menuItem
-	pendingByMenu map[uint8][]*menuItem   // legacy fallback
-	pendingItems  []*menuItem             // legacy fallback
+	pendingByMenu map[uint8][]*menuItem // legacy fallback
+	pendingItems  []*menuItem           // legacy fallback
 
 	// lastCategoryItems is the items list returned by the most recent
 	// category-list query (0x100d COLOR list, etc.). The deck uses
@@ -48,7 +48,6 @@ type Handler struct {
 	// Context from the last 0x2705 cue write request.
 	lastCueTrackID uint32
 	lastCueTxID    uint32
-
 }
 
 // lazyAnalyze returns analysis data for a track, running on-demand analysis
@@ -169,7 +168,6 @@ func (h *Handler) storeAnalysisResult(trackID uint32, r *analysis.Result) {
 	log.Printf("lazy-analysis: track %d done (BPM=%.1f key=%s dur=%ds)",
 		trackID, r.BPM, r.KeyCamelot, r.Duration)
 }
-
 
 // Handle dispatches a message to the appropriate handler and returns
 // zero or more response messages.

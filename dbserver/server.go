@@ -16,11 +16,11 @@ import (
 	"sync"
 	"time"
 
-	"vynull/analysis"
-	"vynull/device"
-	"vynull/library"
-	"vynull/pdb"
-	"vynull/proto"
+	"github.com/vynulldev/vynull/analysis"
+	"github.com/vynulldev/vynull/device"
+	"github.com/vynulldev/vynull/library"
+	"github.com/vynulldev/vynull/pdb"
+	"github.com/vynulldev/vynull/proto"
 )
 
 const (

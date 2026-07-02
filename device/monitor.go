@@ -16,9 +16,9 @@ import (
 	"sync"
 	"time"
 
-	"vynull/library"
-	"vynull/pdb"
-	"vynull/proto"
+	"github.com/vynulldev/vynull/library"
+	"github.com/vynulldev/vynull/pdb"
+	"github.com/vynulldev/vynull/proto"
 )
 
 // PlayerState holds the latest known state of a CDJ.

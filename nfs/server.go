@@ -15,7 +15,7 @@ import (
 	"sync"
 	"time"
 
-	"vynull/internal/dlog"
+	"github.com/vynulldev/vynull/internal/dlog"
 )
 
 const (

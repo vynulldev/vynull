@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"vynull/library"
+	"github.com/vynulldev/vynull/library"
 )
 
 // fakeTags is a TagLookup that returns a fixed list for a single

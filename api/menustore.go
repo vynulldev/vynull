@@ -10,8 +10,8 @@ import (
 	"path/filepath"
 	"sync"
 
-	"vynull/internal/fsutil"
-	"vynull/pdb"
+	"github.com/vynulldev/vynull/internal/fsutil"
+	"github.com/vynulldev/vynull/pdb"
 )
 
 // MenuItem describes one entry in the CDJ's top-level LINK menu. The

@@ -9,7 +9,7 @@ import (
 	"net"
 	"time"
 
-	"vynull/internal/dlog"
+	"github.com/vynulldev/vynull/internal/dlog"
 )
 
 // Portmapper responds to GETPORT queries on Pioneer's non-standard port 50111

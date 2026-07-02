@@ -19,16 +19,16 @@ import (
 	"syscall"
 	"time"
 
-	"vynull/analysis"
-	"vynull/api"
-	"vynull/dbserver"
-	"vynull/device"
-	"vynull/export"
-	"vynull/internal/dlog"
-	"vynull/internal/netutil"
-	"vynull/library"
-	"vynull/nfs"
-	"vynull/pdb"
+	"github.com/vynulldev/vynull/analysis"
+	"github.com/vynulldev/vynull/api"
+	"github.com/vynulldev/vynull/dbserver"
+	"github.com/vynulldev/vynull/device"
+	"github.com/vynulldev/vynull/export"
+	"github.com/vynulldev/vynull/internal/dlog"
+	"github.com/vynulldev/vynull/internal/netutil"
+	"github.com/vynulldev/vynull/library"
+	"github.com/vynulldev/vynull/nfs"
+	"github.com/vynulldev/vynull/pdb"
 )
 
 func main() {

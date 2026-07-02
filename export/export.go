@@ -6,13 +6,13 @@
 // export for a single playlist / smart playlist via Options.
 //
 // The pipeline:
-//   1. Convert library tracks → pdb tracks (or accept a pre-built list)
-//   2. Analyse audio (BPM, key, waveform, beat grid…) — uses any cached
-//      results in opts.Analysis; new ones go into the same store.
-//   3. Lay out audio files under <dest>/Contents (copy or symlink).
-//   4. Write per-track ANLZ0000.DAT/.EXT files.
-//   5. Write export.pdb with track / artist / album / etc. tables.
-//   6. Write MYSETTING.DAT / MYSETTING2.DAT / DJMMYSETTING.DAT.
+//  1. Convert library tracks → pdb tracks (or accept a pre-built list)
+//  2. Analyse audio (BPM, key, waveform, beat grid…) — uses any cached
+//     results in opts.Analysis; new ones go into the same store.
+//  3. Lay out audio files under <dest>/Contents (copy or symlink).
+//  4. Write per-track ANLZ0000.DAT/.EXT files.
+//  5. Write export.pdb with track / artist / album / etc. tables.
+//  6. Write MYSETTING.DAT / MYSETTING2.DAT / DJMMYSETTING.DAT.
 //
 // Callers from the CLI (main.go --generate) and HTTP API (POST
 // /api/export) both go through Run so we keep one canonical pipeline.
@@ -26,9 +26,9 @@ import (
 	"runtime"
 	"sync"
 
-	"vynull/analysis"
-	"vynull/library"
-	"vynull/pdb"
+	"github.com/vynulldev/vynull/analysis"
+	"github.com/vynulldev/vynull/library"
+	"github.com/vynulldev/vynull/pdb"
 )
 
 // Status is the live progress line set by Run while an export is
@@ -240,13 +240,13 @@ func Run(opts Options) error {
 }
 
 // mergeWithExisting reads the existing PDB at `existingPath` and combines:
-//  • Tracks: keeps all existing tracks; appends new ones whose FilePath
-//    isn't already present. For new tracks, assigns IDs starting at
-//    (max existing ID) + 1. Existing tracks keep their stored metadata —
-//    we don't overwrite (so the CDJ's history/play counts stay valid).
-//  • Playlists: keeps existing playlist tree; appends new playlists. If
-//    a new playlist's name matches an existing one, the new one wins
-//    (re-export of the same playlist replaces it).
+//   - Tracks: keeps all existing tracks; appends new ones whose FilePath
+//     isn't already present. For new tracks, assigns IDs starting at
+//     (max existing ID) + 1. Existing tracks keep their stored metadata —
+//     we don't overwrite (so the CDJ's history/play counts stay valid).
+//   - Playlists: keeps existing playlist tree; appends new playlists. If
+//     a new playlist's name matches an existing one, the new one wins
+//     (re-export of the same playlist replaces it).
 //
 // Returns the merged tracks slice and playlist list. If existingPath
 // can't be loaded, returns the inputs unchanged.
@@ -351,20 +351,20 @@ func LibraryToTracks(lib *library.Library) []*pdb.Track {
 	out := make([]*pdb.Track, len(src))
 	for i, t := range src {
 		out[i] = &pdb.Track{
-			ID:          t.ID,
-			Title:       t.Title,
-			Artist:      t.Artist,
-			Album:       t.Album,
-			Genre:       t.Genre,
-			Key:         t.Key,
-			Label:       t.Label,
-			FilePath:    t.FilePath,
-			FileName:    filepath.Base(t.FilePath),
-			Comment:     t.Comment,
-			Tempo:       uint32(t.BPM * 100),
-			Duration:    uint16(t.Duration.Seconds()),
-			Bitrate:     uint32(safeBitrate(t.FileSize, t.Duration.Seconds())),
-			Year:        uint16(t.Year),
+			ID:       t.ID,
+			Title:    t.Title,
+			Artist:   t.Artist,
+			Album:    t.Album,
+			Genre:    t.Genre,
+			Key:      t.Key,
+			Label:    t.Label,
+			FilePath: t.FilePath,
+			FileName: filepath.Base(t.FilePath),
+			Comment:  t.Comment,
+			Tempo:    uint32(t.BPM * 100),
+			Duration: uint16(t.Duration.Seconds()),
+			Bitrate:  uint32(safeBitrate(t.FileSize, t.Duration.Seconds())),
+			Year:     uint16(t.Year),
 			// Re-encode currently disabled — empirically the CDJ freezes
 			// we were chasing turned out to be PDB-encoding bugs (long-
 			// ASCII paths, stale FileSize), not the source audio itself.
@@ -372,15 +372,15 @@ func LibraryToTracks(lib *library.Library) []*pdb.Track {
 			// DecodeStatus on each track so the UI can flag problematic
 			// files for the user; we just no longer rewrite them.
 			NeedsReencode: false,
-			TrackNum:    uint32(t.TrackNum),
-			DiscNumber:  uint16(t.DiscNum),
-			FileSize:    uint32(t.FileSize),
-			Rating:      t.Rating,
-			ColorID:     t.ColorID,
-			ArtworkID:   t.ArtID,
-			SampleRate:  uint32(t.SampleRate),
-			SampleDepth: uint16(t.SampleDepth),
-			PlayCount:   uint16(t.PlayCount),
+			TrackNum:      uint32(t.TrackNum),
+			DiscNumber:    uint16(t.DiscNum),
+			FileSize:      uint32(t.FileSize),
+			Rating:        t.Rating,
+			ColorID:       t.ColorID,
+			ArtworkID:     t.ArtID,
+			SampleRate:    uint32(t.SampleRate),
+			SampleDepth:   uint16(t.SampleDepth),
+			PlayCount:     uint16(t.PlayCount),
 		}
 	}
 	return out

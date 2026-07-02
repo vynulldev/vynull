@@ -13,8 +13,8 @@ import (
 	"sync"
 	"time"
 
-	"vynull/pdb"
-	"vynull/proto"
+	"github.com/vynulldev/vynull/pdb"
+	"github.com/vynulldev/vynull/proto"
 )
 
 type playerState struct {

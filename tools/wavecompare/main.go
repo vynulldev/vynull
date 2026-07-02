@@ -24,7 +24,7 @@ import (
 	"sync"
 	"sync/atomic"
 
-	"vynull/analysis"
+	"github.com/vynulldev/vynull/analysis"
 )
 
 type track struct {
@@ -189,11 +189,11 @@ func main() {
 	fmt.Printf("sampling %d with %d workers…\n\n", len(sample), *workers)
 
 	type res struct {
-		t                      track
-		ok                     bool
-		ourR, ourG, ourB       float64 // mean channel value over compared entries
-		rbR, rbG, rbB          float64
-		nEntries               int
+		t                track
+		ok               bool
+		ourR, ourG, ourB float64 // mean channel value over compared entries
+		rbR, rbG, rbB    float64
+		nEntries         int
 	}
 	results := make([]res, len(sample))
 	var done int64

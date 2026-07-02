@@ -7,8 +7,8 @@ import (
 	"log"
 	"strings"
 
-	"vynull/library"
-	"vynull/proto"
+	"github.com/vynulldev/vynull/library"
+	"github.com/vynulldev/vynull/proto"
 )
 
 // drilldown.go contains the multi-level drill handlers — anything the
@@ -825,4 +825,3 @@ func (h *Handler) handleGetByGenre(msg *proto.DBMessage) []*proto.DBMessage {
 	log.Printf("dbserver: get by genre %q returning %d tracks", genreName, len(items))
 	return []*proto.DBMessage{h.successWithCount(msg)}
 }
-

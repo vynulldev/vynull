@@ -6,8 +6,8 @@ import (
 	"log"
 	"path/filepath"
 
-	"vynull/pdb"
-	"vynull/proto"
+	"github.com/vynulldev/vynull/pdb"
+	"github.com/vynulldev/vynull/proto"
 )
 
 // playlist.go contains the playlist / folder / history menu handlers:
@@ -240,4 +240,3 @@ func (h *Handler) rebuildFolders() {
 	}
 	h.folders = pdb.BuildFolderLookup(pdbTracks)
 }
-

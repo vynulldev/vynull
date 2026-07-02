@@ -7,8 +7,8 @@ import (
 	"log"
 	"sort"
 
-	"vynull/library"
-	"vynull/proto"
+	"github.com/vynulldev/vynull/library"
+	"github.com/vynulldev/vynull/proto"
 )
 
 // render.go contains the 0x3000 Render dispatcher and everything that
@@ -175,18 +175,18 @@ func (h *Handler) handleRenderMenu(msg *proto.DBMessage) []*proto.DBMessage {
 			TxID: msg.TxID,
 			Type: proto.DBMsgMenuItem,
 			Args: []proto.DBArg{
-				proto.ArgI32(item.ParentID),        // 0: parent ID
+				proto.ArgI32(item.ParentID),         // 0: parent ID
 				proto.ArgI32(item.ID),               // 1: main ID
-				proto.ArgI32(labelLen(label1)),       // 2: label 1 byte length
+				proto.ArgI32(labelLen(label1)),      // 2: label 1 byte length
 				strFunc(label1),                     // 3: label 1 text
-				proto.ArgI32(labelLen(label2)),       // 4: label 2 byte length
+				proto.ArgI32(labelLen(label2)),      // 4: label 2 byte length
 				strFunc(label2),                     // 5: label 2 text
-				proto.ArgI32(uint32(item.ItemType)),  // 6: item type
-				proto.ArgI32(flags7),                 // 7: flags
-				proto.ArgI32(flags8),                 // 8: artwork ID
-				proto.ArgI32(flags9),                 // 9: unknown
-				proto.ArgI32(flags10),                // 10: unknown
-				proto.ArgI32(flags11),                // 11: unknown
+				proto.ArgI32(uint32(item.ItemType)), // 6: item type
+				proto.ArgI32(flags7),                // 7: flags
+				proto.ArgI32(flags8),                // 8: artwork ID
+				proto.ArgI32(flags9),                // 9: unknown
+				proto.ArgI32(flags10),               // 10: unknown
+				proto.ArgI32(flags11),               // 11: unknown
 			},
 		})
 	}
@@ -377,4 +377,3 @@ func (h *Handler) populateTracks(menu uint8) {
 	items := h.tracksToStdItems(tracks)
 	h.setPending(menu, items)
 }
-

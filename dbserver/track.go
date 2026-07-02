@@ -8,9 +8,9 @@ import (
 	"math"
 	"strings"
 
-	"vynull/analysis"
-	"vynull/library"
-	"vynull/proto"
+	"github.com/vynulldev/vynull/analysis"
+	"github.com/vynulldev/vynull/library"
+	"github.com/vynulldev/vynull/proto"
 )
 
 // track.go contains the per-track handlers — anything keyed off a

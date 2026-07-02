@@ -7,9 +7,9 @@ import (
 	"sort"
 	"strings"
 
-	"vynull/library"
-	"vynull/pdb"
-	"vynull/proto"
+	"github.com/vynulldev/vynull/library"
+	"github.com/vynulldev/vynull/pdb"
+	"github.com/vynulldev/vynull/proto"
 )
 
 // menuitem.go holds the menuItem type, sort constants/dispatch, the
@@ -94,7 +94,6 @@ func (h *Handler) pdbTracksToItems(tracks []*pdb.Track) []*menuItem {
 	}
 	return items
 }
-
 
 // pdbTrackToStdItem creates a standard track menu item from a PDB track.
 func (h *Handler) pdbTrackToStdItem(t *pdb.Track) *menuItem {
@@ -299,14 +298,22 @@ func (h *Handler) applyTrackDetailFromPDB(m *menuItem, t *pdb.Track) {
 // in the api package. Defined here to avoid cross-package import.
 func trackColorName(id uint8) string {
 	switch id {
-	case 1: return "Pink"
-	case 2: return "Red"
-	case 3: return "Orange"
-	case 4: return "Yellow"
-	case 5: return "Green"
-	case 6: return "Aqua"
-	case 7: return "Blue"
-	case 8: return "Purple"
+	case 1:
+		return "Pink"
+	case 2:
+		return "Red"
+	case 3:
+		return "Orange"
+	case 4:
+		return "Yellow"
+	case 5:
+		return "Green"
+	case 6:
+		return "Aqua"
+	case 7:
+		return "Blue"
+	case 8:
+		return "Purple"
 	}
 	return ""
 }

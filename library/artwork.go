@@ -10,7 +10,7 @@ import (
 	"path/filepath"
 	"sync"
 
-	"vynull/internal/fsutil"
+	"github.com/vynulldev/vynull/internal/fsutil"
 )
 
 // Artwork holds a cached piece of album artwork.

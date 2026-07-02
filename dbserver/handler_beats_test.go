@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"vynull/analysis"
-	"vynull/library"
+	"github.com/vynulldev/vynull/analysis"
+	"github.com/vynulldev/vynull/library"
 )
 
 // makeBeatGrid is a tiny test-side encoder mirroring the production

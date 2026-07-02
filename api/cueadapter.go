@@ -3,7 +3,7 @@
 package api
 
 import (
-	"vynull/dbserver"
+	"github.com/vynulldev/vynull/dbserver"
 )
 
 // CueStoreAdapter wraps dbserver.CueStore to implement CueStoreInterface.

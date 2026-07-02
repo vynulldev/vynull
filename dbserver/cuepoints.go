@@ -11,7 +11,7 @@ import (
 	"path/filepath"
 	"sync"
 
-	"vynull/internal/fsutil"
+	"github.com/vynulldev/vynull/internal/fsutil"
 )
 
 // CuePoint represents a saved hot cue or loop.

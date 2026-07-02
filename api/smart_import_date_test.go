@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"vynull/library"
+	"github.com/vynulldev/vynull/library"
 )
 
 // Date-based rekordbox smart conditions must translate to operators the
