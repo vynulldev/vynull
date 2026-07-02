@@ -433,6 +433,7 @@ func main() {
 	nfsSrv := nfs.NewServer(nfsRoot)
 	nfsSrv.Transcode = cfg.Transcode
 	nfsSrv.IP = iface.IP
+	nfsSrv.CDJMode = cfg.CDJMode // only CDJ mode needs privileged port 111
 	nfsSrv.LinkedFn = func() bool { return dev != nil && dev.Linked() }
 	if cfg.Transcode {
 		log.Printf("nfs: transcoding enabled — FLAC/WAV/AIFF will be converted to MP3")

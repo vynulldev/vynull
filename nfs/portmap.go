@@ -12,23 +12,27 @@ import (
 	"vynull/internal/dlog"
 )
 
-// Listen on both standard (111) and Pioneer (50111) portmapper ports.
-var portmapPorts = []int{111, 50111}
-
-// Portmapper responds to GETPORT queries on Pioneer's non-standard port 50111.
+// Portmapper responds to GETPORT queries on Pioneer's non-standard port 50111
+// (and, in CDJ mode, the standard RPC port 111).
 type Portmapper struct {
 	mountPort uint32
 	nfsPort   uint32
+	cdjMode   bool // if true, also bind the privileged port 111 (CDJ-USB source)
 }
 
 func (pm *Portmapper) Start(ctx context.Context) error {
-	// Listen on the standard RPC portmapper port (111) and Pioneer's
-	// non-standard 50111. A deck linking to us as a CDJ-USB source queries
-	// 111 to discover our mount/NFS ports; a rekordbox source queries 50111.
-	// We can't move this — the deck chooses where to ask.
+	// A deck linking to us as a CDJ-USB source discovers our mount/NFS ports by
+	// querying the standard RPC portmapper on the privileged port 111; a
+	// rekordbox source queries Pioneer's non-standard 50111 instead. We only
+	// bind 111 in CDJ mode — attempting it in rekordbox mode just fails with a
+	// permission error (it's privileged) and is never used there.
+	ports := []int{50111}
+	if pm.cdjMode {
+		ports = []int{111, 50111}
+	}
 	var conns []*net.UDPConn
 	var bound []int
-	for _, port := range portmapPorts {
+	for _, port := range ports {
 		conn, err := net.ListenUDP("udp4", &net.UDPAddr{Port: port})
 		if err != nil {
 			log.Printf("portmapper: cannot bind port %d: %v", port, err)
@@ -51,15 +55,15 @@ func (pm *Portmapper) Start(ctx context.Context) error {
 
 	// Port 111 is privileged (<1024). Without it, a deck using us as a CDJ-USB
 	// source can't find our NFS mount, so track LOADS fail (browsing still
-	// works — that's dbserver-only over TCP). Make the consequence explicit and
-	// point at the fixes; rekordbox mode is unaffected (it uses 50111).
+	// works — that's dbserver-only over TCP). Warn only in CDJ mode, where 111
+	// is actually needed; rekordbox mode never attempts it (it uses 50111).
 	has111 := false
 	for _, p := range bound {
 		if p == 111 {
 			has111 = true
 		}
 	}
-	if !has111 {
+	if pm.cdjMode && !has111 {
 		log.Printf("portmapper: WARNING — port 111 is NOT bound; CDJ-mode track loading WILL FAIL " +
 			"(the deck can't locate the NFS mount). Grant the port with ONE of: " +
 			"`sudo sysctl -w net.ipv4.ip_unprivileged_port_start=111` (system-wide, survives rebuilds), " +

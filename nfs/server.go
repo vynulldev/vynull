@@ -106,6 +106,12 @@ type Server struct {
 	// keep treating us as a valid partner until the keep-alive
 	// timeout (~5-6s) fires.
 	LinkedFn func() bool
+
+	// CDJMode is true when emulating a CDJ-USB source. Such decks discover our
+	// NFS mount via the standard RPC portmapper on the privileged port 111; a
+	// rekordbox source uses Pioneer's unprivileged 50111 instead. When false we
+	// don't even attempt to bind 111 (no spurious permission error/warning).
+	CDJMode bool
 }
 
 // NewServer creates an NFS server exporting the given directory.
@@ -122,6 +128,7 @@ func (s *Server) Start(ctx context.Context) error {
 	pm := &Portmapper{
 		mountPort: mountPortNum,
 		nfsPort:   nfsPortNum,
+		cdjMode:   s.CDJMode,
 	}
 	go func() {
 		if err := pm.Start(ctx); err != nil {
@@ -169,8 +176,12 @@ func (s *Server) Start(ctx context.Context) error {
 		s.listenTCP(ctx, nfsPortNum, combinedHandler)
 	}()
 
+	portmap := []int{50111}
+	if s.CDJMode {
+		portmap = []int{111, 50111}
+	}
 	log.Printf("nfs server: export=%s port=:%d portmap=%v",
-		s.exportRoot, nfsPortNum, portmapPorts)
+		s.exportRoot, nfsPortNum, portmap)
 
 	<-ctx.Done()
 	wg.Wait()

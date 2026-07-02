@@ -18,6 +18,7 @@ type Config struct {
 	DeviceNumber   uint8
 	DeviceName     string
 	DeviceType     proto.DeviceType
+	CDJMode        bool // true in --mode cdj (needs the privileged RPC port 111)
 	MediaSlot      uint8
 	GenerateDir    string // if set, generate USB structure instead of serving
 	GenerateCopy   bool   // copy files instead of symlinking
@@ -108,6 +109,7 @@ func parseFlags() Config {
 	case "cdj":
 		cfg.DeviceType = proto.DeviceCDJ
 		cfg.MediaSlot = proto.SlotUSB
+		cfg.CDJMode = true
 		if deviceNum == 0 {
 			deviceNum = 3
 		}
