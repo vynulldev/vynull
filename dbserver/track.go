@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"vynull/analysis"
+	"vynull/library"
 	"vynull/proto"
 )
 
@@ -213,6 +214,24 @@ func (h *Handler) handleGetArtwork(msg *proto.DBMessage) []*proto.DBMessage {
 			art = h.lib.Artwork.Get(t.ArtID)
 		}
 	}
+
+	// The CDJ freezes and drops the link when handed an oversized artwork blob
+	// (real thumbnails are a few KB; a full-res import can be hundreds of KB).
+	// Downscale anything over the cap to a 240px thumbnail and cache the small
+	// version back so it's a one-time cost; if it can't be resized, skip it
+	// rather than risk the deck.
+	const maxCDJArtBytes = 32 * 1024
+	if art != nil && len(art.Data) > maxCDJArtBytes {
+		if small, err := library.ThumbnailJPEG(art.Data, 240); err == nil && len(small) <= maxCDJArtBytes {
+			log.Printf("dbserver: artwork %d oversized (%d bytes) → resized to %d for CDJ", art.ID, len(art.Data), len(small))
+			h.lib.Artwork.AddWithID(art.ID, "image/jpeg", small)
+			art = h.lib.Artwork.Get(art.ID)
+		} else {
+			log.Printf("dbserver: artwork %d oversized (%d bytes), resize failed (%v) — skipping to protect the deck", art.ID, len(art.Data), err)
+			art = nil
+		}
+	}
+
 	if art == nil {
 		log.Printf("dbserver: artwork %d not found", artID)
 		// rekordbox returns 0x4002 with status=0x32 (not found) + phantom blob arg.
