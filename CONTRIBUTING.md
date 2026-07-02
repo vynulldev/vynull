@@ -52,6 +52,9 @@ load path, analysis output, or anything a deck reacts to:
 - New source files start with an SPDX header:
   `// SPDX-License-Identifier: GPL-3.0-or-later` (`#` for scripts/YAML, `<!-- -->` for HTML/SVG).
 - Commit subjects use a lowercase area prefix, e.g. `dbserver: fix …`, `analysis: …`, `main: …`.
+- **Commit in UTC** to keep the history timezone-neutral — `TZ=UTC git commit …` (git stamps each
+  commit with your machine's local timezone, and there's no per-repo setting for it; exporting
+  `TZ=UTC` in your shell, or a commit alias, makes it automatic).
 - Keep pull requests focused; explain the "why", not just the "what".
 
 ## Scope & a note on trademarks
