@@ -238,7 +238,7 @@ func (m tuiModel) View() string {
 // ---------- tab rendering ----------
 
 func (m tuiModel) renderTabs() string {
-	header := titleStyle.Render("  VYNULL") + "  "
+	header := titleStyle.Render("  VYNULL") + " " + dimStyle.Render("MONITOR") + "  "
 	if m.apiAddr != "" {
 		header += dimStyle.Render("API: http://"+m.apiAddr) + "  "
 	}
