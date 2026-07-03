@@ -642,6 +642,11 @@
   .lib-empty-title { color: var(--text2); font-size: 13px; letter-spacing: 0.1em; text-transform: uppercase; }
   .lib-empty-cta .source-btn { font-size: 14px; padding: 12px 22px; }
   .lib-empty-sub { color: var(--text3); font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; }
+  .lib-empty-or {
+    display: flex; align-items: center; gap: 10px; width: 200px;
+    color: var(--text3); font-size: 10px; letter-spacing: 0.2em; text-transform: uppercase;
+  }
+  .lib-empty-or::before, .lib-empty-or::after { content: ""; flex: 1; height: 1px; background: var(--wire); }
 
   /* ───────── LIBRARY ───────── */
   /* Two-column layout: sidebar (Collection + playlist tree) + main
@@ -5490,11 +5495,16 @@ function renderLibrary(tracks) {
       // First-run onboarding: the whole library is empty → invite an import.
       el.innerHTML = `<div class="lib-empty-cta">
         <div class="lib-empty-title">Your library is empty</div>
+        <button type="button" id="lib-empty-add" class="source-btn">+ Add tracks or folders</button>
+        <div class="lib-empty-sub">MP3 · M4A · FLAC · WAV · AIFF</div>
+        <div class="lib-empty-or">or</div>
         <button type="button" id="lib-empty-import" class="source-btn">↓ Import your rekordbox library</button>
         <div class="lib-empty-sub">XML · master.db · backup .zip</div>
       </div>`;
       const b = document.getElementById('lib-empty-import');
       if (b) b.onclick = () => openImportRekordboxDialog();
+      const a = document.getElementById('lib-empty-add');
+      if (a) a.onclick = () => openAddBrowserDialog();
     } else {
       el.innerHTML = '<div class="empty-state">NO TRACKS MATCH</div>';
     }
@@ -9896,6 +9906,10 @@ function openAddBrowserDialog(onDone) {
       <button class="x" type="button" title="Close">×</button>
     </div>
     <div class="body">
+      <div style="display:flex; gap:6px; margin-bottom:10px;">
+        <input type="text" id="fs-path-input" class="input" placeholder="Type or paste a folder path, then Enter" autocomplete="off" spellcheck="false" style="flex:1">
+        <button type="button" id="fs-go" class="source-btn">Go</button>
+      </div>
       <div class="fs-crumb" id="fs-crumb">Loading…</div>
       <div class="fs-list" id="fs-list"></div>
       <div class="export-status" id="fs-status"></div>
@@ -9914,6 +9928,8 @@ function openAddBrowserDialog(onDone) {
   m.querySelector('.x').onclick = close;
 
   const crumb = m.querySelector('#fs-crumb');
+  const pathInput = m.querySelector('#fs-path-input');
+  const goBtn = m.querySelector('#fs-go');
   const listEl = m.querySelector('#fs-list');
   const statusEl = m.querySelector('#fs-status');
   const upBtn = m.querySelector('#fs-up');
@@ -9938,7 +9954,8 @@ function openAddBrowserDialog(onDone) {
       listEl.innerHTML = `<div class="export-hint" style="padding:10px">Error: ${escape(e.message)}</div>`;
       return;
     }
-    crumb.textContent = cur.roots ? 'Choose a location:' : cur.path;
+    crumb.textContent = cur.roots ? 'Choose a location, or type a path:' : cur.path;
+    pathInput.value = cur.roots ? '' : cur.path;
     upBtn.style.display = cur.roots ? 'none' : '';
     addFolderBtn.style.display = cur.roots ? 'none' : '';
     if (!cur.entries || !cur.entries.length) {
@@ -9977,6 +9994,9 @@ function openAddBrowserDialog(onDone) {
     updateSel();
   }
 
+  const goTo = () => { const p = pathInput.value.trim(); if (p) load(p); };
+  goBtn.onclick = goTo;
+  pathInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') goTo(); });
   upBtn.onclick = () => load(cur.parent || '');
   addFolderBtn.onclick = () => doAdd([cur.path]);
   addSelBtn.onclick = () => doAdd([...selected]);
