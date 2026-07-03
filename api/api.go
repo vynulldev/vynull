@@ -82,6 +82,55 @@ type Server struct {
 	// addJobs tracks in-flight/recently-finished background bulk adds
 	// (large folder adds). Keyed by job ID; value is *addJob.
 	addJobs sync.Map
+
+	// importProg is the pollable phase/progress of an in-flight rekordbox import.
+	// The import POST is synchronous; the web UI polls /api/import/status while
+	// it runs to drive a progress bar. Guarded by importProgMu.
+	importProgMu sync.Mutex
+	importProg   importProgress
+}
+
+// importProgress is the shared, pollable state of a rekordbox import.
+type importProgress struct {
+	Active bool   `json:"active"`
+	Phase  string `json:"phase"`
+	Done   int    `json:"done"`  // items processed in the current counted phase
+	Total  int    `json:"total"` // items in the current counted phase (0 = indeterminate)
+}
+
+func (s *Server) importBegin(phase string) {
+	s.importProgMu.Lock()
+	s.importProg = importProgress{Active: true, Phase: phase}
+	s.importProgMu.Unlock()
+}
+func (s *Server) importPhase(phase string) {
+	s.importProgMu.Lock()
+	s.importProg.Phase, s.importProg.Done, s.importProg.Total = phase, 0, 0
+	s.importProgMu.Unlock()
+}
+func (s *Server) importCount(phase string, done, total int) {
+	s.importProgMu.Lock()
+	s.importProg.Phase, s.importProg.Done, s.importProg.Total = phase, done, total
+	s.importProgMu.Unlock()
+}
+func (s *Server) importEnd() {
+	s.importProgMu.Lock()
+	s.importProg = importProgress{}
+	s.importProgMu.Unlock()
+}
+func (s *Server) importBusy() bool {
+	s.importProgMu.Lock()
+	defer s.importProgMu.Unlock()
+	return s.importProg.Active
+}
+
+// handleImportStatus reports the progress of an in-flight import (polled by the
+// web UI). GET /api/import/status.
+func (s *Server) handleImportStatus(w http.ResponseWriter, r *http.Request) {
+	s.importProgMu.Lock()
+	p := s.importProg
+	s.importProgMu.Unlock()
+	writeJSON(w, p)
 }
 
 // artExtractSem bounds concurrent lazy ffmpeg artwork probes so a fast scroll
@@ -234,6 +283,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/tracks/check-decode", s.handleCheckDecode)
 	mux.HandleFunc("/api/export/preview", s.handleExportPreview)
 	mux.HandleFunc("/api/import/rekordbox", s.handleImportRekordbox)
+	mux.HandleFunc("/api/import/status", s.handleImportStatus)
 	mux.HandleFunc("/api/library/remap-paths", s.handleRemapPaths)
 	mux.HandleFunc("/api/load", s.handleLoadTrack)
 
@@ -905,6 +955,16 @@ func (s *Server) handleImportRekordbox(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// One import at a time — the progress state (and the library writes) assume
+	// a single in-flight import. The UI disables its button too, but guard here
+	// against a second concurrent request.
+	if s.importBusy() {
+		http.Error(w, "an import is already running", http.StatusConflict)
+		return
+	}
+	s.importBegin("Reading rekordbox database…")
+	defer s.importEnd()
+
 	ext := strings.ToLower(filepath.Ext(req.Path))
 	var result *library.ImportResult
 	var playlists []library.PlaylistImport
@@ -981,12 +1041,14 @@ func (s *Server) handleImportRekordbox(w http.ResponseWriter, r *http.Request) {
 		}
 		defer os.RemoveAll(tmp)
 		var dbPath string
+		s.importPhase("Extracting backup…")
 		dbPath, shareRoot, settingsDir, err = extractRekordboxBackup(req.Path, tmp, incSettings && s.Settings != nil)
 		if err != nil {
 			http.Error(w, "extract backup: "+err.Error(), http.StatusBadRequest)
 			return
 		}
 		if incTracks {
+			s.importPhase("Reading rekordbox database…")
 			result, playlists, tags, colors, assets, masterCues, err = library.ImportRekordboxMasterDB(s.Library, dbPath, key)
 		}
 	default:
@@ -1018,6 +1080,9 @@ func (s *Server) handleImportRekordbox(w http.ResponseWriter, r *http.Request) {
 	// the playlist store. Re-importing creates new entries — we don't
 	// try to dedupe by name since the user may legitimately want both.
 	if s.Playlists != nil && incPlaylists {
+		if len(playlists) > 0 {
+			s.importPhase("Importing playlists…")
+		}
 		var created, skipped, smart int
 		var walk func(parent uint32, nodes []library.PlaylistImport)
 		walk = func(parent uint32, nodes []library.PlaylistImport) {
@@ -1076,6 +1141,7 @@ func (s *Server) handleImportRekordbox(w http.ResponseWriter, r *http.Request) {
 	// assigned to the imported tracks. Existing per-track tag sets are
 	// unioned so a re-import doesn't drop tags applied elsewhere.
 	if s.Tags != nil && incTags && len(tags) > 0 {
+		s.importPhase("Importing tags…")
 		byName := make(map[string]TagInfo)
 		for _, t := range s.Tags.GetAllTags() {
 			byName[t.Name] = t
@@ -1161,7 +1227,10 @@ func (s *Server) handleImportRekordbox(w http.ResponseWriter, r *http.Request) {
 	// a copied-out .db has no accompanying file tree, so this is skipped.
 	if shareRoot != "" && len(assets) > 0 && (incArtwork || incAnalysis || incCues) {
 		var artN, anlzN, cueN int
-		for _, a := range assets {
+		for i, a := range assets {
+			if i%8 == 0 {
+				s.importCount("Importing waveforms & artwork…", i, len(assets))
+			}
 			t := s.Library.Track(a.TrackID)
 			if t == nil {
 				continue
@@ -1260,6 +1329,7 @@ func (s *Server) handleImportRekordbox(w http.ResponseWriter, r *http.Request) {
 	// can show it, and report a count. Existence is cheap (os.Stat); scan the
 	// whole library so re-imports re-evaluate previously-flagged tracks too.
 	if incTracks {
+		s.importPhase("Checking files…")
 		keyFixed := 0
 		var toStat []*library.Track
 		for _, t := range s.Library.Tracks() {

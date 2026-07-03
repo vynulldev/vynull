@@ -1575,6 +1575,29 @@
     font-size: 11px; color: var(--text2);
     min-height: 14px; margin-top: 4px;
   }
+  /* Import progress bar (shown while a rekordbox import runs). */
+  .imp-progress { margin-top: 10px; display: none; }
+  .imp-progress.show { display: block; }
+  .imp-progress-phase { font-size: 11px; color: var(--cyan); letter-spacing: 0.04em; margin-bottom: 6px; }
+  .imp-progress-track {
+    height: 6px; background: #000; border: 1px solid var(--wire);
+    border-radius: 3px; overflow: hidden; position: relative;
+  }
+  .imp-progress-fill {
+    height: 100%; width: 0%;
+    background: linear-gradient(90deg, var(--cyan), var(--green));
+    transition: width 0.25s ease;
+  }
+  .imp-progress.indeterminate .imp-progress-fill {
+    position: absolute; width: 35%; left: 0;
+    animation: imp-slide 1.15s ease-in-out infinite;
+    transition: none;
+  }
+  @keyframes imp-slide { 0% { left: -35%; } 100% { left: 100%; } }
+  .imp-progress-count {
+    font-size: 10px; color: var(--text3); margin-top: 5px; text-align: right;
+    font-variant-numeric: tabular-nums; min-height: 12px;
+  }
   .menu-modal .foot #export-go {
     background: var(--orange-soft); color: var(--black); border-color: var(--orange);
     margin-left: auto;
@@ -9976,6 +9999,45 @@ async function addTracksWithProgress(paths, statusEl, onDone) {
   });
 }
 
+// startImportProgress shows the import progress bar in dialog `m` and polls
+// /api/import/status until stopped, driving the phase label + bar. The import
+// POST is synchronous, so we poll alongside it and call the returned stop()
+// when it resolves. A determinate bar shows for counted phases (done/total),
+// an animated indeterminate bar for the rest.
+function startImportProgress(m) {
+  const prog = m.querySelector('#imp-progress');
+  const phaseEl = m.querySelector('#imp-prog-phase');
+  const fillEl = m.querySelector('#imp-prog-fill');
+  const countEl = m.querySelector('#imp-prog-count');
+  if (!prog) return () => {};
+  prog.classList.add('show', 'indeterminate');
+  phaseEl.textContent = 'Starting…';
+  fillEl.style.width = '';
+  countEl.textContent = '';
+  let running = true;
+  (async () => {
+    while (running) {
+      try {
+        const s = await (await fetch('/api/import/status')).json();
+        if (running && s.active) {
+          phaseEl.textContent = s.phase || 'Working…';
+          if (s.total > 0) {
+            prog.classList.remove('indeterminate');
+            fillEl.style.width = Math.min(100, Math.round((s.done / s.total) * 100)) + '%';
+            countEl.textContent = s.done.toLocaleString() + ' / ' + s.total.toLocaleString();
+          } else {
+            prog.classList.add('indeterminate');
+            fillEl.style.width = '';
+            countEl.textContent = '';
+          }
+        }
+      } catch (e) { /* transient — keep polling */ }
+      await new Promise(r => setTimeout(r, 350));
+    }
+  })();
+  return () => { running = false; prog.classList.remove('show', 'indeterminate'); };
+}
+
 // Directory browser for "add files/folders". Navigates the server's filesystem
 // (confined server-side to the configured browse roots) and adds a whole folder
 // or hand-picked files to the library. onDone(json) fires after each add.
@@ -10153,6 +10215,11 @@ function openImportRekordboxDialog() {
         <div class="export-hint">Uncheck anything you don't want. Options the chosen source can't provide are hidden. (Playlists, tags, cues, analysis and artwork all require Tracks.)</div>
       </div>
       <div class="export-status" id="imp-status"></div>
+      <div class="imp-progress" id="imp-progress">
+        <div class="imp-progress-phase" id="imp-prog-phase"></div>
+        <div class="imp-progress-track"><div class="imp-progress-fill" id="imp-prog-fill"></div></div>
+        <div class="imp-progress-count" id="imp-prog-count"></div>
+      </div>
     </div>
     <div class="foot">
       <button type="button" id="imp-go">IMPORT</button>
@@ -10243,12 +10310,14 @@ function openImportRekordboxDialog() {
     goBtn.disabled = true;
     pathInput.disabled = true;
     keyInput.disabled = true;
-    statusEl.textContent = 'Importing…';
+    statusEl.textContent = '';
+    const stopProgress = startImportProgress(m);
     try {
       const r = await fetch('/api/import/rekordbox', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
       });
+      stopProgress();
       if (!r.ok) {
         const t = await r.text();
         statusEl.textContent = `Failed: ${r.status} ${t}`;
@@ -10277,6 +10346,7 @@ function openImportRekordboxDialog() {
       await loadPlaylists(true);
       refreshLibraryView();
     } catch (err) {
+      stopProgress();
       statusEl.textContent = `Failed: ${err}`;
       goBtn.disabled = false; pathInput.disabled = false; keyInput.disabled = false;
     }
