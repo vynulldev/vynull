@@ -2638,8 +2638,9 @@ func (s *Server) handleWaveformPNG(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	cacheKey := waveformCacheKey(trackID, filePath)
-	cachePath := s.waveformPNGPath(cacheKey, waveType+"_"+colorMode+"_"+overview, width, height, result.CacheVersion)
-	etag := fmt.Sprintf(`"png-v%d-%s-%s-%s-%s-%dx%d"`, result.CacheVersion, waveType, colorMode, overview, cacheKey, width, height)
+	variant := fmt.Sprintf("r%d_%s_%s_%s", waveformPNGRenderVersion, waveType, colorMode, overview)
+	cachePath := s.waveformPNGPath(cacheKey, variant, width, height, result.CacheVersion)
+	etag := fmt.Sprintf(`"png-r%d-v%d-%s-%s-%s-%s-%dx%d"`, waveformPNGRenderVersion, result.CacheVersion, waveType, colorMode, overview, cacheKey, width, height)
 
 	// Browser ETag revalidation.
 	w.Header().Set("ETag", etag)
@@ -2710,16 +2711,6 @@ var placeholderWaveformPNG = func() []byte {
 	return buf.Bytes()
 }()
 
-func maxInt3(a, b, c int) int {
-	if b > a {
-		a = b
-	}
-	if c > a {
-		a = c
-	}
-	return a
-}
-
 func clamp8(v float64) uint8 {
 	if v < 0 {
 		return 0
@@ -2748,23 +2739,10 @@ func blueColor(mr, mg, mb int) color.RGBA {
 	}
 }
 
-// band3Color maps averaged 3-band magnitudes (bass, mid, treble; 0-255) to a
-// CDJ-3000-style colour: bass→blue, mid→amber, treble→white. The result is a
-// convex blend of the three tints by band proportion, so it always renders a
-// bright hue; the bar height (set by the caller) carries the amplitude.
-func band3Color(b, m, t int) color.RGBA {
-	sum := float64(b + m + t)
-	if sum == 0 {
-		return color.RGBA{A: 255}
-	}
-	fb, fm, ft := float64(b)/sum, float64(m)/sum, float64(t)/sum
-	return color.RGBA{
-		R: clamp8(fb*30 + fm*255 + ft*235),
-		G: clamp8(fb*120 + fm*170 + ft*245),
-		B: clamp8(fb*255 + fm*30 + ft*255),
-		A: 255,
-	}
-}
+// waveformPNGRenderVersion invalidates disk-cached thumbnails + browser ETags
+// when the PNG rendering changes (independently of the analysis CacheVersion).
+// Bump on any renderWaveformPNG change. 2: 3-band drawn as a stacked half wave.
+const waveformPNGRenderVersion = 2
 
 // renderWaveformPNG draws a waveform to an RGBA image and PNG-encodes it.
 // PWV5 (detail): per-entry r/g/b weights ∈ [0,7] + h ∈ [0,31]. Subsamples
@@ -2837,10 +2815,14 @@ func renderWaveformPNG(result *analysis.Result, waveType, colorMode, overview st
 	if waveType == "detail" && colorMode == "3band" && len(band3) >= 3 {
 		data := band3
 		n := len(data) / 3
-		// Pass 1: per-column colour (band balance) + amplitude (loudest band).
-		colColor := make([]color.RGBA, width)
-		colAmp := make([]int, width)
-		maxAmp := 1
+		// The 3-band PREVIEW is a bottom-anchored VERTICAL STACK (rekordbox
+		// convention, matching drawStacked3Band in index.html): blue bass on the
+		// bottom, orange mid stacked above, white treble on top — each segment's
+		// height is that band's amplitude, not overlaid bars. Pass 1: per-column
+		// per-band peak.
+		bassC := make([]int, width)
+		midC := make([]int, width)
+		trebC := make([]int, width)
 		for x := 0; x < width; x++ {
 			var start, end int
 			if overview3 {
@@ -2855,37 +2837,58 @@ func renderWaveformPNG(result *analysis.Result, waveType, colorMode, overview st
 			} else {
 				start, end = entryRange(x, n)
 			}
-			var sb, sm, st, mx, count int
+			var mb, mm, mt int
 			for i := start; i < end; i++ {
-				b, m, t := int(data[i*3]), int(data[i*3+1]), int(data[i*3+2])
-				sb += b
-				sm += m
-				st += t
-				count++
-				if pk := maxInt3(b, m, t); pk > mx {
-					mx = pk
+				if b := int(data[i*3]); b > mb {
+					mb = b
+				}
+				if m := int(data[i*3+1]); m > mm {
+					mm = m
+				}
+				if t := int(data[i*3+2]); t > mt {
+					mt = t
 				}
 			}
-			if count == 0 || mx == 0 {
-				continue
-			}
-			colColor[x] = band3Color(sb/count, sm/count, st/count)
-			colAmp[x] = mx
-			if mx > maxAmp {
-				maxAmp = mx
+			bassC[x], midC[x], trebC[x] = mb, mm, mt
+		}
+		// Light column-space smoothing (rekordbox's preview is very smooth).
+		smoothCol := func(a []int) {
+			src := append([]int(nil), a...)
+			for x := range a {
+				sum, cnt := 0, 0
+				for j := x - 1; j <= x+1; j++ {
+					if j >= 0 && j < len(a) {
+						sum += src[j]
+						cnt++
+					}
+				}
+				a[x] = sum / cnt
 			}
 		}
-		// Pass 2: normalise bar height to the track's peak so the loudest part
-		// fills the thumbnail — the stored 3-band amplitudes are low (rekordbox
-		// amplifies them via PWVC for display), and PWV5 likewise normalises.
+		smoothCol(bassC)
+		smoothCol(midC)
+		smoothCol(trebC)
+		// Pass 2: stack bottom-up, normalised so the loudest column fills the box.
+		// Full vivid colours (segments don't overlap). Always bottom-anchored —
+		// the 3-band preview is a half waveform regardless of the overview setting.
+		maxTot := 1
 		for x := 0; x < width; x++ {
-			if colAmp[x] == 0 {
-				continue
+			if t := bassC[x] + midC[x] + trebC[x]; t > maxTot {
+				maxTot = t
 			}
-			barH := clampBar((colAmp[x] * height) / maxAmp)
-			top := barTop(barH)
-			for y := top; y < top+barH; y++ {
-				img.SetRGBA(x, y, colColor[x])
+		}
+		stackCols := [3]color.RGBA{{R: 30, G: 120, B: 255, A: 255}, {R: 255, G: 170, B: 30, A: 255}, {R: 235, G: 245, B: 255, A: 255}}
+		bands := [3][]int{bassC, midC, trebC}
+		for x := 0; x < width; x++ {
+			y := height
+			for bi := 0; bi < 3; bi++ {
+				seg := (bands[bi][x] * height) / maxTot
+				for k := 0; k < seg; k++ {
+					y--
+					if y >= 0 {
+						img.SetRGBA(x, y, stackCols[bi])
+					}
+				}
 			}
 		}
 	} else if waveType == "detail" {
