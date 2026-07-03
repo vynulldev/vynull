@@ -255,13 +255,18 @@ func (h *Handler) Handle(msg *proto.DBMessage) []*proto.DBMessage {
 		return h.handleGetColors(msg)
 	case 0x110d: // COLOR drill-in: tracks of a given colour
 		return h.handleGetTracksByColor(msg)
-	case 0x2005, 0x2805:
-		// Stubs for opcodes the deck sends but we haven't decoded yet.
-		//   0x2005: analysis section by track — args [spec, slot?,
-		//           track_id, 0, range, 0]
-		//   0x2805: tagged analysis section read — args contain ASCII
-		//           tag names like "PVB2", "EXTI"
+	case 0x2005:
+		// Stub: analysis section by track — args [spec, slot?, track_id, 0,
+		// range, 0]. rekordbox sends NO response (verified from a real-RB
+		// pcap, txid 040004aa); replying corrupts the deck's load state.
 		return h.handleUndecodedStub(msg)
+	case 0x2805:
+		// PVB2 write: the deck uploads a seek index it computed itself (arg[6]
+		// is a full PVB2 section) after rejecting the PVB2 we served. This is a
+		// WRITE, analogous to 0x2705 cue-write — it MUST be acknowledged or the
+		// deck deadlocks its dbserver channel (blank details, hung browse)
+		// while NFS/audio keep working.
+		return h.handleWritePVB2(msg)
 	case 0x1114: // key distances (3 groups: exact, +/-1, +/-2)
 		return h.handleGetKeyDistances(msg)
 	case 0x1214: // tracks near key (key_id + distance)

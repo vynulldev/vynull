@@ -621,10 +621,60 @@ func (h *Handler) handleGetExtAnalysis(msg *proto.DBMessage) []*proto.DBMessage 
 						},
 					}}
 				}
-			case "PVB2": // VBR seek index
-				// rekordbox returns NOT_FOUND for PVB2. Returning data here
-				// appears to prevent the CDJ from requesting PSSI (song structure).
-				log.Printf("dbserver: PVB2 for track %d (not found, matching rekordbox)", trackID)
+			case "PVB2": // extended VBR seek index
+				// rekordbox SERVES PVB2 here (0x4f02, ~8036-byte blob),
+				// verified against real-RB captures of this exact load. If we
+				// withhold it, the deck retries via a raw 0x2805 tagged-section
+				// read; that path is unanswered and deadlocks the deck's
+				// dbserver channel (blank details, hung browse) while NFS/audio
+				// keep working — the FLAC-load freeze. So we must return PVB2.
+				//
+				// Prefer the real .EXT section (byte-exact); otherwise serve a
+				// generated placeholder so the deck stops falling back to 0x2805.
+				if h.pdb != nil {
+					t := h.pdb.TrackByID(trackID)
+					if t != nil && t.AnalyzePath != "" {
+						extPath := strings.Replace(t.AnalyzePath, ".DAT", ".EXT", 1)
+						if h.exportRoot != "" {
+							extPath = h.exportRoot + extPath
+						}
+						if realBlob := analysis.ReadANLZSection(extPath, "PVB2"); realBlob != nil {
+							log.Printf("dbserver: PVB2 for track %d (%d bytes, from ANLZ file)", trackID, len(realBlob))
+							return []*proto.DBMessage{{
+								TxID: msg.TxID, Type: 0x4f02,
+								Args: []proto.DBArg{
+									proto.ArgI32(0x2c04),
+									proto.ArgI32(0),
+									proto.ArgI32(uint32(len(realBlob))),
+									proto.ArgBlob(realBlob),
+									proto.ArgI32(1), // data-valid flag
+								},
+							}}
+						}
+					}
+				}
+				// No ANLZ file: generate a real seek index from the audio
+				// frames (cached). A correct index (true byte offsets) is what
+				// stops the deck rejecting it and uploading its own via 0x2805.
+				// Falls back to the zeroed placeholder only if the file can't
+				// be probed.
+				blob := analysis.VBRSeekIndex(h.resolveTrackPath(trackID))
+				if blob != nil {
+					log.Printf("dbserver: PVB2 for track %d (%d bytes, generated seek index)", trackID, len(blob))
+				} else {
+					blob = analysis.GeneratePVB2()
+					log.Printf("dbserver: PVB2 for track %d (%d bytes, placeholder — probe failed)", trackID, len(blob))
+				}
+				return []*proto.DBMessage{{
+					TxID: msg.TxID, Type: 0x4f02,
+					Args: []proto.DBArg{
+						proto.ArgI32(0x2c04),
+						proto.ArgI32(0),
+						proto.ArgI32(uint32(len(blob))),
+						proto.ArgBlob(blob),
+						proto.ArgI32(1), // data-valid flag
+					},
+				}}
 			case "PQT2": // phrase quantize v2
 				// Try reading real PQT2 from ANLZ .EXT file first — UNLESS the user
 				// manually adjusted the grid, in which case the on-disk file is stale
@@ -721,6 +771,49 @@ func (h *Handler) handleGetSongStructure(msg *proto.DBMessage) []*proto.DBMessag
 			proto.ArgI32(0),
 			proto.ArgI32(1604),
 			proto.ArgBlob(placeholder),
+		},
+	}}
+}
+
+// handleWritePVB2 acknowledges a 0x2805 PVB2 write. When the deck decides the
+// PVB2 (extended VBR seek index) we served is unusable, it computes its own
+// from the audio (read over NFS) and uploads it here — arg[6] is a complete
+// PVB2 ANLZ section. This is a WRITE analogous to the 0x2705 cue-write; if we
+// don't answer it, the deck blocks its whole dbserver request channel forever
+// (blank details, hung browse) while NFS/audio keep working. rekordbox
+// never hits this path because its PVB2 is always valid, so there is no
+// captured reply to copy — we mirror the 0x2705 cue-write pattern (reply
+// echoing the written blob) using the 0x4f02 PVB2 response the deck already
+// accepts for 0x2c04 reads.
+func (h *Handler) handleWritePVB2(msg *proto.DBMessage) []*proto.DBMessage {
+	var trackID uint32
+	if len(msg.Args) >= 2 {
+		trackID = msg.Args[1].Int()
+	}
+	// The uploaded section is the last (binary) argument.
+	var section []byte
+	for i := len(msg.Args) - 1; i >= 0; i-- {
+		if len(msg.Args[i].Bytes) > 0 {
+			section = msg.Args[i].Bytes
+			break
+		}
+	}
+	log.Printf("dbserver: PVB2 write 0x2805 track=%d (%d-byte section) — acking", trackID, len(section))
+
+	// Wrap with the 4-byte little-endian length prefix used by the dbserver
+	// ANLZ blob format (matches ReadANLZSection / GeneratePVB2 output).
+	blob := make([]byte, 4+len(section))
+	binary.LittleEndian.PutUint32(blob, uint32(len(section)))
+	copy(blob[4:], section)
+
+	return []*proto.DBMessage{{
+		TxID: msg.TxID, Type: 0x4f02,
+		Args: []proto.DBArg{
+			proto.ArgI32(0x2c04),
+			proto.ArgI32(0),
+			proto.ArgI32(uint32(len(blob))),
+			proto.ArgBlob(blob),
+			proto.ArgI32(1), // data-valid flag
 		},
 	}}
 }

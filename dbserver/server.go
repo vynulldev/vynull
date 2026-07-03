@@ -18,6 +18,7 @@ import (
 
 	"github.com/vynulldev/vynull/analysis"
 	"github.com/vynulldev/vynull/device"
+	"github.com/vynulldev/vynull/internal/dlog"
 	"github.com/vynulldev/vynull/library"
 	"github.com/vynulldev/vynull/pdb"
 	"github.com/vynulldev/vynull/proto"
@@ -414,6 +415,14 @@ func (s *Server) handleSession(ctx context.Context, conn net.Conn) {
 			// Per-response send logging removed; menu queries fan out into
 			// many sub-messages and each line allocated a formatted string.
 			// Replay path keeps its log so unintended fallback is visible.
+			//
+			// At trace level, dump the exact bytes we put on the wire for each
+			// response message so a hung deck can be traced to the last response
+			// it accepted before its dbserver client wedged.
+			if dlog.Enabled(dlog.Trace) {
+				dlog.Tracef("dbserver SEND type=0x%04x txid=%08x (%d bytes):\n%s",
+					resp.Type, resp.TxID, len(data), hex.Dump(data))
+			}
 
 			combined = append(combined, data...)
 		}

@@ -340,6 +340,23 @@ func makeEmptyVB2Section() []byte {
 	return makeSection(tagPVB2, extra, body)
 }
 
+// GeneratePVB2 returns a placeholder PVB2 (extended VBR seek index) section
+// wrapped with the 4-byte little-endian length prefix used by the dbserver
+// ANLZ blob format (same layout ReadANLZSection returns). rekordbox
+// serves an 8036-byte blob (LE len + 8032-byte PVB2 section) in reply to a
+// 0x2c04 PVB2 request; withholding it makes the deck fall back to a raw
+// 0x2805 tagged-section read, which — if unanswered — deadlocks the deck's
+// dbserver channel (see the PVB2 case in dbserver/track.go). The seek index
+// body is zeroed here (we don't yet compute real VBR offsets), which is
+// enough for linear playback; ANLZ-backed tracks serve the real section.
+func GeneratePVB2() []byte {
+	section := makeEmptyVB2Section()
+	blob := make([]byte, 4+len(section))
+	binary.LittleEndian.PutUint32(blob, uint32(len(section)))
+	copy(blob[4:], section)
+	return blob
+}
+
 // makeEmptyVBRSection creates a PVBR (variable-bitrate seek index) section.
 // Real exports always have len_header=16, len_tag=1620 (4 bytes extra + 1604
 // bytes body = 401 × u4 seek offsets per the kaitai spec). We write all zeros
