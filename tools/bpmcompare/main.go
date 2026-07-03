@@ -8,7 +8,7 @@
 //
 // Usage:
 //
-//	go run ./tools/bpmcompare -lib data-dir-test13/library.json -n 40 [-v]
+//	go run ./tools/bpmcompare -lib ~/.vynull/library.json -n 40 [-v]
 package main
 
 import (
@@ -36,8 +36,8 @@ type track struct {
 }
 
 func main() {
-	lib := flag.String("lib", "data-dir-test13/library.json", "library.json with rekordbox BPM per track")
-	cacheDir := flag.String("cache", "data-dir-test13/analysis", "analysis cache dir holding rekordbox's imported beat grids (.gob)")
+	lib := flag.String("lib", "~/.vynull/library.json", "library.json with rekordbox BPM per track")
+	cacheDir := flag.String("cache", "~/.vynull/analysis", "analysis cache dir holding rekordbox's imported beat grids (.gob)")
 	n := flag.Int("n", 40, "number of tracks to sample (0 = all eligible)")
 	workers := flag.Int("workers", 3, "concurrent decode+analyze workers")
 	verbose := flag.Bool("v", false, "print a line per track")

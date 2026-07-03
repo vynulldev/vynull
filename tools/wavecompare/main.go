@@ -7,7 +7,7 @@
 // colour balance shows which frequency band is over/under-weighted vs rekordbox
 // — the knob to turn is the band cutoff frequencies in splitBandsAndPeaks.
 //
-// Usage: go run ./tools/wavecompare -lib data-dir-test13/library.json -n 40 [-v]
+// Usage: go run ./tools/wavecompare -lib ~/.vynull/library.json -n 40 [-v]
 package main
 
 import (
@@ -92,8 +92,8 @@ func decodePWV4(buf []byte) []col {
 }
 
 func main() {
-	lib := flag.String("lib", "data-dir-test13/library.json", "library.json")
-	cacheDir := flag.String("cache", "data-dir-test13/analysis", "analysis cache dir holding rekordbox's imported PWV5")
+	lib := flag.String("lib", "~/.vynull/library.json", "library.json")
+	cacheDir := flag.String("cache", "~/.vynull/analysis", "analysis cache dir holding rekordbox's imported PWV5")
 	n := flag.Int("n", 40, "tracks to sample (0 = all eligible)")
 	workers := flag.Int("workers", 3, "concurrent workers")
 	verbose := flag.Bool("v", false, "per-track output")
