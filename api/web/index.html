@@ -1167,7 +1167,18 @@
   }
   table.lib {
     width: 100%; border-collapse: collapse; font-size: 12px;
+    table-layout: fixed;
   }
+  table.lib colgroup col.c-sel { width: 34px; }
+  /* Load column has no fixed width: it's the auto column that soaks up any
+     slack so the data columns keep their exact widths and the table fills the
+     panel (button is right-aligned, so it stays at the right edge). */
+  /* Draggable column-resize handle on each header's right edge. */
+  .col-resize {
+    position: absolute; top: 0; right: 0; z-index: 3;
+    width: 8px; height: 100%; cursor: col-resize;
+  }
+  .col-resize:hover, .col-resize.dragging { background: var(--orange); opacity: 0.5; }
   table.lib thead th {
     background: var(--ink);
     border-bottom: 1px solid var(--wire);
@@ -1219,7 +1230,13 @@
     border-bottom: 1px solid #0e0e10;
     vertical-align: middle;
     height: var(--lib-row-h, 36px);
+    /* table-layout:fixed clips overflow, so text columns ellipsize. */
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   }
+  /* Cells with positioned overlays / controls must not clip. */
+  table.lib tbody td.wave-cell, table.lib tbody td.art-cell,
+  table.lib tbody td.sel-col, table.lib tbody td.load-cell { overflow: visible; }
+  table.lib thead th { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   /* Render the whole (uncapped) library cheaply: off-screen rows get
      content-visibility:auto so the browser skips their layout & paint until
      they scroll near the viewport. contain-intrinsic-size with the `auto`
@@ -1272,7 +1289,7 @@
   td.wave-cell { width: 156px; padding: 4px 8px 4px 10px; }
   td.wave-cell img {
     display: block;
-    width: 140px; height: 28px;
+    width: 100%; height: 100%;
     background: #020102;
     border: 1px solid var(--divider);
     image-rendering: pixelated;
@@ -1280,13 +1297,15 @@
   }
   td.wave-cell img.loading { opacity: 0; }
   td.wave-cell img.loaded  { opacity: 1; transition: opacity .15s ease; }
-  /* Wrapper for the library waveform thumbnail so we can position cue
-     markers absolutely over it. Width matches the img above so markers
-     line up exactly with the waveform pixels. */
+  /* Wrapper for the library waveform thumbnail so we can position cue markers
+     absolutely over it. Fills its (resizable) column width and scales its
+     height with the row height; the PNG is re-fetched at the displayed size. */
   .wave-thumb {
     position: relative;
-    width: 140px; height: 28px;
-    display: inline-block;
+    width: 100%;
+    height: calc(var(--lib-row-h, 36px) - 8px);
+    min-height: 14px;
+    display: block;
   }
   .wave-thumb .cue-mark {
     position: absolute;
@@ -1307,7 +1326,7 @@
     opacity: 0.18;
     pointer-events: none;
   }
-  td.load-cell { width: 1px; white-space: nowrap; padding-right: 14px; }
+  td.load-cell { white-space: nowrap; padding-right: 14px; text-align: right; }
   .load-btn {
     background: transparent;
     border: 1px solid var(--wire);
@@ -3627,11 +3646,159 @@ function redrawAllWaveforms() {
 // updateThumbnailSrcs rewrites each library-row thumbnail src so a waveform
 // colour/overview change re-fetches the newly-keyed PNG without a full table
 // rebuild. Same URL when nothing changed → browser cache hit (no fetch).
+// --- Resizable library columns -------------------------------------------
+// Per-column widths (px) persisted in localStorage; missing keys fall back to
+// DEFAULT_COL_WIDTHS. The art column is excluded (its width derives from the
+// album-art mode + row height). Applied via a <colgroup> under
+// table-layout:fixed, with a trailing auto column absorbing any slack.
+const COL_W_LS_KEY = 'pdj-library-col-widths';
+const COL_W_MIN = 44, COL_W_MAX = 900;
+const DEFAULT_COL_WIDTHS = {
+  waveform: 156, id: 58, title: 280, artist: 180, album: 180, genre: 150,
+  bpm: 74, key: 66, duration: 74, year: 60, rating: 96, color: 70,
+  date_added: 110, play_count: 64, bitrate: 74, file_type: 70, comment: 200,
+  label: 150, remixer: 160, tags: 180, file_path: 300, webui: 70, source: 90,
+  cdj_menu: 90, my_setting: 110, djm_my_setting: 120, dev_setting: 110,
+};
+function loadColWidths() {
+  try { const v = JSON.parse(localStorage.getItem(COL_W_LS_KEY)); if (v && typeof v === 'object') return v; } catch (e) {}
+  return {};
+}
+let libColWidths = loadColWidths();
+function saveColWidths() { try { localStorage.setItem(COL_W_LS_KEY, JSON.stringify(libColWidths)); } catch (e) {} }
+function colWidth(key) {
+  const w = libColWidths[key];
+  const base = Number.isFinite(w) ? w : (DEFAULT_COL_WIDTHS[key] || 120);
+  return Math.max(COL_W_MIN, Math.min(COL_W_MAX, base));
+}
+function libWaveColWidth() { return colWidth('waveform'); }
+function artColWidth() { return libraryArtFit === 'square' ? Math.max(24, libraryRowHeight) : 88; }
+// Push every <col> width from the store and recompute the table's min-width, so
+// the wrap (no overflow → page horizontal scroll) reserves the full width and
+// columns aren't squished when they overflow the viewport.
+const LIB_SEL_W = 34, LIB_LOAD_W = 96;
+function libWrapAvail(table) {
+  const wrap = table.closest('.lib-table-wrap');
+  return wrap ? wrap.clientWidth : 0;
+}
+function applyColWidthsLive(root) {
+  const table = (root || document).querySelector('table.lib');
+  if (!table) return;
+  const cols = [...table.querySelectorAll('colgroup col[data-col-key]')];
+  const want = cols.map(col => {
+    const k = col.getAttribute('data-col-key');
+    return (k === 'art') ? artColWidth() : colWidth(k);
+  });
+  // Keep the table inside the panel (the wrap can't scroll without breaking the
+  // sticky header). The trailing load column is auto and absorbs any slack, so
+  // data columns render at their exact widths; if they'd still overflow the
+  // panel, squish them proportionally so nothing spills past the right edge.
+  const avail = libWrapAvail(table);
+  const dataSum = want.reduce((a, b) => a + b, 0);
+  let scale = 1;
+  if (avail > 0 && LIB_SEL_W + dataSum + LIB_LOAD_W > avail) {
+    scale = Math.max(0.15, (avail - LIB_SEL_W - LIB_LOAD_W) / dataSum);
+  }
+  cols.forEach((col, i) => { col.style.width = Math.max(20, Math.round(want[i] * scale)) + 'px'; });
+  table.style.width = '100%';
+  table.style.removeProperty('min-width');
+}
+// Attach drag-to-resize handles to each resizable column header.
+function attachColResizers(root) {
+  root.querySelectorAll('th[data-col-key]').forEach(th => {
+    const key = th.getAttribute('data-col-key');
+    if (key === 'art') return; // derived width, not user-resizable
+    const handle = document.createElement('div');
+    handle.className = 'col-resize';
+    handle.title = 'Drag to resize';
+    th.appendChild(handle);
+    handle.addEventListener('click', e => e.stopPropagation()); // don't trigger sort
+    handle.addEventListener('mousedown', e => {
+      e.preventDefault(); e.stopPropagation();
+      const startX = e.clientX, startW = colWidth(key);
+      th.draggable = false; // suspend column-reorder drag while resizing
+      handle.classList.add('dragging');
+      document.body.style.cursor = 'col-resize';
+      const onMove = ev => {
+        let w = Math.max(COL_W_MIN, Math.min(COL_W_MAX, startW + (ev.clientX - startX)));
+        // Clamp so the table can't grow past the panel — the load column absorbs
+        // the remaining space, so widening this one is bounded by what's left.
+        const table = root.querySelector('table.lib');
+        const avail = table ? libWrapAvail(table) : 0;
+        if (avail > 0) {
+          let others = 0;
+          root.querySelectorAll('colgroup col[data-col-key]').forEach(col => {
+            const k = col.getAttribute('data-col-key');
+            if (k !== key) others += (k === 'art') ? artColWidth() : colWidth(k);
+          });
+          const maxThis = avail - LIB_SEL_W - LIB_LOAD_W - others;
+          if (maxThis > COL_W_MIN) w = Math.min(w, maxThis);
+        }
+        libColWidths[key] = w;
+        applyColWidthsLive(root);
+      };
+      const onUp = () => {
+        document.removeEventListener('mousemove', onMove);
+        document.removeEventListener('mouseup', onUp);
+        handle.classList.remove('dragging');
+        document.body.style.cursor = '';
+        setTimeout(() => { th.draggable = true; }, 0);
+        saveColWidths();
+        if (key === 'waveform') scheduleWaveRefetch();
+      };
+      document.addEventListener('mousemove', onMove);
+      document.addEventListener('mouseup', onUp);
+    });
+  });
+}
+
+// autoFitColumns scales the visible resizable columns so they exactly fill the
+// panel width (one-click). The art column (derived width), the sel checkbox and
+// the load column are reserved; the rest are scaled from their current widths.
+function autoFitColumns() {
+  const table = document.querySelector('table.lib');
+  if (!table) return;
+  const avail = libWrapAvail(table);
+  if (avail <= 0) return;
+  const keys = [...table.querySelectorAll('colgroup col[data-col-key]')].map(c => c.getAttribute('data-col-key'));
+  const hasArt = keys.includes('art');
+  const dataKeys = keys.filter(k => k !== 'art');
+  if (!dataKeys.length) return;
+  const reserved = LIB_SEL_W + LIB_LOAD_W + (hasArt ? artColWidth() : 0);
+  const target = Math.max(dataKeys.length * COL_W_MIN, avail - reserved);
+  const cur = dataKeys.map(k => colWidth(k));
+  const sum = cur.reduce((a, b) => a + b, 0) || 1;
+  const scale = target / sum;
+  dataKeys.forEach((k, i) => { libColWidths[k] = Math.max(COL_W_MIN, Math.round(cur[i] * scale)); });
+  saveColWidths();
+  applyColWidthsLive();
+  scheduleWaveRefetch();
+}
+
+// Library waveform thumbnail sizing. The thumbnail scales with the row height
+// and its column width; we request the PNG at device resolution so an enlarged
+// thumbnail stays crisp rather than upscaling a small bitmap.
+function waveThumbCSS() {
+  return { w: Math.max(60, Math.round(libWaveColWidth() - 16)), h: Math.max(14, libraryRowHeight - 8) };
+}
+function waveThumbSrc(tid, bust) {
+  const c = waveThumbCSS();
+  const dpr = Math.min(3, window.devicePixelRatio || 1);
+  const w = Math.min(2400, Math.round(c.w * dpr));
+  const h = Math.min(240, Math.round(c.h * dpr));
+  return `/api/analysis/waveform-png/${tid}?type=detail&color=${effectiveWaveColor()}&overview=${overviewType()}&w=${w}&h=${h}` + (bust ? `&_=${Date.now()}` : '');
+}
 function updateThumbnailSrcs() {
   document.querySelectorAll('img[data-libtrack]').forEach(img => {
-    const tid = img.getAttribute('data-libtrack');
-    img.src = `/api/analysis/waveform-png/${tid}?type=detail&color=${effectiveWaveColor()}&overview=${overviewType()}&w=280&h=56`;
+    img.src = waveThumbSrc(img.getAttribute('data-libtrack'));
   });
+}
+// Debounced re-fetch of every visible waveform thumbnail at the new displayed
+// size — used when the row height or waveform column width changes.
+let waveRefetchTimer = null;
+function scheduleWaveRefetch() {
+  clearTimeout(waveRefetchTimer);
+  waveRefetchTimer = setTimeout(updateThumbnailSrcs, 200);
 }
 // blueColor maps a bucket's summed band weights to the blue-mode bar colour:
 // mostly blue, whitening with the treble fraction. mr/mg/mb are any-scale sums
@@ -5040,7 +5207,7 @@ function thumbLoaded(img) {
   const tid = img.getAttribute('data-libtrack');
   setTimeout(() => {
     if (!tid || !document.body.contains(img)) return;
-    img.src = `/api/analysis/waveform-png/${tid}?type=detail&color=${effectiveWaveColor()}&overview=${overviewType()}&w=280&h=56&_=${Date.now()}`;
+    img.src = waveThumbSrc(tid, true);
   }, delayMs);
 }
 // `sort` is the accessor used by the comparator. `sortable: false` opts a
@@ -5053,7 +5220,7 @@ const LIBRARY_COLUMNS = [
       : `<div class="lib-art empty"></div>` },
   { key: 'waveform', label: 'WV',     default: true,  thClass: '',    tdClass: 'wave-cell',
     sortable: false,
-    cell: t => `<div class="wave-thumb"><img class="loading" data-libtrack="${t.id}" alt="" loading="lazy" width="280" height="56" src="/api/analysis/waveform-png/${t.id}?type=detail&color=${effectiveWaveColor()}&overview=${overviewType()}&w=280&h=56" onload="thumbLoaded(this)">${cueMarkerOverlay(t.id, t.duration)}</div>` },
+    cell: t => `<div class="wave-thumb"><img class="loading" data-libtrack="${t.id}" alt="" loading="lazy" src="${waveThumbSrc(t.id)}" onload="thumbLoaded(this)">${cueMarkerOverlay(t.id, t.duration)}</div>` },
   { key: 'id',       label: 'ID',     default: true,  thClass: 'num', tdClass: 'num',
     sort: t => t.id,
     cell: t => String(t.id).padStart(4, '0') },
@@ -5657,10 +5824,18 @@ function renderLibrary(tracks) {
         </button>
       </td></tr>`;
   }).join('');
+  // <colgroup> drives the column widths under table-layout:fixed. Order matches
+  // the header/body: sel checkbox, each data column, trailing load column (auto).
+  const colgroup = `<colgroup><col class="c-sel">` +
+    cols.map(c => `<col data-col-key="${c.key}">`).join('') +
+    `<col class="c-load"></colgroup>`;
   el.innerHTML = `<div class="lib-table-wrap"><table class="lib">
+    ${colgroup}
     <thead><tr>${head2}</tr></thead>
     <tbody>${body}</tbody>
   </table></div>`;
+  applyColWidthsLive(el);   // set <col> widths + table min-width from the store
+  attachColResizers(el);    // draggable header edges
   el.querySelectorAll('.load-btn').forEach(btn => {
     btn.addEventListener('click', e => handleLoadClick(e, btn));
   });
@@ -5895,11 +6070,11 @@ function openColumnsPopover() {
     <div class="row-h-row">
       <span class="row-h-label">ALBUM ART</span>
       <select id="art-fit-select" class="row-h-slider" style="flex:1">
-        <option value="cover-top" ${libraryArtFit === 'cover-top' ? 'selected' : ''}>Fixed width, top-cropped</option>
-        <option value="square"    ${libraryArtFit === 'square'    ? 'selected' : ''}>Square thumbnail</option>
+        <option value="cover-top" ${libraryArtFit === 'cover-top' ? 'selected' : ''}>Show the upper part of the artwork</option>
+        <option value="square"    ${libraryArtFit === 'square'    ? 'selected' : ''}>Show the entire artwork</option>
       </select>
     </div>`;
-  pop.innerHTML = '<div class="head"><span>COLUMNS</span><button type="button" class="reset" data-action="reset">RESET</button></div>' +
+  pop.innerHTML = '<div class="head"><span>COLUMNS</span><button type="button" class="reset" data-action="autofit" title="Size the visible columns to fill the panel width">AUTO FIT</button><button type="button" class="reset" data-action="reset">RESET</button></div>' +
     '<div class="cols-list">' + columnsPopoverListHTML() + '</div>' + rowHRow;
   document.body.appendChild(pop);
   const r = btn.getBoundingClientRect();
@@ -5919,11 +6094,17 @@ function openColumnsPopover() {
     refreshLibraryView();
   });
   pop.addEventListener('click', e => {
+    if (e.target.matches('[data-action="autofit"]')) {
+      autoFitColumns();
+      return;
+    }
     if (e.target.matches('[data-action="reset"]')) {
       visibleColumns = new Set(LIBRARY_COLUMNS.filter(c => c.default).map(c => c.key));
       saveVisibleColumns();
       columnOrder = LIBRARY_COLUMNS.map(c => c.key);
       saveColumnOrder();
+      libColWidths = {};
+      saveColWidths();
       libraryRowHeight = 36;
       saveRowHeight(libraryRowHeight);
       applyRowHeight(libraryRowHeight);
@@ -5941,8 +6122,9 @@ function openColumnsPopover() {
       libraryRowHeight = parseInt(rng.value, 10);
       rngVal.textContent = libraryRowHeight + 'px';
       applyRowHeight(libraryRowHeight);
+      applyColWidthsLive(); // square-mode art column tracks row height
     });
-    rng.addEventListener('change', () => saveRowHeight(libraryRowHeight));
+    rng.addEventListener('change', () => { saveRowHeight(libraryRowHeight); scheduleWaveRefetch(); });
   }
   const artSel = pop.querySelector('#art-fit-select');
   if (artSel) {
@@ -5950,6 +6132,7 @@ function openColumnsPopover() {
       libraryArtFit = artSel.value;
       applyArtFit(libraryArtFit);
       saveArtFit(libraryArtFit);
+      applyColWidthsLive(); // art column width depends on the fit mode
     });
   }
   // Close on outside click. Defer one frame so the opening click doesn't trip it.
@@ -8807,6 +8990,9 @@ function syncStickyOffsets() {
   });
 }
 window.addEventListener('resize', syncStickyOffsets);
+// Re-fit the library columns to the panel when the window/panel width changes,
+// so a resized window never leaves the table over- or under-bounds.
+window.addEventListener('resize', () => { applyColWidthsLive(); scheduleWaveRefetch(); });
 
 // renderLibrarySidebar paints the COLLECTION button + playlist tree
 // into the lib-sidebar-tree element. Called after loadPlaylists or
