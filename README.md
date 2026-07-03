@@ -46,6 +46,7 @@ Use it at your own risk, and back up your rekordbox library before importing any
 - Linux (tested on x86_64)
 - Go 1.21+
 - `ffmpeg` in PATH (for audio decoding)
+- Python 3 with the `sqlcipher3` package — **only** to import an encrypted `master.db` or a library-backup `.zip` (it shells out to `tools/rekordbox_dump.py`); XML import and everything else need no Python
 - Network interface on the same subnet as CDJs (typically 169.254.x.x link-local)
 - Permission to bind the RPC portmapper on **UDP 111** — see below (rekordbox mode does not need it)
 
