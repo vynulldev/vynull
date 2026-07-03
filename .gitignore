@@ -10,3 +10,4 @@ __pycache__/
 *.wav
 *.flac
 data-dir*/
+tmp/
