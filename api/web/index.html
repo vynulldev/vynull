@@ -3648,6 +3648,66 @@ function drawBand3(ctx, x, w, H, v, color, bottom) {
   ctx.fillRect(x, barTop(barH, H, bottom), w, barH);
 }
 
+// STACK3_COLORS: full/vivid band colours for the stacked preview (segments
+// don't overlap, so no additive dimming needed). PREVIEW_SMOOTH_COLS adds a
+// little column-space smoothing on top of the entry smoothing — rekordbox's
+// preview is very smooth.
+const STACK3_COLORS = ['rgb(30,120,255)', 'rgb(255,170,30)', 'rgb(235,245,255)'];
+const PREVIEW_SMOOTH_COLS = 5;
+
+// drawStacked3Band renders the whole-track 3-band PREVIEW as a bottom-anchored
+// VERTICAL STACK: blue bass on the bottom, orange mid stacked above, white
+// treble on top — each segment's height is that band's amplitude (not overlaid
+// bars). Per-column peaks are smoothed, then the stack is normalised so the
+// loudest column fills H (whole track visible). colRange(x) -> [s,e) maps a
+// canvas column to its entry index range.
+function drawStacked3Band(ctx, entries, W, H, colRange) {
+  const n = entries.length;
+  const band = [new Float32Array(W), new Float32Array(W), new Float32Array(W)];
+  for (let x = 0; x < W; x++) {
+    const r = colRange(x);
+    let mb = 0, mm = 0, mt = 0;
+    for (let i = r[0]; i < r[1]; i++) {
+      if (i < 0 || i >= n) continue;
+      const en = entries[i];
+      if (en.bass > mb) mb = en.bass;
+      if (en.mid > mm) mm = en.mid;
+      if (en.high > mt) mt = en.high;
+    }
+    band[0][x] = mb; band[1][x] = mm; band[2][x] = mt;
+  }
+  // Column-space smoothing per band.
+  const half = PREVIEW_SMOOTH_COLS >> 1;
+  for (let b = 0; b < 3; b++) {
+    const src = band[b].slice();
+    for (let x = 0; x < W; x++) {
+      let sum = 0, cnt = 0;
+      for (let j = x - half; j <= x + half; j++) {
+        if (j < 0 || j >= W) continue;
+        sum += src[j]; cnt++;
+      }
+      band[b][x] = sum / cnt;
+    }
+  }
+  // Normalise to the loudest stacked column.
+  let maxTot = 1;
+  for (let x = 0; x < W; x++) {
+    const t = band[0][x] + band[1][x] + band[2][x];
+    if (t > maxTot) maxTot = t;
+  }
+  const scale = H / maxTot;
+  for (let x = 0; x < W; x++) {
+    let y = H; // bottom
+    for (let b = 0; b < 3; b++) {
+      const seg = Math.round(band[b][x] * scale);
+      if (seg <= 0) continue;
+      ctx.fillStyle = STACK3_COLORS[b];
+      ctx.fillRect(x, y - seg, 1, seg);
+      y -= seg;
+    }
+  }
+}
+
 // CDJ "overview_type" DEVSETTING: full = waveform centred/mirrored about the
 // box centreline; half = only the lower half shown, anchored to the bottom of
 // the box (same amplitude, not squished). Returns "full" or "half".
@@ -3804,25 +3864,23 @@ function drawWaveformPWV5(canvas, data, durationMs, mode) {
   // Fall back to a plain index split when the duration is unknown.
   const rate = data.sample_rate || 150;
   const total = durationMs > 0 ? durationMs : n * 1000 / rate;
+  if (is3) {
+    // Whole-track 3-band preview → bottom-anchored vertical stack (blue/orange/white).
+    drawStacked3Band(ctx, entries, W, H, x => {
+      let s = Math.floor((x / W) * total * rate / 1000);
+      let e = Math.ceil(((x + 1) / W) * total * rate / 1000);
+      if (e > n) e = n;
+      if (e <= s) e = s + 1;
+      return [s, e];
+    });
+    return;
+  }
   for (let x = 0; x < W; x++) {
     let start = Math.floor((x / W) * total * rate / 1000);
     if (start >= n) continue;
     let end = Math.ceil(((x + 1) / W) * total * rate / 1000);
     if (end > n) end = n;
     if (end <= start) end = start + 1;
-    if (is3) {
-      // Per-band peak over the bucket, drawn as three additive overlaid bars.
-      let mb = 0, mm = 0, mt = 0;
-      for (let i = start; i < end; i++) {
-        const e = entries[i];
-        if (e.bass > mb) mb = e.bass;
-        if (e.mid  > mm) mm = e.mid;
-        if (e.high > mt) mt = e.high;
-      }
-      if (mb === 0 && mm === 0 && mt === 0) continue;
-      drawBands3(ctx, x, 1, H, mb, mm, mt, true); // whole-track preview → bottom-anchored
-      continue;
-    }
     // Bucket entries into W columns; take max-h within each bucket and average
     // the colour weights so peaks pop while colour stays representative.
     let mh = 0, mr = 0, mg = 0, mb = 0, count = 0;
@@ -3887,9 +3945,6 @@ function drawWaveformWindow(canvas, data, durationMs, startMs, endMs, mode, prev
   const W = canvas.width / dpr;
   const H = canvas.height / dpr;
   paintBg(ctx, W, H);
-  // Center reference line — the waveform bars draw on top.
-  ctx.fillStyle = 'rgba(150, 150, 160, 0.35)';
-  ctx.fillRect(0, Math.floor(H / 2), W, 1);
   if (!data || !data.entries || data.entries.length === 0 || !durationMs) return;
   const n = data.entries.length;
   const is3 = data.style === '3band' || data.entries[0].bass !== undefined;
@@ -3902,6 +3957,21 @@ function drawWaveformWindow(canvas, data, durationMs, startMs, endMs, mode, prev
   const waveMs = n * 1000 / rate;
   const windowMs = endMs - startMs;
   if (windowMs <= 0) return;
+  if (is3 && previewAnchor) {
+    // Whole-track 3-band preview → bottom-anchored vertical stack (no centerline).
+    drawStacked3Band(ctx, data.entries, W, H, x => {
+      const cStart = Math.max(0, startMs + (x / W) * windowMs);
+      const cEnd = Math.min(waveMs, startMs + ((x + 1) / W) * windowMs);
+      if (cEnd <= 0 || cStart >= waveMs) return [0, 0];
+      const s = Math.floor(cStart * rate / 1000);
+      const e = Math.min(n, Math.max(s + 1, Math.ceil(cEnd * rate / 1000)));
+      return [s, e];
+    });
+    return;
+  }
+  // Center reference line — the waveform bars draw on top.
+  ctx.fillStyle = 'rgba(150, 150, 160, 0.35)';
+  ctx.fillRect(0, Math.floor(H / 2), W, 1);
   for (let x = 0; x < W; x++) {
     // Per-pixel virtual time range — startMs/endMs can be negative or past
     // the waveform's end (when the cursor approaches either edge); clamp the
@@ -3923,7 +3993,7 @@ function drawWaveformWindow(canvas, data, durationMs, startMs, endMs, mode, prev
         if (en.high > mt) mt = en.high;
       }
       if (mb === 0 && mm === 0 && mt === 0) continue;
-      drawBands3(ctx, x, 1, H, mb, mm, mt, previewAnchor); // preview → bottom, zoom → centred
+      drawBands3(ctx, x, 1, H, mb, mm, mt, false); // scrolling zoom → centred/mirrored
       continue;
     }
     let mh = 0, mr = 0, mg = 0, mb = 0, count = 0;
