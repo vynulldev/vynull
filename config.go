@@ -12,9 +12,19 @@ import (
 	"github.com/vynulldev/vynull/proto"
 )
 
+// stringSlice collects a repeatable string flag (e.g. --browse-root a --browse-root b).
+type stringSlice []string
+
+func (s *stringSlice) String() string { return strings.Join(*s, ", ") }
+func (s *stringSlice) Set(v string) error {
+	*s = append(*s, v)
+	return nil
+}
+
 type Config struct {
 	Interface      string
 	MusicDir       string
+	BrowseRoots    []string // extra roots the web "add files/folders" browser may access
 	DeviceNumber   uint8
 	DeviceName     string
 	DeviceType     proto.DeviceType
@@ -48,6 +58,7 @@ func parseFlags() Config {
 
 	flag.StringVar(&cfg.Interface, "interface", "", "network interface to use (required for serving)")
 	flag.StringVar(&cfg.MusicDir, "music-dir", "", "path to music directory to scan at startup (optional: omit for library mode and add tracks via the API; required with --generate)")
+	flag.Var((*stringSlice)(&cfg.BrowseRoots), "browse-root", "extra root directory the web UI's 'add files/folders' browser may reach (repeatable). Added to the defaults: --music-dir, your home, /media, /mnt, /run/media")
 	flag.IntVar(&deviceNum, "device-number", 0, "device number (default: 17 for rekordbox, 3 for cdj)")
 	flag.StringVar(&cfg.DeviceName, "device-name", "", "device name broadcast to CDJs")
 	flag.StringVar(&mode, "mode", "rekordbox", "emulation mode: rekordbox or cdj")

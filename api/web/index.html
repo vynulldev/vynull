@@ -1555,6 +1555,17 @@
   .export-radios.imp-source label:hover { border-color: var(--orange); background: rgba(255,119,20,0.04); }
   .export-radios.imp-source label:has(input:checked) { border-color: var(--orange); background: rgba(255,119,20,0.07); }
   .export-radios.imp-source .export-hint { margin-top: 0; }
+  /* Add-from-folder browser */
+  .fs-crumb { font-size: 11px; color: var(--text2); margin-bottom: 8px; word-break: break-all; }
+  .fs-list { max-height: 340px; overflow-y: auto; border: 1px solid var(--wire); border-radius: 6px; }
+  .fs-row { display: flex; align-items: center; gap: 8px; padding: 7px 10px; font-size: 12px;
+            cursor: pointer; border-bottom: 1px solid rgba(255,255,255,0.04); }
+  .fs-row:last-child { border-bottom: none; }
+  .fs-row:hover { background: rgba(255,119,20,0.06); }
+  .fs-ico { opacity: 0.75; width: 16px; text-align: center; }
+  .fs-name { flex: 1; word-break: break-all; cursor: pointer; }
+  .fs-row.file .fs-name { color: var(--text2); }
+  .fs-row input[type="checkbox"] { accent-color: var(--orange); }
   .export-status {
     font-size: 11px; color: var(--text2);
     min-height: 14px; margin-top: 4px;
@@ -6247,6 +6258,7 @@ function renderSettings(cfg) {
           <label class="export-label">Add files or folders</label>
           <div style="display:flex; gap:6px;">
             <input type="text" id="add-path-input" class="input" placeholder="/media/usb/Music  ·  or  ·  /path/to/track.flac" autocomplete="off" spellcheck="false" style="flex:1">
+            <button type="button" id="add-browse-btn" class="source-btn">Browse…</button>
             <button type="button" id="add-path-btn" class="source-btn">+ Add</button>
           </div>
           <div class="export-hint">Add a file or a folder from this machine to the library. Folders are scanned recursively for MP3, M4A, FLAC, WAV, and AIFF; tracks are analyzed in the background.</div>
@@ -6275,29 +6287,19 @@ function renderSettings(cfg) {
         const p = addInput.value.trim();
         if (!p) return;
         addBtn.disabled = true;
-        addStatus.style.display = 'block';
-        addStatus.textContent = 'Adding…';
-        try {
-          const r = await fetch('/api/tracks/add', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ paths: [p] }),
-          });
-          if (!r.ok) throw new Error((await r.text()).trim() || r.statusText);
-          const j = await r.json();
-          addStatus.textContent = j.added
-            ? `Added ${j.added} track${j.added === 1 ? '' : 's'} — library now ${j.total}.`
-            : 'No new tracks added (already in library, or no supported audio found).';
-          if (j.added) addInput.value = '';
-        } catch (e) {
-          addStatus.textContent = 'Error: ' + e.message;
-        } finally {
-          addBtn.disabled = false;
-        }
+        await addTracksWithProgress([p], addStatus, (res) => { if (res.added) addInput.value = ''; });
+        addBtn.disabled = false;
       };
       addBtn.onclick = doAdd;
       addInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') doAdd(); });
     }
+    const browseBtn = el.querySelector('#add-browse-btn');
+    if (browseBtn) browseBtn.onclick = () => openAddBrowserDialog((res) => {
+      if (addStatus) {
+        addStatus.style.display = 'block';
+        addStatus.textContent = `Added ${res.added} track${res.added === 1 ? '' : 's'} from the browser.`;
+      }
+    });
     return;
   }
 
@@ -9825,6 +9827,161 @@ function openConfirmModal({ title = 'CONFIRM', message = '', okLabel = 'OK', dan
     okBtn.onclick = () => finish(true);
     okBtn.focus();
   });
+}
+
+// POST paths to /api/tracks/add and report progress. Small batches return
+// synchronously; large ones return a job id we poll until done. statusEl (if
+// given) shows live progress; onDone(result) fires once at the end with the
+// final counts ({added, ...}).
+async function addTracksWithProgress(paths, statusEl, onDone) {
+  paths = (paths || []).filter(Boolean);
+  if (!paths.length) return;
+  const setStatus = (t) => { if (statusEl) { statusEl.style.display = 'block'; statusEl.textContent = t; } };
+  setStatus('Adding…');
+  let j;
+  try {
+    const r = await fetch('/api/tracks/add', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ paths }),
+    });
+    if (!r.ok) throw new Error((await r.text()).trim() || r.statusText);
+    j = await r.json();
+  } catch (e) { setStatus('Error: ' + e.message); return; }
+
+  if (!j.async) {
+    setStatus(j.added
+      ? `Added ${j.added} track${j.added === 1 ? '' : 's'} — library now ${j.total}.`
+      : 'No new tracks added (already in library, or no supported audio).');
+    if (onDone) onDone(j);
+    return j;
+  }
+
+  // Large batch: poll the status endpoint until the background job finishes.
+  const jobId = j.job_id, total = j.total;
+  setStatus(`Adding 0 / ${total}…`);
+  return await new Promise((resolve) => {
+    const poll = async () => {
+      let st;
+      try {
+        const sr = await fetch('/api/tracks/add/status?id=' + encodeURIComponent(jobId));
+        if (!sr.ok) throw new Error('lost track of the add job');
+        st = await sr.json();
+      } catch (e) { setStatus('Error: ' + e.message); resolve(null); return; }
+      if (st.done) {
+        setStatus(`Added ${st.added} of ${total}` +
+          (st.skipped ? `, ${st.skipped} already present` : '') +
+          (st.failed ? `, ${st.failed} failed` : '') + '.');
+        if (onDone) onDone(st);
+        resolve(st);
+        return;
+      }
+      setStatus(`Adding ${st.added + st.failed + st.skipped} / ${total}…`);
+      setTimeout(poll, 700);
+    };
+    poll();
+  });
+}
+
+// Directory browser for "add files/folders". Navigates the server's filesystem
+// (confined server-side to the configured browse roots) and adds a whole folder
+// or hand-picked files to the library. onDone(json) fires after each add.
+function openAddBrowserDialog(onDone) {
+  const back = document.createElement('div');
+  back.className = 'menu-modal-backdrop show';
+  const m = document.createElement('div');
+  m.className = 'menu-modal show';
+  m.innerHTML = `
+    <div class="head">
+      <span>ADD FROM FOLDER</span>
+      <button class="x" type="button" title="Close">×</button>
+    </div>
+    <div class="body">
+      <div class="fs-crumb" id="fs-crumb">Loading…</div>
+      <div class="fs-list" id="fs-list"></div>
+      <div class="export-status" id="fs-status"></div>
+    </div>
+    <div class="foot">
+      <button type="button" id="fs-up">↑ Up</button>
+      <span class="spacer"></span>
+      <button type="button" id="fs-add-sel">Add selected (0)</button>
+      <button type="button" class="primary" id="fs-add-folder">Add this folder</button>
+    </div>
+  `;
+  document.body.appendChild(back);
+  document.body.appendChild(m);
+  const close = () => { m.remove(); back.remove(); };
+  back.onclick = close;
+  m.querySelector('.x').onclick = close;
+
+  const crumb = m.querySelector('#fs-crumb');
+  const listEl = m.querySelector('#fs-list');
+  const statusEl = m.querySelector('#fs-status');
+  const upBtn = m.querySelector('#fs-up');
+  const addSelBtn = m.querySelector('#fs-add-sel');
+  const addFolderBtn = m.querySelector('#fs-add-folder');
+  let cur = { path: '', parent: '', roots: true, entries: [] };
+  const selected = new Set();
+  const updateSel = () => {
+    addSelBtn.textContent = `Add selected (${selected.size})`;
+    addSelBtn.disabled = selected.size === 0;
+  };
+
+  async function load(path) {
+    listEl.innerHTML = '<div class="export-hint" style="padding:10px">Loading…</div>';
+    statusEl.textContent = '';
+    selected.clear(); updateSel();
+    try {
+      const r = await fetch('/api/fs/list' + (path ? '?path=' + encodeURIComponent(path) : ''));
+      if (!r.ok) throw new Error((await r.text()).trim() || r.statusText);
+      cur = await r.json();
+    } catch (e) {
+      listEl.innerHTML = `<div class="export-hint" style="padding:10px">Error: ${escape(e.message)}</div>`;
+      return;
+    }
+    crumb.textContent = cur.roots ? 'Choose a location:' : cur.path;
+    upBtn.style.display = cur.roots ? 'none' : '';
+    addFolderBtn.style.display = cur.roots ? 'none' : '';
+    if (!cur.entries || !cur.entries.length) {
+      listEl.innerHTML = '<div class="export-hint" style="padding:10px">' +
+        (cur.roots ? 'No browse locations found.' : 'No subfolders or supported audio here.') + '</div>';
+      return;
+    }
+    listEl.innerHTML = '';
+    cur.entries.forEach(e => {
+      const row = document.createElement('div');
+      row.className = 'fs-row' + (e.is_dir ? '' : ' file');
+      if (e.is_dir) {
+        row.innerHTML = `<span class="fs-ico">▸</span><span class="fs-name">${escape(e.name)}</span>`;
+        row.onclick = () => load(e.path);
+      } else {
+        const cb = document.createElement('input');
+        cb.type = 'checkbox';
+        cb.onchange = () => { cb.checked ? selected.add(e.path) : selected.delete(e.path); updateSel(); };
+        const ico = document.createElement('span');
+        ico.className = 'fs-ico'; ico.textContent = '♪';
+        const name = document.createElement('span');
+        name.className = 'fs-name'; name.textContent = e.name;
+        name.onclick = () => { cb.checked = !cb.checked; cb.onchange(); };
+        row.append(cb, ico, name);
+      }
+      listEl.appendChild(row);
+    });
+  }
+
+  async function doAdd(paths) {
+    paths = paths.filter(Boolean);
+    if (!paths.length) return;
+    addFolderBtn.disabled = addSelBtn.disabled = true;
+    await addTracksWithProgress(paths, statusEl, onDone);
+    addFolderBtn.disabled = false;
+    updateSel();
+  }
+
+  upBtn.onclick = () => load(cur.parent || '');
+  addFolderBtn.onclick = () => doAdd([cur.path]);
+  addSelBtn.onclick = () => doAdd([...selected]);
+  updateSel();
+  load('');
 }
 
 function openImportRekordboxDialog() {

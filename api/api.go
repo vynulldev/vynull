@@ -50,6 +50,7 @@ type Server struct {
 	DBServer     DBServerControl     // optional; if set, /api/unlink uses it
 	LazyAnalysis bool                // if true, defer analysis to CDJ request time
 	MusicDir     string              // source music root for USB export pathing
+	BrowseRoots  []string            // extra roots the "add files/folders" browser may access
 	Port         int                 // legacy: when Listen is empty, used as 127.0.0.1:<Port>
 	Listen       string              // full listen address (e.g. "0.0.0.0:9443"). Takes precedence over Port.
 	Web          bool                // if true, serve the HTML UI at /
@@ -77,6 +78,10 @@ type Server struct {
 	// requests for the same un-probed track don't both spawn ffmpeg / race on
 	// the track fields. Keyed by trackID.
 	artInFlight sync.Map
+
+	// addJobs tracks in-flight/recently-finished background bulk adds
+	// (large folder adds). Keyed by job ID; value is *addJob.
+	addJobs sync.Map
 }
 
 // artExtractSem bounds concurrent lazy ffmpeg artwork probes so a fast scroll
@@ -223,6 +228,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/history", s.handleHistory)
 	mux.HandleFunc("/api/tracks", s.handleTracks)
 	mux.HandleFunc("/api/tracks/add", s.handleAddTracks)
+	mux.HandleFunc("/api/tracks/add/status", s.handleAddStatus)
+	mux.HandleFunc("/api/fs/list", s.handleFSList)
 	mux.HandleFunc("/api/tracks/reimport", s.handleReimportTracks)
 	mux.HandleFunc("/api/tracks/check-decode", s.handleCheckDecode)
 	mux.HandleFunc("/api/export/preview", s.handleExportPreview)
@@ -655,7 +662,7 @@ func (s *Server) handleLoadTrack(w http.ResponseWriter, r *http.Request) {
 
 		// Auto-add to library if not found
 		if req.TrackID == 0 {
-			id, err := s.addTrackByPath(req.FilePath)
+			id, err := s.addTrackByPath(req.FilePath, false)
 			if err != nil {
 				http.Error(w, "failed to add track: "+err.Error(), http.StatusBadRequest)
 				return
@@ -1499,26 +1506,109 @@ func (s *Server) handleAddTracks(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	added := 0
+	// Expand any directories into their supported audio files up front so we
+	// know the batch size and can choose sync vs. background adding.
+	var files []string
 	for _, path := range req.Paths {
-		for _, f := range expandAudioPaths(path) {
-			// Skip if already in library
-			if s.Library.TrackByPath(f) != nil {
-				continue
-			}
-			if _, err := s.addTrackByPath(f); err != nil {
-				log.Printf("api: skipping %s: %v", f, err)
-				continue
-			}
-			added++
-		}
+		files = append(files, expandAudioPaths(path)...)
 	}
 
+	// Small batch: add inline and return the count immediately.
+	if len(files) <= addSyncThreshold {
+		added := s.addFiles(files, nil)
+		s.Library.FinalizeBulk()
+		writeJSON(w, map[string]interface{}{
+			"status": "ok",
+			"added":  added,
+			"total":  s.Library.TrackCount(),
+		})
+		return
+	}
+
+	// Large batch: add in the background so the request/UI doesn't block on the
+	// per-file decode check (ffmpeg per file). The client polls the status
+	// endpoint below.
+	id := strconv.FormatInt(time.Now().UnixNano(), 36)
+	job := &addJob{total: len(files)}
+	s.addJobs.Store(id, job)
+	go func() {
+		s.addFiles(files, job)
+		s.Library.FinalizeBulk()
+		job.finish()
+		log.Printf("api: add job %s done: +%d (%d failed, %d already present) of %d",
+			id, job.added, job.failed, job.skipped, job.total)
+		time.AfterFunc(2*time.Minute, func() { s.addJobs.Delete(id) })
+	}()
 	writeJSON(w, map[string]interface{}{
-		"status": "ok",
-		"added":  added,
-		"total":  s.Library.TrackCount(),
+		"status": "started",
+		"async":  true,
+		"job_id": id,
+		"total":  len(files),
 	})
+}
+
+const addSyncThreshold = 25 // files at or under this are added synchronously
+
+// addJob tracks the progress of a background bulk add.
+type addJob struct {
+	mu      sync.Mutex
+	total   int
+	added   int
+	failed  int
+	skipped int
+	done    bool
+}
+
+func (j *addJob) bumpAdded()   { j.mu.Lock(); j.added++; j.mu.Unlock() }
+func (j *addJob) bumpFailed()  { j.mu.Lock(); j.failed++; j.mu.Unlock() }
+func (j *addJob) bumpSkipped() { j.mu.Lock(); j.skipped++; j.mu.Unlock() }
+func (j *addJob) finish()      { j.mu.Lock(); j.done = true; j.mu.Unlock() }
+func (j *addJob) snapshot() map[string]interface{} {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	return map[string]interface{}{
+		"total": j.total, "added": j.added, "failed": j.failed,
+		"skipped": j.skipped, "done": j.done,
+	}
+}
+
+// addFiles bulk-adds each supported file, skipping ones already in the library.
+// Updates job progress when job is non-nil. The caller must call
+// Library.FinalizeBulk() once after this returns.
+func (s *Server) addFiles(files []string, job *addJob) int {
+	added := 0
+	for _, f := range files {
+		if s.Library.TrackByPath(f) != nil {
+			if job != nil {
+				job.bumpSkipped()
+			}
+			continue
+		}
+		if _, err := s.addTrackByPath(f, true); err != nil {
+			log.Printf("api: skipping %s: %v", f, err)
+			if job != nil {
+				job.bumpFailed()
+			}
+			continue
+		}
+		added++
+		if job != nil {
+			job.bumpAdded()
+		}
+	}
+	return added
+}
+
+// handleAddStatus reports progress of a background add job started by
+// handleAddTracks. GET /api/tracks/add/status?id=<job_id>.
+func (s *Server) handleAddStatus(w http.ResponseWriter, r *http.Request) {
+	id := r.URL.Query().Get("id")
+	v, ok := s.addJobs.Load(id)
+	if !ok {
+		http.Error(w, "unknown or expired job", http.StatusNotFound)
+		return
+	}
+	writeJSON(w, v.(*addJob).snapshot())
 }
 
 // audioExts are the file extensions addTrackByPath can add.
@@ -1547,9 +1637,11 @@ func expandAudioPaths(path string) []string {
 	return files
 }
 
-// addTrackByPath adds a single track to the library by file path.
+// addTrackByPath adds a single track to the library by file path. When bulk is
+// true it uses AddTrackBulk (no per-track list rebuild/save) — the caller must
+// call Library.FinalizeBulk() once after the batch.
 // Returns the new track ID. If the file doesn't exist or is unsupported, returns an error.
-func (s *Server) addTrackByPath(path string) (uint32, error) {
+func (s *Server) addTrackByPath(path string, bulk bool) (uint32, error) {
 	if _, err := os.Stat(path); err != nil {
 		return 0, fmt.Errorf("file not found: %s", path)
 	}
@@ -1598,7 +1690,12 @@ func (s *Server) addTrackByPath(path string) (uint32, error) {
 		log.Printf("api: %s: DECODE ERROR — %s", path, track.DecodeIssue)
 	}
 
-	id := s.Library.AddTrack(track)
+	var id uint32
+	if bulk {
+		id = s.Library.AddTrackBulk(track)
+	} else {
+		id = s.Library.AddTrack(track)
+	}
 
 	// Also add to PDB if available
 	if s.PDB != nil {

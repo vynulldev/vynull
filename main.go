@@ -545,6 +545,7 @@ func main() {
 		DBServer:     db,
 		LazyAnalysis: cfg.LazyAnalysis,
 		MusicDir:     cfg.MusicDir,
+		BrowseRoots:  cfg.BrowseRoots,
 		Listen:       cfg.Listen,
 		Port:         9443, // legacy fallback if Listen is empty (it isn't, given flag default)
 		Web:          cfg.Web,
