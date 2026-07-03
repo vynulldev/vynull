@@ -1501,16 +1501,17 @@ func (s *Server) handleAddTracks(w http.ResponseWriter, r *http.Request) {
 
 	added := 0
 	for _, path := range req.Paths {
-		// Skip if already in library
-		if s.Library.TrackByPath(path) != nil {
-			continue
+		for _, f := range expandAudioPaths(path) {
+			// Skip if already in library
+			if s.Library.TrackByPath(f) != nil {
+				continue
+			}
+			if _, err := s.addTrackByPath(f); err != nil {
+				log.Printf("api: skipping %s: %v", f, err)
+				continue
+			}
+			added++
 		}
-
-		if _, err := s.addTrackByPath(path); err != nil {
-			log.Printf("api: skipping %s: %v", path, err)
-			continue
-		}
-		added++
 	}
 
 	writeJSON(w, map[string]interface{}{
@@ -1518,6 +1519,32 @@ func (s *Server) handleAddTracks(w http.ResponseWriter, r *http.Request) {
 		"added":  added,
 		"total":  s.Library.TrackCount(),
 	})
+}
+
+// audioExts are the file extensions addTrackByPath can add.
+var audioExts = map[string]bool{
+	".mp3": true, ".m4a": true, ".flac": true, ".wav": true, ".aiff": true, ".aif": true,
+}
+
+// expandAudioPaths returns the path itself when it's a file, or — when it's a
+// directory — every supported audio file beneath it (recursively). Lets the
+// "add files/folders" UI accept a folder and pull in its whole tree.
+func expandAudioPaths(path string) []string {
+	fi, err := os.Stat(path)
+	if err != nil || !fi.IsDir() {
+		return []string{path} // a file (or missing — addTrackByPath reports it)
+	}
+	var files []string
+	filepath.Walk(path, func(p string, info os.FileInfo, err error) error {
+		if err != nil || info.IsDir() {
+			return nil
+		}
+		if audioExts[strings.ToLower(filepath.Ext(p))] {
+			files = append(files, p)
+		}
+		return nil
+	})
+	return files
 }
 
 // addTrackByPath adds a single track to the library by file path.

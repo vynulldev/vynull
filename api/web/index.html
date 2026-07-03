@@ -1544,6 +1544,17 @@
     cursor: pointer;
   }
   .export-radios input[type="radio"] { accent-color: var(--orange); }
+  /* Import-dialog source picker: stacked, selectable cards. */
+  .export-radios.imp-source { flex-direction: column; gap: 8px; }
+  .export-radios.imp-source label {
+    display: flex; align-items: baseline; gap: 8px;
+    font-size: 12px; padding: 8px 10px;
+    border: 1px solid var(--wire); border-radius: 6px;
+    transition: border-color 0.12s, background 0.12s;
+  }
+  .export-radios.imp-source label:hover { border-color: var(--orange); background: rgba(255,119,20,0.04); }
+  .export-radios.imp-source label:has(input:checked) { border-color: var(--orange); background: rgba(255,119,20,0.07); }
+  .export-radios.imp-source .export-hint { margin-top: 0; }
   .export-status {
     font-size: 11px; color: var(--text2);
     min-height: 14px; margin-top: 4px;
@@ -6233,6 +6244,15 @@ function renderSettings(cfg) {
       <div class="head"><span class="inner">LIBRARY SOURCE</span></div>
       <div class="body">
         <div class="source-action">
+          <label class="export-label">Add files or folders</label>
+          <div style="display:flex; gap:6px;">
+            <input type="text" id="add-path-input" class="input" placeholder="/media/usb/Music  ·  or  ·  /path/to/track.flac" autocomplete="off" spellcheck="false" style="flex:1">
+            <button type="button" id="add-path-btn" class="source-btn">+ Add</button>
+          </div>
+          <div class="export-hint">Add a file or a folder from this machine to the library. Folders are scanned recursively for MP3, M4A, FLAC, WAV, and AIFF; tracks are analyzed in the background.</div>
+          <div id="add-path-status" class="export-hint" style="display:none; margin-top:8px;"></div>
+        </div>
+        <div class="source-action">
           <button type="button" id="set-import-rb" class="source-btn">↓ Import from rekordbox…</button>
           <div class="export-hint">Bring in tracks, playlists, tags, cues, and analysis from a rekordbox <b>XML</b> export, an encrypted <b>master.db</b>, or a library backup <b>.zip</b>.</div>
         </div>
@@ -6246,6 +6266,38 @@ function renderSettings(cfg) {
     if (imp) imp.onclick = () => openImportRekordboxDialog();
     const fix = el.querySelector('#set-fix-paths');
     if (fix) fix.onclick = () => openFixPathsDialog();
+
+    const addBtn = el.querySelector('#add-path-btn');
+    const addInput = el.querySelector('#add-path-input');
+    const addStatus = el.querySelector('#add-path-status');
+    if (addBtn && addInput) {
+      const doAdd = async () => {
+        const p = addInput.value.trim();
+        if (!p) return;
+        addBtn.disabled = true;
+        addStatus.style.display = 'block';
+        addStatus.textContent = 'Adding…';
+        try {
+          const r = await fetch('/api/tracks/add', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ paths: [p] }),
+          });
+          if (!r.ok) throw new Error((await r.text()).trim() || r.statusText);
+          const j = await r.json();
+          addStatus.textContent = j.added
+            ? `Added ${j.added} track${j.added === 1 ? '' : 's'} — library now ${j.total}.`
+            : 'No new tracks added (already in library, or no supported audio found).';
+          if (j.added) addInput.value = '';
+        } catch (e) {
+          addStatus.textContent = 'Error: ' + e.message;
+        } finally {
+          addBtn.disabled = false;
+        }
+      };
+      addBtn.onclick = doAdd;
+      addInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') doAdd(); });
+    }
     return;
   }
 
@@ -9788,7 +9840,7 @@ function openImportRekordboxDialog() {
     <div class="body">
       <div class="export-row">
         <label class="export-label">Source</label>
-        <div class="export-radios">
+        <div class="export-radios imp-source">
           <label><input type="radio" name="imp_src" value="xml" checked> XML export <span class="export-hint" style="display:inline">— no key required</span></label>
           <label><input type="radio" name="imp_src" value="db"> master.db <span class="export-hint" style="display:inline">— needs 64-hex SQLCipher key</span></label>
           <label><input type="radio" name="imp_src" value="zip"> Backup .zip <span class="export-hint" style="display:inline">— full: + waveforms, cues, artwork</span></label>
