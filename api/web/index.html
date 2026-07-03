@@ -10340,7 +10340,8 @@ function openFixPathsDialog() {
         return;
       }
       const res = await r.json();
-      stat.textContent = `Rewrote ${res.changed} track${res.changed === 1 ? '' : 's'}.`;
+      const miss = res.missing ? ` · ${res.missing} still missing on disk` : '';
+      stat.textContent = `Rewrote ${res.changed} track${res.changed === 1 ? '' : 's'}.${miss}`;
       go.textContent = 'DONE';
       toast(`FIX PATHS · ${res.changed} TRACKS`, 'success');
       refreshLibraryView();

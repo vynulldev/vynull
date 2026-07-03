@@ -1433,6 +1433,51 @@ func extractZipEntry(f *zip.File, target string) error {
 // cache (keyed by hash(file_path)) so the user doesn't have to
 // re-analyze after the move. Other per-track caches (artwork, cues,
 // waveform-png) are keyed by track ID or art ID and survive untouched.
+// refreshMissingFlags re-checks every track's FilePath on disk and updates its
+// FileMissing flag. Stats run in parallel — a serial pass over a large or
+// network-backed library is a latency cliff. Returns the count still missing.
+func (s *Server) refreshMissingFlags() int {
+	tracks := s.Library.Tracks()
+	var toStat []*library.Track
+	for _, t := range tracks {
+		if t.FilePath == "" {
+			t.FileMissing = true
+			continue
+		}
+		toStat = append(toStat, t)
+	}
+	if len(toStat) > 0 {
+		statCh := make(chan *library.Track)
+		var wg sync.WaitGroup
+		workers := 16
+		if len(toStat) < workers {
+			workers = len(toStat)
+		}
+		for i := 0; i < workers; i++ {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				for t := range statCh {
+					_, err := os.Stat(t.FilePath)
+					t.FileMissing = err != nil
+				}
+			}()
+		}
+		for _, t := range toStat {
+			statCh <- t
+		}
+		close(statCh)
+		wg.Wait()
+	}
+	missing := 0
+	for _, t := range tracks {
+		if t.FileMissing {
+			missing++
+		}
+	}
+	return missing
+}
+
 func (s *Server) handleRemapPaths(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "POST required", http.StatusMethodNotAllowed)
@@ -1454,9 +1499,12 @@ func (s *Server) handleRemapPaths(w http.ResponseWriter, r *http.Request) {
 	for _, c := range changes {
 		s.Analysis.RenameCachedPath(c[0], c[1])
 	}
+	// Rewritten paths may now resolve (or stop resolving) on disk — re-check the
+	// FileMissing flags so remapped tracks stop showing as missing.
+	missing := s.refreshMissingFlags()
 	s.Library.Save()
-	log.Printf("remap-paths: rewrote %d tracks %q -> %q", n, req.From, req.To)
-	writeJSON(w, map[string]any{"changed": n})
+	log.Printf("remap-paths: rewrote %d tracks %q -> %q (%d still missing)", n, req.From, req.To, missing)
+	writeJSON(w, map[string]any{"changed": n, "missing": missing})
 }
 
 func (s *Server) handleExportPreview(w http.ResponseWriter, r *http.Request) {
