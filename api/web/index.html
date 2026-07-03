@@ -3610,21 +3610,42 @@ function updateThumbnailSrcs() {
     img.src = `/api/analysis/waveform-png/${tid}?type=detail&color=${effectiveWaveColor()}&overview=${overviewType()}&w=280&h=56`;
   });
 }
-// blueColor / band3Color mirror the Go renderWaveformPNG helpers so canvas and
-// server-rendered PNG waveforms match. mr/mg/mb are summed band weights over a
-// bucket (any scale — only the ratio matters); tf is the treble fraction that
-// whitens the otherwise-blue bar.
+// blueColor maps a bucket's summed band weights to the blue-mode bar colour:
+// mostly blue, whitening with the treble fraction. mr/mg/mb are any-scale sums
+// — only the ratio matters.
 function blueColor(mr, mg, mb) {
   const sum = mr + mg + mb;
   const tf = sum > 0 ? mb / sum : 0;
   const k = tf * 0.85;
   return `rgb(${Math.round(40 + (255-40)*k)},${Math.round(120 + (255-120)*k)},${Math.round(235 + (255-235)*k)})`;
 }
-function band3Color(b, m, t) {
-  const sum = b + m + t;
-  if (sum === 0) return 'rgb(0,0,0)';
-  const fb = b/sum, fm = m/sum, ft = t/sum;
-  return `rgb(${Math.round(Math.min(255, fb*30 + fm*255 + ft*235))},${Math.round(Math.min(255, fb*120 + fm*170 + ft*245))},${Math.round(Math.min(255, fb*255 + fm*30 + ft*255))})`;
+
+// 3-band waveform colours (bass=blue, mid=amber, treble=white), pre-dimmed for
+// additive ('lighter') compositing so overlapping bands brighten toward white
+// where loud. Treble is dialled back hardest (×0.35) since white saturates the
+// additive centre fastest; bass/mid are ×0.85. Mirrors the CDJ-3000 "3Band"
+// waveform.
+const BAND3_COLORS = ['rgb(26,102,217)', 'rgb(217,145,26)', 'rgb(82,86,89)'];
+
+// drawBands3 paints bass/mid/treble as three overlaid additive bars in the
+// column [x, x+w), each at its own height (value/255 × H). `bottom` forces the
+// bars to grow from the box bottom instead of centred/mirrored: rekordbox
+// always draws the whole-track 3-band PREVIEW as a bottom-anchored half
+// waveform, so preview surfaces pass bottom=true while the scrolling detail
+// passes false. Additive blending (order-independent) makes overlaps brighten;
+// source-over is restored on exit so callers (cue markers, playhead) draw normally.
+function drawBands3(ctx, x, w, H, bass, mid, treble, bottom) {
+  ctx.globalCompositeOperation = 'lighter';
+  drawBand3(ctx, x, w, H, bass,   BAND3_COLORS[0], bottom);
+  drawBand3(ctx, x, w, H, mid,    BAND3_COLORS[1], bottom);
+  drawBand3(ctx, x, w, H, treble, BAND3_COLORS[2], bottom);
+  ctx.globalCompositeOperation = 'source-over';
+}
+function drawBand3(ctx, x, w, H, v, color, bottom) {
+  if (v <= 0) return;
+  const barH = Math.max(1, Math.round((v / 255) * H));
+  ctx.fillStyle = color;
+  ctx.fillRect(x, barTop(barH, H, bottom), w, barH);
 }
 
 // CDJ "overview_type" DEVSETTING: full = waveform centred/mirrored about the
@@ -3636,8 +3657,9 @@ function overviewType() {
 }
 // barTop returns the y of a bar of height barH within a box of height boxH,
 // honouring the overview anchor: centred (full) or bottom-aligned (half).
-function barTop(barH, boxH) {
-  return overviewType() === 'half' ? (boxH - barH) : Math.floor((boxH - barH) / 2);
+// forceBottom overrides the setting to bottom-align regardless (3-band preview).
+function barTop(barH, boxH, forceBottom) {
+  return (forceBottom || overviewType() === 'half') ? (boxH - barH) : Math.floor((boxH - barH) / 2);
 }
 
 // CDJ "key_display" DEVSETTING: alphanumeric = Camelot (e.g. 8A),
@@ -3709,6 +3731,30 @@ async function ensureWaveform(trackID, type) {
   }
 }
 
+// rekordbox's 3-band bass envelope is smooth, but ours arrives ~5× jaggier
+// because the analysis RMS window (6.7 ms) is shorter than a bass cycle, so it
+// wobbles with sub-cycle phase. Match rekordbox's look with a per-band moving
+// average — widest on bass, none on treble (already smooth). Applied once when
+// the data loads; the served analysis (and the CDJ path) is untouched.
+const BAND3_SMOOTH = { bass: 9, mid: 5, high: 1 };
+function smooth3Band(entries) {
+  const n = entries.length;
+  if (n < 3) return;
+  for (const band of ['bass', 'mid', 'high']) {
+    const w = BAND3_SMOOTH[band];
+    if (w <= 1) continue;
+    const half = w >> 1;
+    const src = new Float32Array(n);
+    for (let i = 0; i < n; i++) src[i] = entries[i][band];
+    for (let i = 0; i < n; i++) {
+      const lo = Math.max(0, i - half), hi = Math.min(n - 1, i + half);
+      let sum = 0;
+      for (let j = lo; j <= hi; j++) sum += src[j];
+      entries[i][band] = sum / (hi - lo + 1);
+    }
+  }
+}
+
 // ensureDetailWave fetches the detail waveform in the representation the
 // current colour mode needs: 3band pulls {bass,mid,high} entries (style=3band),
 // blue/rgb share the spectral {r,g,b,h} data. 3band is cached separately so
@@ -3722,7 +3768,7 @@ async function ensureDetailWave(trackID) {
   inflightWaveforms.add(key);
   try {
     const data = await fetchJSON(`/api/analysis/waveform/${trackID}?type=detail&style=3band`);
-    if (data && data.entries && data.entries.length) { waveformCache.set(key, data); return data; }
+    if (data && data.entries && data.entries.length) { smooth3Band(data.entries); waveformCache.set(key, data); return data; }
     // No 3-band data for this track — fall back to spectral so it still draws.
     return await ensureWaveform(trackID, 'detail');
   } finally {
@@ -3734,35 +3780,6 @@ function getDetailWaveCached(trackID) {
     return waveformCache.get('detail3band:' + trackID) || waveformCache.get('detail:' + trackID);
   }
   return waveformCache.get('detail:' + trackID);
-}
-
-// Draws a PWV4 color preview (1200 entries, {bass,mid,treble} 0-255) — used
-// for the big player-card waveform where we want absolute-amplitude fidelity.
-function drawWaveformPWV4(canvas, data) {
-  const ctx = canvas.getContext('2d');
-  const W = canvas.width, H = canvas.height;
-  paintBg(ctx, W, H);
-  if (!data || !data.entries || data.entries.length === 0) return;
-  const n = data.entries.length;
-  let maxV = 1;
-  for (const e of data.entries) {
-    const m = Math.max(e.bass || 0, e.mid || 0, e.treble || 0);
-    if (m > maxV) maxV = m;
-  }
-  const colW = W / n;
-  const cx = Math.max(1, Math.ceil(colW));
-  for (let i = 0; i < n; i++) {
-    const e = data.entries[i];
-    const b = e.bass || 0, m = e.mid || 0, t = e.treble || 0;
-    const peak = Math.max(b, m, t);
-    if (peak === 0) continue;
-    const r = Math.min(255, Math.round(b * 1.5));
-    const g = Math.min(255, Math.round(m * 1.5));
-    const blue = Math.min(255, Math.round(t * 1.5));
-    const h = Math.round((peak / maxV) * H);
-    ctx.fillStyle = `rgb(${r},${g},${blue})`;
-    ctx.fillRect(Math.floor(i * colW), (H - h) / 2, cx, h);
-  }
 }
 
 // Draws a PWV5 detail waveform (~150 entries/sec, {r,g,b,h} ints where r/g/b
@@ -3794,18 +3811,16 @@ function drawWaveformPWV5(canvas, data, durationMs, mode) {
     if (end > n) end = n;
     if (end <= start) end = start + 1;
     if (is3) {
-      let sb = 0, sm = 0, st = 0, mx = 0, count = 0;
+      // Per-band peak over the bucket, drawn as three additive overlaid bars.
+      let mb = 0, mm = 0, mt = 0;
       for (let i = start; i < end; i++) {
         const e = entries[i];
-        sb += e.bass; sm += e.mid; st += e.high;
-        const pk = Math.max(e.bass, e.mid, e.high);
-        if (pk > mx) mx = pk;
-        count++;
+        if (e.bass > mb) mb = e.bass;
+        if (e.mid  > mm) mm = e.mid;
+        if (e.high > mt) mt = e.high;
       }
-      if (count === 0 || mx === 0) continue;
-      ctx.fillStyle = band3Color(sb / count, sm / count, st / count);
-      const barH = Math.max(1, Math.round((mx / 255) * H));
-      ctx.fillRect(x, barTop(barH, H), 1, barH);
+      if (mb === 0 && mm === 0 && mt === 0) continue;
+      drawBands3(ctx, x, 1, H, mb, mm, mt, true); // whole-track preview → bottom-anchored
       continue;
     }
     // Bucket entries into W columns; take max-h within each bucket and average
@@ -3864,7 +3879,7 @@ function sizeCanvasHiDPI(canvas, cssH) {
 // cover the full track it produces the same output as drawWaveformPWV5.
 // A subtle horizontal centerline is drawn first so the waveform bars
 // visually overlay it (matches rekordbox / CDJ display convention).
-function drawWaveformWindow(canvas, data, durationMs, startMs, endMs, mode) {
+function drawWaveformWindow(canvas, data, durationMs, startMs, endMs, mode, previewAnchor) {
   mode = mode || effectiveWaveColor();
   const ctx = canvas.getContext('2d');
   // Read post-setTransform logical size from canvas style/parent.
@@ -3899,18 +3914,16 @@ function drawWaveformWindow(canvas, data, durationMs, startMs, endMs, mode) {
     const s = Math.floor(cStart * rate / 1000);
     const e = Math.min(n, Math.max(s + 1, Math.ceil(cEnd * rate / 1000)));
     if (is3) {
-      let sb = 0, sm = 0, st = 0, mx = 0, count = 0;
+      // Per-band peak over the bucket, drawn as three additive overlaid bars.
+      let mb = 0, mm = 0, mt = 0;
       for (let i = s; i < e; i++) {
         const en = data.entries[i];
-        sb += en.bass; sm += en.mid; st += en.high;
-        const pk = Math.max(en.bass, en.mid, en.high);
-        if (pk > mx) mx = pk;
-        count++;
+        if (en.bass > mb) mb = en.bass;
+        if (en.mid  > mm) mm = en.mid;
+        if (en.high > mt) mt = en.high;
       }
-      if (count === 0 || mx === 0) continue;
-      ctx.fillStyle = band3Color(sb / count, sm / count, st / count);
-      const barH = Math.max(1, Math.round((mx / 255) * H));
-      ctx.fillRect(x, barTop(barH, H), 1, barH);
+      if (mb === 0 && mm === 0 && mt === 0) continue;
+      drawBands3(ctx, x, 1, H, mb, mm, mt, previewAnchor); // preview → bottom, zoom → centred
       continue;
     }
     let mh = 0, mr = 0, mg = 0, mb = 0, count = 0;
@@ -4219,8 +4232,9 @@ function redrawDetailWaveform() {
   // hidden when the canvas size was 0.
   sizeCanvasHiDPI(ov, 40);
   sizeCanvasHiDPI(zm, 96);
-  // Overview = whole track, with cue markers + viewport rect.
-  drawWaveformWindow(ov, detailWave.wave, detailWave.durationMs, 0, detailWave.durationMs);
+  // Overview = whole track, with cue markers + viewport rect. previewAnchor=true
+  // so 3-band draws as a bottom-anchored half waveform (rekordbox convention).
+  drawWaveformWindow(ov, detailWave.wave, detailWave.durationMs, 0, detailWave.durationMs, undefined, true);
   drawCueOverlayWindow(ov, detailWave.cues, detailWave.durationMs, 0, detailWave.durationMs, { labelHeight: 0 });
   const { start, end } = detailZoomBounds();
   drawOverviewViewport(ov, detailWave.durationMs, start, end);
