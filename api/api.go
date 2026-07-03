@@ -910,10 +910,10 @@ func (s *Server) handleImportRekordbox(w http.ResponseWriter, r *http.Request) {
 	var playlists []library.PlaylistImport
 	var tags []library.TagImport
 	var colors []library.ColorImport
-	var assets []library.MasterDBAsset   // ANLZ + artwork paths (zip imports)
+	var assets []library.MasterDBAsset   // ANLZ + artwork paths (.zip, or .db in its lib folder)
 	var masterCues []library.MasterDBCue // cue points from djmdCue (.db/.zip)
-	var shareRoot string                 // extracted backup's share/ root (zip imports)
-	var settingsDir string               // extracted backup's settings dir (zip imports)
+	var shareRoot string                 // share/ root (.zip extract, or a .db's own folder)
+	var settingsDir string               // *SETTING.DAT dir (.zip extract, or a .db's own folder)
 	var err error
 
 	switch ext {
@@ -931,7 +931,37 @@ func (s *Server) handleImportRekordbox(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if incTracks {
-			result, playlists, tags, colors, _, masterCues, err = library.ImportRekordboxMasterDB(s.Library, req.Path, key)
+			result, playlists, tags, colors, assets, masterCues, err = library.ImportRekordboxMasterDB(s.Library, req.Path, key)
+		}
+		// A master.db that still lives in its rekordbox library folder has its
+		// analysis (share/PIONEER/USBANLZ), artwork (share/PIONEER/Artwork), and
+		// *SETTING.DAT blobs right beside it — the same layout a backup zip
+		// mirrors. Point shareRoot/settingsDir at the DB's own directory so the
+		// asset + settings import below picks them up, making a bare-.db import
+		// nearly as complete as a .zip. (A DB copied out on its own has no
+		// neighbours, so these stay empty and nothing extra is imported.)
+		dbDir := filepath.Dir(req.Path)
+		if fi, e := os.Stat(filepath.Join(dbDir, "share")); e == nil && fi.IsDir() {
+			shareRoot = filepath.Join(dbDir, "share")
+		}
+		if incSettings && s.Settings != nil {
+			hasSettings := func(dir string) bool {
+				for _, sf := range rekordboxSettingsFiles {
+					if _, e := os.Stat(filepath.Join(dir, sf)); e == nil {
+						return true
+					}
+				}
+				return false
+			}
+			// rekordbox 6 keeps the *SETTING.DAT blobs in a sibling "rekordbox6"
+			// folder (master.db lives in "rekordbox"); a backup zip instead puts
+			// them beside the db. Check the sibling first, then the db's dir.
+			for _, cand := range []string{filepath.Join(filepath.Dir(dbDir), "rekordbox6"), dbDir} {
+				if hasSettings(cand) {
+					settingsDir = cand
+					break
+				}
+			}
 		}
 	case ".zip":
 		// rekordbox library backup: master.db (+ share/PIONEER analysis &
@@ -1124,10 +1154,11 @@ func (s *Server) handleImportRekordbox(w http.ResponseWriter, r *http.Request) {
 		log.Printf("import: materialized %d track colour label(s)", len(colors))
 	}
 
-	// Import ANLZ analysis (waveforms, beat grids, phrases) and cover art
-	// from a backup's share/ tree, so we reuse rekordbox's exact data instead
-	// of re-analysing. Only zip imports populate shareRoot+assets; a plain
-	// .db/.xml import has no accompanying file tree.
+	// Import ANLZ analysis (waveforms, beat grids, phrases) and cover art from
+	// the share/ tree, so we reuse rekordbox's exact data instead of
+	// re-analysing. Populated by a .zip (extracted share/) or by a .db that
+	// still sits in its rekordbox library folder (share/ beside it); a .xml or
+	// a copied-out .db has no accompanying file tree, so this is skipped.
 	if shareRoot != "" && len(assets) > 0 && (incArtwork || incAnalysis || incCues) {
 		var artN, anlzN, cueN int
 		for _, a := range assets {

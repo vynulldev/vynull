@@ -10005,10 +10005,12 @@ function openImportRekordboxDialog() {
         <div class="export-hint">
           In rekordbox: <b>File → Export Collection in XML</b> writes a .xml you can
           import without any key. The master.db path requires the key Pioneer uses to
-          encrypt it (obtained with a SQLCipher key-recovery tool). A
+          encrypt it (obtained with a SQLCipher key-recovery tool). Point it at the
+          master.db <i>inside your rekordbox library folder</i> and it also pulls in the
+          waveforms, beat grids, cover art, and player/mixer settings sitting beside it;
+          a master.db copied out on its own brings metadata + cues only. A
           <b>library backup .zip</b> (rekordbox's <b>File → Library → Backup</b>) bundles
-          master.db plus the analysis (waveforms, beat grids, phrases) and cover art —
-          richest import — and needs the same key.
+          the same thing in one file — and needs the same key.
         </div>
       </div>
       <div class="export-row">
@@ -10040,9 +10042,9 @@ function openImportRekordboxDialog() {
           <label data-src="xml,db,zip" data-dep="tracks"><input type="checkbox" id="inc-playlists" checked> Playlists</label>
           <label data-src="xml,db,zip" data-dep="tracks"><input type="checkbox" id="inc-tags" checked> Tags</label>
           <label data-src="db,zip" data-dep="tracks"><input type="checkbox" id="inc-cues" checked> Cues</label>
-          <label data-src="zip" data-dep="tracks"><input type="checkbox" id="inc-analysis" checked> Waveforms &amp; beat grids</label>
-          <label data-src="zip" data-dep="tracks"><input type="checkbox" id="inc-artwork" checked> Artwork</label>
-          <label data-src="zip"><input type="checkbox" id="inc-settings" checked> Player/mixer settings</label>
+          <label data-src="db,zip" data-dep="tracks"><input type="checkbox" id="inc-analysis" checked> Waveforms &amp; beat grids</label>
+          <label data-src="db,zip" data-dep="tracks"><input type="checkbox" id="inc-artwork" checked> Artwork</label>
+          <label data-src="db,zip"><input type="checkbox" id="inc-settings" checked> Player/mixer settings</label>
         </div>
         <div class="export-hint">Uncheck anything you don't want. Options the chosen source can't provide are hidden. (Playlists, tags, cues, analysis and artwork all require Tracks.)</div>
       </div>
