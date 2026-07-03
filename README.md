@@ -542,16 +542,26 @@ vynull/
   proto/               Packet encoding/decoding
     header.go          Magic bytes, common header
     announce.go        Announcement/keep-alive packets (UDP 50000)
-    status.go          CDJ status packets (UDP 50002)
+    status.go          CDJ/mixer status + refresh-trigger packets (UDP 50002)
+    cdj_status.go      Parse incoming CDJ status (play state, BPM, track)
     dbmessage.go       Dbserver binary message encoding
   device/              Virtual device lifecycle
     device.go          Startup sequence, keep-alive loop, settings notification
     peers.go           Track connected CDJs/mixers
-    monitor.go         Live TUI monitor
+    monitor.go         Live player-state tracking + track history
+    tui.go             Terminal monitor UI (players/library/settings tabs)
     settings.go        CDJ settings persistence (DEVSETTING/MYSETTING)
+    settings_schema.go Settings config that drives *SETTING.DAT + the web UI
+    settings_import.go Parse rekordbox *SETTING.DAT files on import
   dbserver/            TCP metadata server (port 12523 + dynamic)
     server.go          Listener, session handling, message framing, replay
     handler.go         Message dispatcher, menu/metadata responses
+    render.go          0x3000 Render dispatcher + pending-item paging
+    categories.go      Top-level category lists (artists/albums/BPM/key/…)
+    drilldown.go       Multi-level drill + search (post-category)
+    menuitem.go        menuItem type, sort dispatch, track→item conversion
+    playlist.go        Playlist / folder / history menu handlers
+    track.go           Track detail + analysis (info/waveform/beat grid/PVB2/cues)
     cuepoints.go       Cue point save/load/delete with wire format synthesis
   nfs/                 Minimal NFS v2 server (read-only)
     portmap.go         Portmapper
@@ -565,23 +575,32 @@ vynull/
     beatgrid.go        Beat grid generation (PQTZ/PQT2 formats)
     waveform.go        PWV4/PWV5 color waveform + monochrome generation
     pqt2.go            PQT2 extended beat grid format
+    pvb2.go            PVB2 VBR seek index from the audio frame map (ffprobe)
+    pvbr.go            PVBR/PVB2 seek-index section builders
     fft.go             Radix-2 Cooley-Tukey FFT
     fft_batch.go       Parallel-CPU batch FFT
-    bench_test.go      Analysis performance benchmarks
     phrase.go          Song structure / phrase detection (PSSI)
+    vocal.go           Lightweight per-phrase vocal-presence detection
     key.go             Musical key detection (chromagram + Pearson correlation)
     decode.go          FFmpeg PCM audio decoding
+    render.go          Waveform preview → PNG rendering (web UI)
     anlz.go            ANLZ file format (.DAT/.EXT/.2EX)
     import_anlz.go     Reconstruct analysis from rekordbox ANLZ files on import
+    import_cues.go     Parse cue points from rekordbox ANLZ on import
+    artwork.go         Artwork extraction (embedded tags via ffmpeg)
   library/             Music library (thread-safe)
     scanner.go         Directory walk, tag reading
     track.go           Track struct (matches rekordbox PDB fields)
     index.go           In-memory indices, persistence, sequential IDs
     artwork.go         Artwork cache
+    thumbnail.go       JPEG thumbnail resizing (oversized CDJ artwork)
+    decode_check.go    ffmpeg decode-health check (flags CDJ-freezing files)
     import_xml.go      Import a rekordbox.xml export (tracks, tags, colors)
     import_masterdb.go Import an encrypted master.db / backup .zip (via rekordbox_dump.py)
   api/                 HTTP API server
     api.go             REST endpoints, analysis/cue/waveform/settings/import APIs
+    fs.go              Sandboxed filesystem browser for "add files/folders"
+    diag.go            Log ring buffer + diagnostic endpoints (status/logs/stats)
     web.go             //go:embed of the single-page web UI (served at GET /)
     web/index.html     Browser-based library manager (UI)
     cueadapter.go      Bridge between API cue types and dbserver cue store
@@ -594,6 +613,10 @@ vynull/
     pdb.go             PDB parser
     folders.go         Folder/playlist tree
     settings.go        MYSETTING/DEVSETTING generation
+    artwork.go         Artwork USB path scheme + table rows
+    defaults.go        Default rows every export needs (colors/columns/menu)
+    writer.go          export.pdb file writer
+    writer_ext.go      exportExt.pdb extension-table writers (NXS2+ data)
   internal/
     fsutil/atomic.go   Atomic file writes (temp + fsync + rename) for the stores
     netutil/netutil.go Interface discovery, broadcast addr
