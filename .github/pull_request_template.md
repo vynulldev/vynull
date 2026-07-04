@@ -10,7 +10,7 @@
      on the wire is NOT a reliable proxy for correctness. If this touches the protocol, the load
      path, analysis output, or anything a deck reacts to, test it on hardware. -->
 
-- **Tested on:** <!-- e.g. CDJ ×2 fw 1.42 + DJM — or "N/A: no deck-facing change" -->
+- **Tested on:** <!-- e.g. 2× CDJ (model + fw) + DJM mixer — or "N/A: no deck-facing change" -->
 
 ## Checklist
 

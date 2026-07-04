@@ -40,8 +40,8 @@ body:
       label: Hardware
       description: CDJ/XDJ model(s) and firmware, any DJM mixer, and how everything is connected (switch, direct, link cable).
       placeholder: |
-        - CDJ ×2, firmware 1.42
-        - DJM
+        - 2× CDJ (model + firmware)
+        - DJM mixer (model)
         - Connected via a Gigabit switch; PC on eth1 (169.254.x.x link-local)
     validations:
       required: true
