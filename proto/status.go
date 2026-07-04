@@ -430,7 +430,12 @@ func MarshalStatusCDJ(name string, deviceNumber uint8, mediaSlot uint8, trackCou
 // Sent in response to a CDJ's type 0x35 "Load Settings" request.
 // Contains combined MYSETTING + MYSETTING2 data that the CDJ applies to configure
 // its display settings (waveform color, jog settings, etc.).
-func MarshalMySettingsResponse(name string, deviceNumber uint8, slot uint8, mySetting []byte, devSetting []byte) []byte {
+//
+// mySetting is the 40-byte .DAT-style MYSETTING body (8-byte magic + 32 fields);
+// mySetting2 is the 40-byte MYSETTING2 wire body (fields only, no magic — that's
+// what CDJSettings.GetMySetting2() returns). Either may be nil/short, in which
+// case that section falls back to the built-in defaults.
+func MarshalMySettingsResponse(name string, deviceNumber uint8, slot uint8, mySetting []byte, mySetting2 []byte, devSetting []byte) []byte {
 	buf := make([]byte, 120)
 	PutHeader(buf, 0x36)
 	putName50002(buf, name)
@@ -471,19 +476,25 @@ func MarshalMySettingsResponse(name string, deviceNumber uint8, slot uint8, mySe
 		})
 	}
 
-	// MYSETTING2 body (40 bytes at 0x50-0x77).
-	copy(buf[0x50:], []byte{
-		0x81,                         // vinyl_speed_adjust: touch
-		0x80,                         // jog_display_mode: auto
-		0x83,                         // pad_button_brightness: three
-		0x83,                         // jog_lcd_brightness: three
-		0x81,                         // waveform_divisions: phrase
-		0x00, 0x00, 0x00, 0x00, 0x00, // padding
-		0x80, // waveform: waveform
-		0x81, // u2
-		0x85, // beat_jump_beat_value: sixteen
-		// rest is zeros (padding to 0x77)
-	})
+	// MYSETTING2 body (40 bytes at 0x50-0x77). GetMySetting2() already returns
+	// the wire body (fields only, no magic prefix), so it's copied straight in.
+	if len(mySetting2) >= 40 {
+		copy(buf[0x50:0x78], mySetting2[:40])
+	} else {
+		// Defaults — byte-identical to MySetting2Fields{}.Encode().
+		copy(buf[0x50:], []byte{
+			0x81,                         // vinyl_speed_adjust: touch
+			0x80,                         // jog_display_mode: auto
+			0x83,                         // pad_button_brightness: three
+			0x83,                         // jog_lcd_brightness: three
+			0x81,                         // waveform_divisions: phrase
+			0x00, 0x00, 0x00, 0x00, 0x00, // padding
+			0x80, // waveform: waveform
+			0x81, // u2
+			0x85, // beat_jump_beat_value: sixteen
+			// rest is zeros (padding to 0x77)
+		})
+	}
 
 	return buf
 }

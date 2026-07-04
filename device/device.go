@@ -774,12 +774,13 @@ func (d *VirtualDevice) listenStatus(ctx context.Context) {
 		// Type 0x35 (My Settings READ request) — CDJ asks to load settings.
 		if pktType == 0x35 {
 			log.Printf("status: settings read request (0x35) from %s — sending 0x36 response", addr)
-			var mySetting, devSetting []byte
+			var mySetting, mySetting2, devSetting []byte
 			if d.Settings != nil {
 				mySetting = d.Settings.GetMySetting()
+				mySetting2 = d.Settings.GetMySetting2()
 				devSetting = d.Settings.GetDevSetting()
 			}
-			resp := proto.MarshalMySettingsResponse(d.Name, d.DeviceNumber, d.MediaSlot, mySetting, devSetting)
+			resp := proto.MarshalMySettingsResponse(d.Name, d.DeviceNumber, d.MediaSlot, mySetting, mySetting2, devSetting)
 			d.sendStatus(resp, replyAddr)
 		}
 
