@@ -1158,12 +1158,19 @@
   .lib-table-wrap {
     border: 1px solid var(--wire);
     background: var(--panel);
-    /* No overflow here — any non-visible overflow value (including
-       overflow-x: auto) makes browsers treat this element as the
-       sticky scroll-context, so the thead's top:Npx then measures
-       from the wrap's top rather than the viewport's, landing in
-       the middle of a row instead of below the toolbar. Wide tables
-       overflow into the page's horizontal scroll instead. */
+    /* Fit mode: no overflow here — any non-visible overflow value (including
+       overflow-x: auto) makes browsers treat this element as the sticky
+       scroll-context, so the thead's top:Npx then measures from the wrap's top
+       rather than the viewport's. Fit mode keeps the table within the panel, so
+       no scroll is needed. */
+  }
+  /* Scroll mode: make the table its own bounded scroll viewport (both axes
+     internal) so a wide column set scrolls horizontally while the sticky header
+     — now sticky to the wrap's top (see syncStickyOffsets) — keeps working. */
+  html[data-lib-colmode="scroll"] #library .lib-table-wrap {
+    overflow: auto;
+    /* max-height is set precisely by syncStickyOffsets() from the wrap's
+       measured top, so the viewport fills exactly to the window bottom. */
   }
   table.lib {
     width: 100%; border-collapse: collapse; font-size: 12px;
@@ -3666,6 +3673,16 @@ function loadColWidths() {
 }
 let libColWidths = loadColWidths();
 function saveColWidths() { try { localStorage.setItem(COL_W_LS_KEY, JSON.stringify(libColWidths)); } catch (e) {} }
+// Column sizing mode: 'fit' squishes columns to fit the panel (no horizontal
+// scroll); 'scroll' keeps their exact widths and lets the table scroll
+// horizontally. Scroll mode turns the table into its own bounded scroll
+// viewport (both axes internal) so the sticky header keeps working — see the
+// html[data-lib-colmode="scroll"] CSS + syncStickyOffsets.
+const COL_MODE_LS_KEY = 'pdj-library-col-mode';
+function loadColMode() { try { return localStorage.getItem(COL_MODE_LS_KEY) === 'scroll' ? 'scroll' : 'fit'; } catch (e) { return 'fit'; } }
+let libColMode = loadColMode();
+function applyColMode(m) { document.documentElement.setAttribute('data-lib-colmode', m); }
+applyColMode(libColMode);
 function colWidth(key) {
   const w = libColWidths[key];
   const base = Number.isFinite(w) ? w : (DEFAULT_COL_WIDTHS[key] || 120);
@@ -3689,17 +3706,30 @@ function applyColWidthsLive(root) {
     const k = col.getAttribute('data-col-key');
     return (k === 'art') ? artColWidth() : colWidth(k);
   });
-  // Keep the table inside the panel (the wrap can't scroll without breaking the
-  // sticky header). The trailing load column is auto and absorbs any slack, so
-  // data columns render at their exact widths; if they'd still overflow the
-  // panel, squish them proportionally so nothing spills past the right edge.
+  const loadCol = table.querySelector('colgroup col.c-load');
   const avail = libWrapAvail(table);
   const dataSum = want.reduce((a, b) => a + b, 0);
+  const total = LIB_SEL_W + dataSum + LIB_LOAD_W;
+
+  if (libColMode === 'scroll' && avail > 0 && total > avail) {
+    // Overflow → keep exact widths and let the (bounded) wrap scroll
+    // horizontally. Load column is fixed so the sum is exact.
+    cols.forEach((col, i) => { col.style.width = want[i] + 'px'; });
+    if (loadCol) loadCol.style.width = LIB_LOAD_W + 'px';
+    table.style.width = total + 'px';
+    table.style.removeProperty('min-width');
+    return;
+  }
+
+  // Fits (either mode) or fit-mode overflow: the trailing load column is auto and
+  // absorbs slack so data columns keep exact widths and the table fills the
+  // panel. In fit mode, if columns would still overflow, squish proportionally.
   let scale = 1;
-  if (avail > 0 && LIB_SEL_W + dataSum + LIB_LOAD_W > avail) {
+  if (libColMode === 'fit' && avail > 0 && total > avail) {
     scale = Math.max(0.15, (avail - LIB_SEL_W - LIB_LOAD_W) / dataSum);
   }
   cols.forEach((col, i) => { col.style.width = Math.max(20, Math.round(want[i] * scale)) + 'px'; });
+  if (loadCol) loadCol.style.removeProperty('width');
   table.style.width = '100%';
   table.style.removeProperty('min-width');
 }
@@ -3721,11 +3751,11 @@ function attachColResizers(root) {
       document.body.style.cursor = 'col-resize';
       const onMove = ev => {
         let w = Math.max(COL_W_MIN, Math.min(COL_W_MAX, startW + (ev.clientX - startX)));
-        // Clamp so the table can't grow past the panel — the load column absorbs
-        // the remaining space, so widening this one is bounded by what's left.
+        // In fit mode, clamp so the table can't grow past the panel (the load
+        // column absorbs the rest). In scroll mode, allow free growth → scroll.
         const table = root.querySelector('table.lib');
         const avail = table ? libWrapAvail(table) : 0;
-        if (avail > 0) {
+        if (libColMode === 'fit' && avail > 0) {
           let others = 0;
           root.querySelectorAll('colgroup col[data-col-key]').forEach(col => {
             const k = col.getAttribute('data-col-key');
@@ -6073,6 +6103,13 @@ function openColumnsPopover() {
         <option value="cover-top" ${libraryArtFit === 'cover-top' ? 'selected' : ''}>Show the upper part of the artwork</option>
         <option value="square"    ${libraryArtFit === 'square'    ? 'selected' : ''}>Show the entire artwork</option>
       </select>
+    </div>
+    <div class="row-h-row">
+      <span class="row-h-label">WIDTH</span>
+      <select id="col-mode-select" class="row-h-slider" style="flex:1">
+        <option value="fit"    ${libColMode === 'fit'    ? 'selected' : ''}>Fit columns to window</option>
+        <option value="scroll" ${libColMode === 'scroll' ? 'selected' : ''}>Allow horizontal scroll</option>
+      </select>
     </div>`;
   pop.innerHTML = '<div class="head"><span>COLUMNS</span><button type="button" class="reset" data-action="autofit" title="Size the visible columns to fill the panel width">AUTO FIT</button><button type="button" class="reset" data-action="reset">RESET</button></div>' +
     '<div class="cols-list">' + columnsPopoverListHTML() + '</div>' + rowHRow;
@@ -6133,6 +6170,16 @@ function openColumnsPopover() {
       applyArtFit(libraryArtFit);
       saveArtFit(libraryArtFit);
       applyColWidthsLive(); // art column width depends on the fit mode
+    });
+  }
+  const colModeSel = pop.querySelector('#col-mode-select');
+  if (colModeSel) {
+    colModeSel.addEventListener('change', () => {
+      libColMode = colModeSel.value === 'scroll' ? 'scroll' : 'fit';
+      try { localStorage.setItem(COL_MODE_LS_KEY, libColMode); } catch (e) {}
+      applyColMode(libColMode);
+      applyColWidthsLive();
+      syncStickyOffsets();
     });
   }
   // Close on outside click. Defer one frame so the opening click doesn't trip it.
@@ -8984,10 +9031,25 @@ function syncStickyOffsets() {
   const STICKY_TOP = 96; // header + tabs height — must match the .lib-toolbar CSS
   const toolbar = document.querySelector('#library .lib-toolbar');
   if (!toolbar) return;
-  const top = STICKY_TOP + toolbar.offsetHeight;
+  const offset = STICKY_TOP + toolbar.offsetHeight;
+  const scroll = libColMode === 'scroll';
+  // Fit mode: header sticks below the toolbar (viewport). Scroll mode: the wrap
+  // is the scroll container, so the header sticks to its top (0).
+  const top = scroll ? 0 : offset;
   document.querySelectorAll('#library table.lib thead th').forEach(th => {
     th.style.top = top + 'px';
   });
+  // Scroll mode: size the bounded viewport to fill from its actual top down to
+  // the bottom of the window (measured, so there's no gap), and scroll inside.
+  const wrap = document.querySelector('#library .lib-table-wrap');
+  if (wrap) {
+    if (scroll) {
+      const naturalTop = wrap.getBoundingClientRect().top + window.scrollY;
+      wrap.style.maxHeight = Math.max(160, Math.floor(window.innerHeight - naturalTop - 8)) + 'px';
+    } else {
+      wrap.style.removeProperty('max-height');
+    }
+  }
 }
 window.addEventListener('resize', syncStickyOffsets);
 // Re-fit the library columns to the panel when the window/panel width changes,
