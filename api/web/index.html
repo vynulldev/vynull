@@ -6277,6 +6277,22 @@ function closeLoadMenu() {
   document.querySelectorAll('.load-menu').forEach(m => m.remove());
 }
 async function loadTrack(trackID, deviceNumber) {
+  // Guard against clobbering a deck that's mid-playback. currentPlayers is
+  // refreshed from /api/players every ~1s, so is_playing is current. Only a
+  // live-playing deck triggers the prompt — paused/cued decks load silently.
+  const target = (currentPlayers || []).find(p => p.device_number === deviceNumber);
+  if (target && target.is_playing) {
+    const nowStr = target.track_title
+      ? `"${target.track_title}"${target.artist ? ' — ' + target.artist : ''}`
+      : (target.track_id ? `TRACK ${String(target.track_id).padStart(4, '0')}` : 'a track');
+    const ok = await openConfirmModal({
+      title: 'DECK IS PLAYING',
+      message: `PLAYER ${String(deviceNumber).padStart(2, '0')} is currently playing ${nowStr}.\n\nLoading a new track will interrupt it. Continue?`,
+      okLabel: 'LOAD ANYWAY',
+      danger: true,
+    });
+    if (!ok) return;
+  }
   const r = await fetch('/api/load', {
     method: 'POST', headers: {'Content-Type': 'application/json'},
     body: JSON.stringify({ track_id: trackID, device_number: deviceNumber }),
