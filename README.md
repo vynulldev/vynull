@@ -718,7 +718,7 @@ This wouldn't exist without the people who reverse-engineered Pioneer's Pro DJ L
 - **[rekordcrate](https://github.com/Holzhaus/rekordcrate)** (Jan Holthuis) — Rust parsers and reference exports I leaned on to get the `export.pdb` writer byte-for-byte right.
 - **[python-prodj-link](https://github.com/flesniak/python-prodj-link)** (Florian Sniak) — a working Python implementation that helped me understand the dbserver menu and metadata flow.
 - **[pyrekordbox](https://github.com/dylanljones/pyrekordbox)** (Dylan Jones) — format docs and the starting point for decrypting `master.db`.
-- The Kaitai Struct community for the format definitions, and everyone who posted issues and packet captures along the way.
+- The Kaitai Struct community for the format definitions, and everyone who posted issues and helped along the way.
 - **Audio-analysis algorithms** — the beat tracker is an independent implementation of D. Ellis's dynamic-programming method (*"Beat Tracking by Dynamic Programming"*, J. New Music Research, 2007); key detection uses the Krumhansl-Kessler probe-tone profiles (1982). These are published academic methods — the same DP beat-tracking approach is also implemented by [QM-DSP](https://github.com/c4dm/qm-dsp) and [Mixxx](https://github.com/mixxxdj/mixxx), which are worth a look, though the code here derives from the papers rather than those projects.
 
 A few things aren't covered by the documented specs — the on-the-wire settings handshake, NXS2 cue writes, and some of the waveform encodings — and were worked out independently; the settings *file-format* field schema and the ANLZ section framing still follow the documented specs above. Without the projects listed here there'd have been nowhere to start. Thanks to everyone listed.
