@@ -6,7 +6,7 @@ import (
 	"bytes"
 	"fmt"
 	"image"
-	_ "image/gif"  // register GIF decoder for image.Decode
+	_ "image/gif" // register GIF decoder for image.Decode
 	"image/jpeg"
 	_ "image/png" // register PNG decoder for image.Decode
 

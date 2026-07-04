@@ -16,7 +16,7 @@ func TestHandleFSList(t *testing.T) {
 	if r, err := filepath.EvalSymlinks(dir); err == nil {
 		dir = r
 	}
-	mustWrite(t, filepath.Join(dir, "Album"), "")     // dir marker handled below
+	mustWrite(t, filepath.Join(dir, "Album"), "") // dir marker handled below
 	os.MkdirAll(filepath.Join(dir, "Album"), 0o755)
 	mustWrite(t, filepath.Join(dir, "Album", "a.flac"), "x")
 	mustWrite(t, filepath.Join(dir, "b.mp3"), "x")

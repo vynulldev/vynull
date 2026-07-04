@@ -35,66 +35,66 @@ type SettingsConfig struct {
 
 // MySettingFields backs MYSETTING.DAT (player UI settings).
 type MySettingFields struct {
-	OnAirDisplay       string `yaml:"on_air_display" json:"on_air_display"`        // on, off
-	LCDBrightness      string `yaml:"lcd_brightness" json:"lcd_brightness"`        // one..five
-	Quantize           string `yaml:"quantize" json:"quantize"`              // on, off
-	AutoCueLevel       string `yaml:"auto_cue_level" json:"auto_cue_level"`        // minus_36db..minus_78db, memory
-	Language           string `yaml:"language" json:"language"`              // english, french, ...
-	JogRingBrightness  string `yaml:"jog_ring_brightness" json:"jog_ring_brightness"`   // off, dark, bright
-	JogRingIndicator   string `yaml:"jog_ring_indicator" json:"jog_ring_indicator"`    // on, off
-	SlipFlashing       string `yaml:"slip_flashing" json:"slip_flashing"`         // on, off
-	DiscSlotIllumin    string `yaml:"disc_slot_illumination" json:"disc_slot_illumination"`// off, dark, bright
-	EjectLock          string `yaml:"eject_lock" json:"eject_lock"`            // unlock, lock
-	Sync               string `yaml:"sync" json:"sync"`                  // off, on
-	PlayMode           string `yaml:"play_mode" json:"play_mode"`             // continue, single
-	QuantizeBeatValue  string `yaml:"quantize_beat_value" json:"quantize_beat_value"`   // one, half, quarter, eighth
-	HotcueAutoload     string `yaml:"hotcue_autoload" json:"hotcue_autoload"`       // off, on, rekordbox_setting
-	HotcueColor        string `yaml:"hotcue_color" json:"hotcue_color"`          // off, on
-	NeedleLock         string `yaml:"needle_lock" json:"needle_lock"`           // unlock, lock
-	TimeMode           string `yaml:"time_mode" json:"time_mode"`             // elapsed, remain
-	JogMode            string `yaml:"jog_mode" json:"jog_mode"`              // cdj, vinyl
-	AutoCue            string `yaml:"auto_cue" json:"auto_cue"`              // off, on
-	MasterTempo        string `yaml:"master_tempo" json:"master_tempo"`          // off, on
-	TempoRange         string `yaml:"tempo_range" json:"tempo_range"`           // six, ten, sixteen, wide
-	PhaseMeter         string `yaml:"phase_meter" json:"phase_meter"`           // type1, type2
+	OnAirDisplay      string `yaml:"on_air_display" json:"on_air_display"`                 // on, off
+	LCDBrightness     string `yaml:"lcd_brightness" json:"lcd_brightness"`                 // one..five
+	Quantize          string `yaml:"quantize" json:"quantize"`                             // on, off
+	AutoCueLevel      string `yaml:"auto_cue_level" json:"auto_cue_level"`                 // minus_36db..minus_78db, memory
+	Language          string `yaml:"language" json:"language"`                             // english, french, ...
+	JogRingBrightness string `yaml:"jog_ring_brightness" json:"jog_ring_brightness"`       // off, dark, bright
+	JogRingIndicator  string `yaml:"jog_ring_indicator" json:"jog_ring_indicator"`         // on, off
+	SlipFlashing      string `yaml:"slip_flashing" json:"slip_flashing"`                   // on, off
+	DiscSlotIllumin   string `yaml:"disc_slot_illumination" json:"disc_slot_illumination"` // off, dark, bright
+	EjectLock         string `yaml:"eject_lock" json:"eject_lock"`                         // unlock, lock
+	Sync              string `yaml:"sync" json:"sync"`                                     // off, on
+	PlayMode          string `yaml:"play_mode" json:"play_mode"`                           // continue, single
+	QuantizeBeatValue string `yaml:"quantize_beat_value" json:"quantize_beat_value"`       // one, half, quarter, eighth
+	HotcueAutoload    string `yaml:"hotcue_autoload" json:"hotcue_autoload"`               // off, on, rekordbox_setting
+	HotcueColor       string `yaml:"hotcue_color" json:"hotcue_color"`                     // off, on
+	NeedleLock        string `yaml:"needle_lock" json:"needle_lock"`                       // unlock, lock
+	TimeMode          string `yaml:"time_mode" json:"time_mode"`                           // elapsed, remain
+	JogMode           string `yaml:"jog_mode" json:"jog_mode"`                             // cdj, vinyl
+	AutoCue           string `yaml:"auto_cue" json:"auto_cue"`                             // off, on
+	MasterTempo       string `yaml:"master_tempo" json:"master_tempo"`                     // off, on
+	TempoRange        string `yaml:"tempo_range" json:"tempo_range"`                       // six, ten, sixteen, wide
+	PhaseMeter        string `yaml:"phase_meter" json:"phase_meter"`                       // type1, type2
 }
 
 // MySetting2Fields backs MYSETTING2.DAT.
 type MySetting2Fields struct {
-	VinylSpeedAdjust    string `yaml:"vinyl_speed_adjust" json:"vinyl_speed_adjust"`     // touch_release, touch, release
-	JogDisplayMode      string `yaml:"jog_display_mode" json:"jog_display_mode"`       // auto, info, simple, artwork
-	PadButtonBrightness string `yaml:"pad_button_brightness" json:"pad_button_brightness"`  // one..four
-	JogLCDBrightness    string `yaml:"jog_lcd_brightness" json:"jog_lcd_brightness"`     // one..five
-	WaveformDivisions   string `yaml:"waveform_divisions" json:"waveform_divisions"`     // time_scale, phrase
-	Waveform            string `yaml:"waveform" json:"waveform"`               // waveform, phase_meter
+	VinylSpeedAdjust    string `yaml:"vinyl_speed_adjust" json:"vinyl_speed_adjust"`       // touch_release, touch, release
+	JogDisplayMode      string `yaml:"jog_display_mode" json:"jog_display_mode"`           // auto, info, simple, artwork
+	PadButtonBrightness string `yaml:"pad_button_brightness" json:"pad_button_brightness"` // one..four
+	JogLCDBrightness    string `yaml:"jog_lcd_brightness" json:"jog_lcd_brightness"`       // one..five
+	WaveformDivisions   string `yaml:"waveform_divisions" json:"waveform_divisions"`       // time_scale, phrase
+	Waveform            string `yaml:"waveform" json:"waveform"`                           // waveform, phase_meter
 	BeatJumpBeatValue   string `yaml:"beat_jump_beat_value" json:"beat_jump_beat_value"`   // half..sixty_four
 }
 
 // DjmMySettingFields backs DJMMYSETTING.DAT.
 type DjmMySettingFields struct {
-	ChannelFaderCurve     string `yaml:"channel_fader_curve" json:"channel_fader_curve"`       // steep_top, linear, steep_bottom
-	CrossFaderCurve       string `yaml:"cross_fader_curve" json:"cross_fader_curve"`         // constant, slow_cut, fast_cut
-	HeadphonesPreEQ       string `yaml:"headphones_pre_eq" json:"headphones_pre_eq"`         // post_eq, pre_eq
-	HeadphonesMonoSplit   string `yaml:"headphones_mono_split" json:"headphones_mono_split"`     // stereo, mono_split
-	BeatFXQuantize        string `yaml:"beat_fx_quantize" json:"beat_fx_quantize"`          // off, on
-	MicLowCut             string `yaml:"mic_low_cut" json:"mic_low_cut"`               // off, on
-	TalkOverMode          string `yaml:"talk_over_mode" json:"talk_over_mode"`            // advanced, normal
-	TalkOverLevel         string `yaml:"talk_over_level" json:"talk_over_level"`           // minus_24db..minus_6db
-	MidiChannel           string `yaml:"midi_channel" json:"midi_channel"`              // one..sixteen
-	MidiButtonType        string `yaml:"midi_button_type" json:"midi_button_type"`          // toggle, trigger
-	DisplayBrightness     string `yaml:"display_brightness" json:"display_brightness"`        // white, one..five
-	IndicatorBrightness   string `yaml:"indicator_brightness" json:"indicator_brightness"`      // one..three
-	ChannelFaderCurveLong string `yaml:"channel_fader_curve_long" json:"channel_fader_curve_long"`  // exponential, smooth, linear
+	ChannelFaderCurve     string `yaml:"channel_fader_curve" json:"channel_fader_curve"`           // steep_top, linear, steep_bottom
+	CrossFaderCurve       string `yaml:"cross_fader_curve" json:"cross_fader_curve"`               // constant, slow_cut, fast_cut
+	HeadphonesPreEQ       string `yaml:"headphones_pre_eq" json:"headphones_pre_eq"`               // post_eq, pre_eq
+	HeadphonesMonoSplit   string `yaml:"headphones_mono_split" json:"headphones_mono_split"`       // stereo, mono_split
+	BeatFXQuantize        string `yaml:"beat_fx_quantize" json:"beat_fx_quantize"`                 // off, on
+	MicLowCut             string `yaml:"mic_low_cut" json:"mic_low_cut"`                           // off, on
+	TalkOverMode          string `yaml:"talk_over_mode" json:"talk_over_mode"`                     // advanced, normal
+	TalkOverLevel         string `yaml:"talk_over_level" json:"talk_over_level"`                   // minus_24db..minus_6db
+	MidiChannel           string `yaml:"midi_channel" json:"midi_channel"`                         // one..sixteen
+	MidiButtonType        string `yaml:"midi_button_type" json:"midi_button_type"`                 // toggle, trigger
+	DisplayBrightness     string `yaml:"display_brightness" json:"display_brightness"`             // white, one..five
+	IndicatorBrightness   string `yaml:"indicator_brightness" json:"indicator_brightness"`         // one..three
+	ChannelFaderCurveLong string `yaml:"channel_fader_curve_long" json:"channel_fader_curve_long"` // exponential, smooth, linear
 }
 
 // DevSettingFields backs DEVSETTING (served separately, 6 bytes on wire).
 // byte 0 and byte 3 are protocol-required constants (0x01); only the
 // 4 user-facing bytes are exposed here.
 type DevSettingFields struct {
-	OverviewType   string `yaml:"overview_type" json:"overview_type"`    // half, full
-	WaveformColor  string `yaml:"waveform_color" json:"waveform_color"`   // blue, rgb, 3band
-	KeyDisplay     string `yaml:"key_display" json:"key_display"`      // classic, alphanumeric
-	WavePosition   string `yaml:"wave_position" json:"wave_position"`    // center, left
+	OverviewType  string `yaml:"overview_type" json:"overview_type"`   // half, full
+	WaveformColor string `yaml:"waveform_color" json:"waveform_color"` // blue, rgb, 3band
+	KeyDisplay    string `yaml:"key_display" json:"key_display"`       // classic, alphanumeric
+	WavePosition  string `yaml:"wave_position" json:"wave_position"`   // center, left
 }
 
 // ---------- enum tables (value -> byte) ----------
@@ -148,13 +148,13 @@ func (e enumMap) decode(b byte) string {
 // from our own captures; this per-field schema is transcribed from that
 // documented format.
 var (
-	onOff           = mkEnum("off", 0x80, "on", 0x81)
-	lockUnlock      = mkEnum("unlock", 0x80, "lock", 0x81)
-	offDarkBright   = mkEnum("off", 0x80, "dark", 0x81, "bright", 0x82)
-	oneToFive       = mkEnum("one", 0x81, "two", 0x82, "three", 0x83, "four", 0x84, "five", 0x85)
-	oneToFour       = mkEnum("one", 0x81, "two", 0x82, "three", 0x83, "four", 0x84)
-	oneToThree      = mkEnum("one", 0x81, "two", 0x82, "three", 0x83)
-	autoCueLevel    = mkEnum("minus_36db", 0x80, "minus_42db", 0x81, "minus_48db", 0x82,
+	onOff         = mkEnum("off", 0x80, "on", 0x81)
+	lockUnlock    = mkEnum("unlock", 0x80, "lock", 0x81)
+	offDarkBright = mkEnum("off", 0x80, "dark", 0x81, "bright", 0x82)
+	oneToFive     = mkEnum("one", 0x81, "two", 0x82, "three", 0x83, "four", 0x84, "five", 0x85)
+	oneToFour     = mkEnum("one", 0x81, "two", 0x82, "three", 0x83, "four", 0x84)
+	oneToThree    = mkEnum("one", 0x81, "two", 0x82, "three", 0x83)
+	autoCueLevel  = mkEnum("minus_36db", 0x80, "minus_42db", 0x81, "minus_48db", 0x82,
 		"minus_54db", 0x83, "minus_60db", 0x84, "minus_66db", 0x85,
 		"minus_72db", 0x86, "minus_78db", 0x87, "memory", 0x88)
 	language = mkEnum("english", 0x81, "french", 0x82, "german", 0x83, "italian", 0x84,
@@ -185,13 +185,13 @@ var (
 		"five", 0x84, "six", 0x85, "seven", 0x86, "eight", 0x87,
 		"nine", 0x88, "ten", 0x89, "eleven", 0x8a, "twelve", 0x8b,
 		"thirteen", 0x8c, "fourteen", 0x8d, "fifteen", 0x8e, "sixteen", 0x8f)
-	midiButtonType         = mkEnum("toggle", 0x80, "trigger", 0x81)
-	displayBrightness      = mkEnum("white", 0x80, "one", 0x81, "two", 0x82, "three", 0x83, "four", 0x84, "five", 0x85)
-	channelFaderCurveLong  = mkEnum("exponential", 0x80, "smooth", 0x81, "linear", 0x82)
-	overviewType           = mkEnum("half", 0x01, "full", 0x02)
-	waveformColor          = mkEnum("blue", 0x01, "rgb", 0x03, "3band", 0x04)
-	keyDisplay             = mkEnum("classic", 0x01, "alphanumeric", 0x02)
-	wavePosition           = mkEnum("center", 0x01, "left", 0x02)
+	midiButtonType        = mkEnum("toggle", 0x80, "trigger", 0x81)
+	displayBrightness     = mkEnum("white", 0x80, "one", 0x81, "two", 0x82, "three", 0x83, "four", 0x84, "five", 0x85)
+	channelFaderCurveLong = mkEnum("exponential", 0x80, "smooth", 0x81, "linear", 0x82)
+	overviewType          = mkEnum("half", 0x01, "full", 0x02)
+	waveformColor         = mkEnum("blue", 0x01, "rgb", 0x03, "3band", 0x04)
+	keyDisplay            = mkEnum("classic", 0x01, "alphanumeric", 0x02)
+	wavePosition          = mkEnum("center", 0x01, "left", 0x02)
 )
 
 // SettingsEnums returns the valid string values for every editable

@@ -240,21 +240,21 @@ func (db *Database) parseTracks(data []byte, pageSize, firstPage, lastPage int) 
 		}
 
 		t := &Track{
-			ArtworkID:  le32(row, 0x1c),
-			KeyID:      le32(row, 0x20),
-			LabelID:    le32(row, 0x28),
-			Bitrate:    le32(row, 0x30),
-			TrackNum:   le32(row, 0x34),
-			Tempo:      le32(row, 0x38),
-			GenreID:    le32(row, 0x3c),
-			AlbumID:    le32(row, 0x40),
-			ArtistID:   le32(row, 0x44),
-			ID:         le32(row, 0x48),
-			Duration:   le16(row, 0x54),
-			Year:       le16(row, 0x50),
-			ColorID:    row[0x58],
-			Rating:     row[0x59],
-			FileSize:   le32(row, 0x10),
+			ArtworkID: le32(row, 0x1c),
+			KeyID:     le32(row, 0x20),
+			LabelID:   le32(row, 0x28),
+			Bitrate:   le32(row, 0x30),
+			TrackNum:  le32(row, 0x34),
+			Tempo:     le32(row, 0x38),
+			GenreID:   le32(row, 0x3c),
+			AlbumID:   le32(row, 0x40),
+			ArtistID:  le32(row, 0x44),
+			ID:        le32(row, 0x48),
+			Duration:  le16(row, 0x54),
+			Year:      le16(row, 0x50),
+			ColorID:   row[0x58],
+			Rating:    row[0x59],
+			FileSize:  le32(row, 0x10),
 		}
 
 		// Parse strings via offset table at 0x5e.
@@ -511,7 +511,7 @@ func readDeviceSQLString(data []byte) string {
 		if strLen <= 1 || strLen > len(data) {
 			return ""
 		}
-		return string(data[1 : strLen])
+		return string(data[1:strLen])
 	}
 
 	// Long string.

@@ -13,28 +13,28 @@ var DBMagic = [4]byte{0x87, 0x23, 0x49, 0xae}
 
 // DBServer message types.
 const (
-	DBMsgSetup         uint16 = 0x0000
-	DBMsgRootMenu      uint16 = 0x1000
-	DBMsgGetArtists    uint16 = 0x1002
-	DBMsgGetAlbums     uint16 = 0x1003
-	DBMsgGetTracks     uint16 = 0x1004
-	DBMsgGetBPM        uint16 = 0x1006
-	DBMsgGetByArtist   uint16 = 0x1102
-	DBMsgGetByAlbum    uint16 = 0x1103
-	DBMsgGetByBPM      uint16 = 0x1106
-	DBMsgGetMetadata   uint16 = 0x2002
-	DBMsgGetArtwork    uint16 = 0x2003
+	DBMsgSetup          uint16 = 0x0000
+	DBMsgRootMenu       uint16 = 0x1000
+	DBMsgGetArtists     uint16 = 0x1002
+	DBMsgGetAlbums      uint16 = 0x1003
+	DBMsgGetTracks      uint16 = 0x1004
+	DBMsgGetBPM         uint16 = 0x1006
+	DBMsgGetByArtist    uint16 = 0x1102
+	DBMsgGetByAlbum     uint16 = 0x1103
+	DBMsgGetByBPM       uint16 = 0x1106
+	DBMsgGetMetadata    uint16 = 0x2002
+	DBMsgGetArtwork     uint16 = 0x2003
 	DBMsgGetWavePreview uint16 = 0x2004
-	DBMsgGetCuePoints  uint16 = 0x2104
-	DBMsgGetBeatGrid   uint16 = 0x2204
-	DBMsgGetWaveDetail uint16 = 0x2904
-	DBMsgGetWaveColor  uint16 = 0x2c04
-	DBMsgRenderMenu    uint16 = 0x3000
-	DBMsgSuccess       uint16 = 0x4000
-	DBMsgMenuHeader    uint16 = 0x4001
-	DBMsgMenuItem      uint16 = 0x4101
-	DBMsgMenuFooter    uint16 = 0x4201
-	DBMsgBeatGridResp  uint16 = 0x4602
+	DBMsgGetCuePoints   uint16 = 0x2104
+	DBMsgGetBeatGrid    uint16 = 0x2204
+	DBMsgGetWaveDetail  uint16 = 0x2904
+	DBMsgGetWaveColor   uint16 = 0x2c04
+	DBMsgRenderMenu     uint16 = 0x3000
+	DBMsgSuccess        uint16 = 0x4000
+	DBMsgMenuHeader     uint16 = 0x4001
+	DBMsgMenuItem       uint16 = 0x4101
+	DBMsgMenuFooter     uint16 = 0x4201
+	DBMsgBeatGridResp   uint16 = 0x4602
 )
 
 // Special transaction ID used for setup messages.
@@ -54,9 +54,9 @@ type DBMessage struct {
 	TxID             uint32
 	Type             uint16
 	Args             []DBArg
-	DeclaredArgCount int      // if > 0, override arg count in header (for phantom args)
-	ExtraTags        []byte   // extra tag bytes to append after actual arg tags
-	OverrideTags     []byte   // if set, use this exact tag array (ignores auto-generation)
+	DeclaredArgCount int    // if > 0, override arg count in header (for phantom args)
+	ExtraTags        []byte // extra tag bytes to append after actual arg tags
+	OverrideTags     []byte // if set, use this exact tag array (ignores auto-generation)
 }
 
 // DBArg is a single argument in a dbserver message.
@@ -65,8 +65,8 @@ type DBArg struct {
 	Int8  uint8
 	Int16 uint16
 	Int32 uint32
-	Bytes []byte  // for binary args
-	Str   string  // for string args
+	Bytes []byte // for binary args
+	Str   string // for string args
 }
 
 // Int returns the integer value regardless of which int size was used.
@@ -156,12 +156,13 @@ func ParseDBMessage(data []byte) (*DBMessage, error) {
 
 // MarshalDBMessage serializes a dbserver message.
 // Uses the same field-based format the CDJ sends:
-//   NumberField(4, MESSAGE_START)
-//   NumberField(4, txid)
-//   NumberField(2, type)
-//   NumberField(1, argcount)
-//   BinaryField(12, tags)
-//   [arg fields...]
+//
+//	NumberField(4, MESSAGE_START)
+//	NumberField(4, txid)
+//	NumberField(2, type)
+//	NumberField(1, argcount)
+//	BinaryField(12, tags)
+//	[arg fields...]
 func MarshalDBMessage(msg *DBMessage) []byte {
 	var buf []byte
 

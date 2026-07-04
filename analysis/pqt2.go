@@ -9,20 +9,21 @@ import (
 // GeneratePQT2 creates a PQT2 beat grid blob (complete ANLZ section).
 //
 // PQT2 format (from DjManager docs):
-//   56-byte header:
-//     +00: "PQT2" fourcc
-//     +04: 56 (header length)
-//     +08: len_tag = 56 + entry_count * 2
-//     +0C: 0x00000000
-//     +10: 0x01000002 (constant)
-//     +14: 0x00000000
-//     +18: first beat: beat_number(2) + tempo(2) + time_ms(4)
-//     +20: last beat:  beat_number(2) + tempo(2) + time_ms(4)
-//     +28: entry_count (must be > 0 for rekordbox 6)
-//     +2C: 0x00000000
-//     +30: 0x00000000 (reserved)
-//     +34: 0x00000000 (reserved)
-//   Body: entry_count × u16BE, each = beat_time_ms % 1000
+//
+//	56-byte header:
+//	  +00: "PQT2" fourcc
+//	  +04: 56 (header length)
+//	  +08: len_tag = 56 + entry_count * 2
+//	  +0C: 0x00000000
+//	  +10: 0x01000002 (constant)
+//	  +14: 0x00000000
+//	  +18: first beat: beat_number(2) + tempo(2) + time_ms(4)
+//	  +20: last beat:  beat_number(2) + tempo(2) + time_ms(4)
+//	  +28: entry_count (must be > 0 for rekordbox 6)
+//	  +2C: 0x00000000
+//	  +30: 0x00000000 (reserved)
+//	  +34: 0x00000000 (reserved)
+//	Body: entry_count × u16BE, each = beat_time_ms % 1000
 func GeneratePQT2(bpm float64, beats []float64, downbeatIdx int) []byte {
 	if bpm <= 0 || len(beats) < 2 {
 		return nil

@@ -33,11 +33,11 @@ type MenuConfig struct {
 // keep their assigned IDs across re-exports and the CDJ's library cache
 // stays stable.
 type MergeBase struct {
-	Artists  map[string]uint32
-	Albums   map[string]uint32
-	Genres   map[string]uint32
-	Keys     map[string]uint32
-	Labels   map[string]uint32
+	Artists    map[string]uint32
+	Albums     map[string]uint32
+	Genres     map[string]uint32
+	Keys       map[string]uint32
+	Labels     map[string]uint32
 	MaxTrackID uint32 // highest track ID seen in existing PDB
 }
 
@@ -59,11 +59,31 @@ func LoadForMerge(pdbPath string) (*MergeBase, error) {
 		Labels:  make(map[string]uint32, len(db.Labels)),
 	}
 	// Invert id→name to name→id (drop empty / duplicate names — last wins).
-	for id, n := range db.Artists { if n != "" { m.Artists[n] = id } }
-	for id, n := range db.Albums  { if n != "" { m.Albums[n]  = id } }
-	for id, n := range db.Genres  { if n != "" { m.Genres[n]  = id } }
-	for id, n := range db.Keys    { if n != "" { m.Keys[n]    = id } }
-	for id, n := range db.Labels  { if n != "" { m.Labels[n]  = id } }
+	for id, n := range db.Artists {
+		if n != "" {
+			m.Artists[n] = id
+		}
+	}
+	for id, n := range db.Albums {
+		if n != "" {
+			m.Albums[n] = id
+		}
+	}
+	for id, n := range db.Genres {
+		if n != "" {
+			m.Genres[n] = id
+		}
+	}
+	for id, n := range db.Keys {
+		if n != "" {
+			m.Keys[n] = id
+		}
+	}
+	for id, n := range db.Labels {
+		if n != "" {
+			m.Labels[n] = id
+		}
+	}
 	for _, t := range db.Tracks {
 		if t.ID > m.MaxTrackID {
 			m.MaxTrackID = t.ID
@@ -208,26 +228,26 @@ func GenerateWithOptions(tracks []*Track, playlists []*FolderNode, menu *MenuCon
 	}
 
 	tables := []*tableBuilder{
-		trackTable,                              // 0x00 tracks
-		genreTable,                              // 0x01 genres
-		artistTable,                             // 0x02 artists
-		albumTable,                              // 0x03 albums
-		labelTable,                              // 0x04 labels
-		keyTable,                                // 0x05 keys
-		colors,                                  // 0x06 colors (populated)
-		playlistTreeTable,                       // 0x07 playlist tree
-		playlistEntryTable,                      // 0x08 playlist entries
-		newTableBuilder(TableUnknown9),          // 0x09 (empty)
-		newTableBuilder(TableUnknownA),          // 0x0a (empty)
-		newTableBuilder(TableHistoryPlaylists),  // 0x0b (empty)
-		newTableBuilder(TableHistoryEntries),    // 0x0c (empty)
-		artworkTable,                            // 0x0d artwork
-		newTableBuilder(TableUnknownE),          // 0x0e (empty)
-		newTableBuilder(TableUnknownF),          // 0x0f (empty)
-		columns,                                 // 0x10 columns (populated)
-		menuTable,                               // 0x11 menu (populated)
-		unknown12,                               // 0x12 (populated — purpose unknown)
-		history,                                 // 0x13 history (populated)
+		trackTable,                             // 0x00 tracks
+		genreTable,                             // 0x01 genres
+		artistTable,                            // 0x02 artists
+		albumTable,                             // 0x03 albums
+		labelTable,                             // 0x04 labels
+		keyTable,                               // 0x05 keys
+		colors,                                 // 0x06 colors (populated)
+		playlistTreeTable,                      // 0x07 playlist tree
+		playlistEntryTable,                     // 0x08 playlist entries
+		newTableBuilder(TableUnknown9),         // 0x09 (empty)
+		newTableBuilder(TableUnknownA),         // 0x0a (empty)
+		newTableBuilder(TableHistoryPlaylists), // 0x0b (empty)
+		newTableBuilder(TableHistoryEntries),   // 0x0c (empty)
+		artworkTable,                           // 0x0d artwork
+		newTableBuilder(TableUnknownE),         // 0x0e (empty)
+		newTableBuilder(TableUnknownF),         // 0x0f (empty)
+		columns,                                // 0x10 columns (populated)
+		menuTable,                              // 0x11 menu (populated)
+		unknown12,                              // 0x12 (populated — purpose unknown)
+		history,                                // 0x13 history (populated)
 	}
 
 	pdbPath := filepath.Join(pdbDir, "export.pdb")
@@ -970,7 +990,7 @@ func encodeTrackRow(t *Track, artistID, albumID, genreID, keyID, labelID uint32)
 	le16put(row, 0x02, 0)      // index_shift placeholder; patched by serialize()
 	le32put(row, 0x04, 0x000C0700)
 	le32put(row, 0x08, sampleRate)
-	le32put(row, 0x0C, 0)            // composer_id
+	le32put(row, 0x0C, 0) // composer_id
 	le32put(row, 0x10, t.FileSize)
 	// 0x14 is per-row unique. Exports use 28-bit hash-looking
 	// values uniformly distributed in the 0..2^28 range. A small int
@@ -978,7 +998,7 @@ func encodeTrackRow(t *Track, artistID, albumID, genreID, keyID, labelID uint32)
 	// internal index. Use a multiplicative hash (FNV-style mixing)
 	// of the track ID to spread across the 28-bit space.
 	le32put(row, 0x14, hash28(t.ID))
-	le32put(row, 0x18, 0x3D0F7FC7)   // constant; see comment above
+	le32put(row, 0x18, 0x3D0F7FC7) // constant; see comment above
 	le32put(row, 0x1C, t.ArtworkID)
 	le32put(row, 0x20, keyID)
 	le32put(row, 0x24, 0)       // original_artist_id

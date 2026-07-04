@@ -837,4 +837,3 @@ func splitBands3RMS(samples []float32, sampleRate, numPoints int) (bass, mid, tr
 func GeneratePreview3Band(samples []float32, sampleRate int) []byte {
 	return pack3BandAbs(samples, sampleRate, colorPreviewPoints, Preview3BassScale, Preview3MidScale, Preview3TrebleScale)
 }
-

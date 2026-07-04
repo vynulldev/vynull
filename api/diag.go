@@ -19,12 +19,12 @@ import (
 // diagnostic view. It tees writes through to the underlying writer so
 // stderr (or wherever log was pointed before) keeps getting everything.
 type logRing struct {
-	mu     sync.Mutex
-	lines  []logEntry
-	cap    int
-	seq    uint64
-	tee    io.Writer
-	carry  []byte // bytes from the most recent partial write, no newline yet
+	mu    sync.Mutex
+	lines []logEntry
+	cap   int
+	seq   uint64
+	tee   io.Writer
+	carry []byte // bytes from the most recent partial write, no newline yet
 }
 
 type logEntry struct {
@@ -104,10 +104,10 @@ type DiagResponse struct {
 	GCPauseUs     uint64 `json:"gc_pause_us"`
 	GCCount       uint32 `json:"gc_count"`
 
-	LibraryTracks    int  `json:"library_tracks"`
-	AnalysisPending  int  `json:"analysis_pending"`
-	AnalysisAnalyzed int  `json:"analysis_analyzed"`
-	AnalysisCached   int  `json:"analysis_cached"`
+	LibraryTracks    int   `json:"library_tracks"`
+	AnalysisPending  int   `json:"analysis_pending"`
+	AnalysisAnalyzed int   `json:"analysis_analyzed"`
+	AnalysisCached   int   `json:"analysis_cached"`
 	CacheDirBytes    int64 `json:"cache_dir_bytes"`
 
 	DecodeOK        int `json:"decode_ok"`
@@ -210,4 +210,3 @@ func dirBytes(root string) int64 {
 	})
 	return total
 }
-

@@ -43,28 +43,28 @@ const (
 
 // NFS v2 procedures.
 const (
-	nfsNull     uint32 = 0
-	nfsGetAttr  uint32 = 1
-	nfsSetAttr  uint32 = 2
-	nfsLookup   uint32 = 4
-	nfsRead     uint32 = 6
-	nfsWrite    uint32 = 8
-	nfsCreate   uint32 = 9
-	nfsRemove   uint32 = 10
-	nfsMkdir    uint32 = 14
-	nfsReadDir  uint32 = 16
-	nfsStatFS   uint32 = 17
+	nfsNull    uint32 = 0
+	nfsGetAttr uint32 = 1
+	nfsSetAttr uint32 = 2
+	nfsLookup  uint32 = 4
+	nfsRead    uint32 = 6
+	nfsWrite   uint32 = 8
+	nfsCreate  uint32 = 9
+	nfsRemove  uint32 = 10
+	nfsMkdir   uint32 = 14
+	nfsReadDir uint32 = 16
+	nfsStatFS  uint32 = 17
 )
 
 // NFS v2 status codes.
 const (
-	nfsOK      uint32 = 0
-	nfsNoEnt   uint32 = 2
-	nfsIO      uint32 = 5
-	nfsAccess  uint32 = 13
-	nfsNotDir  uint32 = 20
-	nfsIsDir   uint32 = 21
-	nfsROFS    uint32 = 30 // read-only filesystem
+	nfsOK     uint32 = 0
+	nfsNoEnt  uint32 = 2
+	nfsIO     uint32 = 5
+	nfsAccess uint32 = 13
+	nfsNotDir uint32 = 20
+	nfsIsDir  uint32 = 21
+	nfsROFS   uint32 = 30 // read-only filesystem
 )
 
 // NFS v2 file types.

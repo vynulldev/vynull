@@ -14,9 +14,9 @@ type FolderNode struct {
 	ID       uint32
 	ParentID uint32
 	Name     string
-	IsFolder bool          // true=contains subfolders, false=leaf playlist
+	IsFolder bool // true=contains subfolders, false=leaf playlist
 	Children []*FolderNode
-	TrackIDs []uint32      // tracks directly in this folder
+	TrackIDs []uint32 // tracks directly in this folder
 }
 
 // BuildFolderTree creates a folder/playlist tree from track file paths.
