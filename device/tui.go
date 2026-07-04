@@ -64,6 +64,7 @@ type tuiModel struct {
 	lib      *library.Library
 	settings *CDJSettings
 	peers    *PeerTracker
+	mixersFn func() map[uint8]proto.MixerStatus
 	apiAddr  string
 
 	active tuiTab
@@ -83,12 +84,15 @@ type tuiModel struct {
 // NewTUI returns a bubbletea program rendering the player monitor +
 // library browser + settings viewer. Run with .Run() — it blocks until
 // the user presses 'q' or sends SIGINT/SIGTERM.
-func NewTUI(monitor *PlayerMonitor, lib *library.Library, settings *CDJSettings, peers *PeerTracker, apiAddr string) *tea.Program {
+// mixersFn (optional) returns the latest per-device mixer status snapshot,
+// used to fill in channel/master state on the PLAYERS-view mixer strip.
+func NewTUI(monitor *PlayerMonitor, lib *library.Library, settings *CDJSettings, peers *PeerTracker, mixersFn func() map[uint8]proto.MixerStatus, apiAddr string) *tea.Program {
 	m := tuiModel{
 		monitor:  monitor,
 		lib:      lib,
 		settings: settings,
 		peers:    peers,
+		mixersFn: mixersFn,
 		apiAddr:  apiAddr,
 	}
 	return tea.NewProgram(m, tea.WithAltScreen())
@@ -296,18 +300,42 @@ func (m tuiModel) renderPlayers() string {
 
 	// Mixer strip: print one line per DJM-class peer at the top, so the
 	// user can see the mixer is detected even when no CDJs are playing.
-	// Channel-level state (on-air, master, per-channel BPM) isn't
-	// parsed yet — placeholder hint until we have per-model offsets.
+	// When we've parsed a status broadcast for it (0x29 rich, or the
+	// 0x03 channel packet), show master tempo and which channels are
+	// on-air; otherwise fall back to a "detected" hint.
 	if m.peers != nil {
+		var mixers map[uint8]proto.MixerStatus
+		if m.mixersFn != nil {
+			mixers = m.mixersFn()
+		}
 		for _, p := range m.peers.Peers() {
 			if p.DeviceType != proto.DeviceMixer {
 				continue
 			}
-			b.WriteString(fmt.Sprintf("\n  %s %s %s\n",
+			b.WriteString(fmt.Sprintf("\n  %s %s\n",
 				masterTagStyle.Render("MIXER"),
 				playerNameStyle.Render(fmt.Sprintf("[%d] %s", p.DeviceNumber, p.Name)),
-				dimStyle.Render(p.IP.String()+"  · channel state · unparsed"),
 			))
+			mx, ok := mixers[p.DeviceNumber]
+			if ok && mx.ChannelStateKnown {
+				var onair []string
+				for ch := 0; ch < 4; ch++ {
+					if (mx.ChannelOnAir>>uint(ch))&1 == 1 {
+						onair = append(onair, fmt.Sprintf("%d", ch+1))
+					}
+				}
+				air := "none"
+				if len(onair) > 0 {
+					air = strings.Join(onair, ",")
+				}
+				line := fmt.Sprintf("    Master BPM: %.1f  On-air: %s", mx.MasterBPM, air)
+				if mx.MasterDevice > 0 {
+					line += fmt.Sprintf("  Master: [%d]", mx.MasterDevice)
+				}
+				b.WriteString(dimStyle.Render(line) + "\n")
+			} else {
+				b.WriteString("    " + dimStyle.Render(p.IP.String()+"  · detected, awaiting channel state") + "\n")
+			}
 		}
 	}
 
