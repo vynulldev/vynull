@@ -1577,6 +1577,24 @@ func (s *Server) handleRemapPaths(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, map[string]any{"changed": n, "missing": missing})
 }
 
+// parseSelectionIDs parses a comma-separated track-ID list, the "selection:"
+// export source used by the library's bulk-select bar (e.g. "selection:3,7,9").
+func parseSelectionIDs(csv string) ([]uint32, error) {
+	var ids []uint32
+	for _, p := range strings.Split(csv, ",") {
+		p = strings.TrimSpace(p)
+		if p == "" {
+			continue
+		}
+		id, err := strconv.ParseUint(p, 10, 32)
+		if err != nil {
+			return nil, fmt.Errorf("bad selection track ID %q: %w", p, err)
+		}
+		ids = append(ids, uint32(id))
+	}
+	return ids, nil
+}
+
 func (s *Server) handleExportPreview(w http.ResponseWriter, r *http.Request) {
 	src := r.URL.Query().Get("source")
 	if src == "" {
@@ -1607,8 +1625,19 @@ func (s *Server) handleExportPreview(w http.ResponseWriter, r *http.Request) {
 				tracks = append(tracks, t)
 			}
 		}
+	} else if strings.HasPrefix(src, "selection:") {
+		trackIDs, err := parseSelectionIDs(src[len("selection:"):])
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		for _, tid := range trackIDs {
+			if t := s.Library.Track(tid); t != nil {
+				tracks = append(tracks, t)
+			}
+		}
 	} else {
-		http.Error(w, "source must be 'all', 'playlist:N', or 'smart:N'", http.StatusBadRequest)
+		http.Error(w, "source must be 'all', 'playlist:N', 'smart:N', or 'selection:<ids>'", http.StatusBadRequest)
 		return
 	}
 
@@ -2652,8 +2681,21 @@ func (s *Server) handleExport(w http.ResponseWriter, r *http.Request) {
 		opts.Tracks = export.FilterTracks(export.LibraryToTracks(s.Library), trackIDs)
 		opts.Playlists = export.SinglePlaylist(pl.Name, trackIDs)
 		sourceLabel = pl.Name
+	case strings.HasPrefix(src, "selection:"):
+		trackIDs, err := parseSelectionIDs(src[len("selection:"):])
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		if len(trackIDs) == 0 {
+			http.Error(w, "no tracks selected", http.StatusBadRequest)
+			return
+		}
+		opts.Tracks = export.FilterTracks(export.LibraryToTracks(s.Library), trackIDs)
+		opts.Playlists = export.SinglePlaylist("Selected Tracks", trackIDs)
+		sourceLabel = fmt.Sprintf("%d selected", len(trackIDs))
 	default:
-		http.Error(w, "source must be 'all', 'playlist:<id>', or 'smart:<id>'", http.StatusBadRequest)
+		http.Error(w, "source must be 'all', 'playlist:<id>', 'smart:<id>', or 'selection:<ids>'", http.StatusBadRequest)
 		return
 	}
 

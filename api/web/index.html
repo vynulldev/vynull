@@ -5577,6 +5577,7 @@ function updateBulkBar() {
     <button id="bulk-tag-add">+ TAG…</button>
     <button id="bulk-tag-remove">− TAG…</button>
     <button id="bulk-playlist">+ PLAYLIST…</button>
+    <button id="bulk-export">EXPORT…</button>
     <button class="danger" id="bulk-delete">DELETE</button>
     <span class="spacer"></span>
     <button class="danger" id="bulk-clear">CLEAR</button>
@@ -5587,6 +5588,10 @@ function updateBulkBar() {
   bar.querySelector('#bulk-tag-add').onclick = e => openBulkTagPicker(e.currentTarget, 'add');
   bar.querySelector('#bulk-tag-remove').onclick = e => openBulkTagPicker(e.currentTarget, 'remove');
   bar.querySelector('#bulk-playlist').onclick = e => openBulkPlaylistPicker(e.currentTarget);
+  bar.querySelector('#bulk-export').onclick = () => {
+    const sel = Array.from(bulkSelectedIDs);
+    openExportModal('selection:' + sel.join(','), `${sel.length} SELECTED TRACK${sel.length === 1 ? '' : 'S'}`);
+  };
   bar.querySelector('#bulk-delete').onclick  = bulkDeleteTracks;
   refreshSelAllState();
 }
@@ -9187,14 +9192,17 @@ function wireLibraryToolbarActions() {
 // then POSTs /api/export and disables the form until the response
 // arrives. Source is implied by the currently-selected library source
 // (COLLECTION when none is selected, otherwise the playlist).
-function openExportModal() {
+// presetSource/presetLabel override the implied library source — used by the
+// bulk-select bar to export just the checked tracks ('selection:<ids>').
+function openExportModal(presetSource, presetLabel) {
   const sel = (typeof selectedSource === 'number')
     ? playlistsCache.find(p => p.id === selectedSource)
     : null;
-  const sourceLabel = sel ? sel.name : 'COLLECTION';
-  const apiSource = sel
+  const sourceLabel = presetSource ? (presetLabel || 'SELECTION')
+    : (sel ? sel.name : 'COLLECTION');
+  const apiSource = presetSource || (sel
     ? (sel.is_smart ? `smart:${sel.id}` : `playlist:${sel.id}`)
-    : 'all';
+    : 'all');
 
   const back = document.createElement('div');
   back.className = 'menu-modal-backdrop show';
