@@ -1266,7 +1266,9 @@
   }
   td.art-cell .lib-art {
     display: block;
-    width: calc(var(--lib-art-w, 88px) - 8px);
+    /* Fill the (possibly squished) column so the image never spills past its
+       cell into the next column. */
+    width: 100%;
     height: var(--lib-row-h, 36px);
     background: #020102;
     object-fit: cover;
@@ -1277,8 +1279,9 @@
     padding: 2px 4px 2px 8px;
   }
   html[data-art-fit="square"] td.art-cell .lib-art {
-    width: calc(var(--lib-row-h, 36px) - 8px);
-    height: calc(var(--lib-row-h, 36px) - 8px);
+    width: 100%;
+    aspect-ratio: 1 / 1;
+    height: auto;
     object-position: center;
     border: 1px solid var(--divider);
   }
