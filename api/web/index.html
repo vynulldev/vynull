@@ -3314,7 +3314,7 @@
   <span class="spacer"></span>
   <span class="item" id="wave-color-btn" title="Web waveform colour — click to cycle. AUTO follows the CDJ 'waveform color' DEVSETTING." style="cursor:pointer; user-select:none"><span class="led green"></span><span id="wave-color-label">WAVE: AUTO</span></span>
   <span class="item" id="vocal-det-btn" title="Vocal-detection markers (🎤) on the phrase strip — click to cycle off / low / med / high sensitivity. Our own lightweight detector; a hint, not exact." style="cursor:pointer; user-select:none"><span class="led green"></span><span id="vocal-det-label">VOCAL: MED</span></span>
-  <span class="item"><span class="led orange"></span>DJ LINK</span>
+  <span class="item" id="link-status" title="Devices on the Pro DJ Link network"><span class="led"></span><span id="link-status-text">NO LINK</span></span>
   <span class="item">DJ LINK PROTOCOL</span>
 </div>
 
@@ -4865,6 +4865,26 @@ function renderMixerStrip(peers) {
       </div>
     `;
   }).join('');
+}
+
+// updateLinkStatus drives the bottom status-bar DJ-LINK chip from the live
+// peer list: grey "NO LINK" when nothing's on the network, green "LINKED · N"
+// (N = CDJs/mixers/rekordbox instances detected) otherwise.
+function updateLinkStatus(peers) {
+  const chip = document.getElementById('link-status');
+  if (!chip) return;
+  const led = chip.querySelector('.led');
+  const txt = document.getElementById('link-status-text');
+  const n = Array.isArray(peers) ? peers.length : 0;
+  if (n > 0) {
+    led.className = 'led green';
+    txt.textContent = `LINKED · ${n}`;
+    chip.title = `${n} device${n === 1 ? '' : 's'} on the Pro DJ Link network`;
+  } else {
+    led.className = 'led';
+    txt.textContent = 'NO LINK';
+    chip.title = 'No DJ Link devices detected on the network';
+  }
 }
 
 function renderPlayers(players) {
@@ -11076,6 +11096,7 @@ async function refresh() {
       cuesChanged = true;
     }
   }
+  updateLinkStatus(peers);
   if (Array.isArray(peers))   renderMixerStrip(peers);
   if (Array.isArray(players)) renderPlayers(players);
   if (Array.isArray(tracks)) {
