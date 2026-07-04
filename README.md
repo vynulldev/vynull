@@ -12,6 +12,8 @@ Vynull is a virtual Pioneer CDJ/rekordbox source for Linux. It serves music file
 
 This is a hobby project. I built it to learn some Go, poke at my CDJs, and see how far I could get building something real with Claude — further than I expected, as it turns out. It speaks a protocol Pioneer never documented, which I only understand thanks to other people's reverse-engineering work (see [Acknowledgements](#acknowledgements)). Expect bugs and the occasional strange deck behaviour. It is not affiliated with Pioneer DJ / AlphaTheta.
 
+None of it is polished, and it's not meant to be taken as a finished product. There are bugs, some features are half-finished or only work in certain setups, and not everything behaves the way it should. A fair amount of the code is me figuring things out as I went rather than the cleanest or most correct way to do it — you'll find rough edges, inconsistent corners, and the occasional "why is it written like that." I've tried to be honest in the docs about what's solid and what isn't, but treat the whole thing as a work in progress. Bug reports and PRs are welcome if you want to help sand it down.
+
 Use it at your own risk, and back up your rekordbox library before importing anything. I wouldn't run it at a real gig, and if it does something strange to your network or your gear, that's yours to sort out.
 
 ## Features
