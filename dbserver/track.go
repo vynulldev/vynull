@@ -830,15 +830,39 @@ func (h *Handler) handleGetNXS2Cues(msg *proto.DBMessage) []*proto.DBMessage {
 }
 
 func (h *Handler) handleMountInfo(msg *proto.DBMessage) []*proto.DBMessage {
-	// 0x3100: mount/track notification. The response is [0x3100, 0].
-	// This is an ack/notification, not a data query.
-	log.Printf("dbserver: mount info (0x3100)")
+	// 0x3100 is the SHORT CUT preview query. Before a SHORT CUT button
+	// (TRACK / PLAYLIST / SEARCH) opens its list, the deck asks which
+	// root-menu slot that shortcut lives in: arg[1] is the target
+	// category's item ID and the response value is that item's *index*
+	// within the root menu. The deck then renders a 1-item preview at
+	// that offset (0x3000, count=1) for the top-bar label and opens the
+	// list there. Returning a fixed 0 makes every shortcut resolve to
+	// root-menu slot 0 (ARTIST), so TRACK/PLAYLIST both open ARTIST.
+	//
+	// Look the requested ID up in the actual root menu so the offset
+	// stays correct regardless of the configured menu order. Unknown or
+	// absent IDs fall back to 0 (the old ack behaviour) — e.g. plain
+	// mount notifications that carry no category ID.
+	offset := 0
+	wantID := uint32(0)
+	if len(msg.Args) >= 2 {
+		wantID = msg.Args[1].Int()
+		if wantID != 0 {
+			for i, item := range h.rootMenu() {
+				if item.ID == wantID {
+					offset = i
+					break
+				}
+			}
+		}
+	}
+	log.Printf("dbserver: mount info (0x3100) shortcut id=0x%x -> root offset %d", wantID, offset)
 	return []*proto.DBMessage{{
 		TxID: msg.TxID,
 		Type: proto.DBMsgSuccess,
 		Args: []proto.DBArg{
 			proto.ArgI32(0x3100),
-			proto.ArgI32(0),
+			proto.ArgI32(uint32(offset)),
 		},
 	}}
 }
