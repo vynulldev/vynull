@@ -107,6 +107,11 @@ type Store struct {
 	// In-flight analysis deduplication.
 	inflight   map[uint32]bool
 	inflightMu sync.Mutex
+
+	// TotalTracksFn, when set, supplies the library track count used as the
+	// "N tracks" figure in Status() (instead of the in-memory result count,
+	// which only covers analyzed/cache-loaded tracks). Set once at startup.
+	TotalTracksFn func() int
 }
 
 // NewStore creates an in-memory-only analysis store.
@@ -175,6 +180,11 @@ func (s *Store) Status() string {
 	s.mu.RLock()
 	total := len(s.results)
 	s.mu.RUnlock()
+	// Prefer the full library track count when available, so "N tracks" means
+	// the library size rather than just how many analyses are loaded.
+	if s.TotalTracksFn != nil {
+		total = s.TotalTracksFn()
+	}
 
 	pending := atomic.LoadInt32(&s.pending)
 

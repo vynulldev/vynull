@@ -249,6 +249,14 @@ func main() {
 	// Always create a cached analysis store so API-added tracks get analyzed.
 	cacheDir := filepath.Join(cfg.DataDir, "analysis")
 	analysisStore := analysis.NewStoreWithCache(cacheDir)
+	// "N tracks" in the analysis status line reports the library size (not just
+	// how many analyses are loaded).
+	analysisStore.TotalTracksFn = func() int {
+		if lib == nil {
+			return 0
+		}
+		return lib.TrackCount()
+	}
 	hasANLZ := false
 
 	if cfg.LazyAnalysis {
