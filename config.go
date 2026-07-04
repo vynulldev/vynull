@@ -188,7 +188,7 @@ var flagGroups = []flagGroup{
 	{"USB export (alternative to serving)", []string{
 		"generate", "copy-files", "export-playlist",
 	}},
-	{"Waveform reverse-engineering / experiments", []string{
+	{"Waveform calibration / experiments", []string{
 		"rgb-3band", "pwv4-override", "pwv5-override", "replay",
 	}},
 }

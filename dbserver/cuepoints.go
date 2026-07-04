@@ -92,9 +92,8 @@ func ParseCueBlob(blob []byte, trackID uint32) (*CuePoint, error) {
 //	0x34-0x37: color_id (uint32)
 //	0x38-0x4b: (unknown/padding)
 func MarshalCueBlob(cue *CuePoint) []byte {
-	// Build a 124-byte NXS2 cue blob matching the exact layout rekordbox
-	// sends over dbserver (verified against a packet capture of all 16
-	// distinct picker colours, byte positions confirmed by diffing).
+	// Build a 124-byte NXS2 cue blob matching the layout rekordbox sends
+	// over dbserver (all 16 distinct picker colours covered).
 	//
 	//   0x00-0x03: 7c000000  — LE uint32 length = 124
 	//   0x04-0x05: cue number (LE u16)

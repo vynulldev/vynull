@@ -64,5 +64,4 @@ Vynull is an independent, unofficial project and is **not affiliated with Pionee
 interoperability — please don't add code, names, or assets that present the project as official or
 use those marks as branding.
 
-Reverse-engineering and debugging scripts (pcap tools, Wireshark dissectors, the key-recovery
-helper) live in the companion **vynull-tools** repo, not here.
+Protocol-analysis and debugging tooling lives in the companion **vynull-tools** repo, not here.

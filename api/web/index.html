@@ -6803,10 +6803,9 @@ function syncWebUISelects() {
 let selectedTrackID = null;
 
 // Pioneer / rekordbox cue colour palette (color_id from API).
-// Rekordbox hot-cue colour palette, matched to beat-link's
-// CueList.findRekordboxColor (62 entries, IDs 0x01..0x3e). NXS2+ players
-// pick from this palette when assigning a hot-cue colour; 0x00 = default.
-// IDs ≥ 0x40 observed on real CDJs are "hot-cue picker" entries stored as
+// Rekordbox hot-cue colour palette (62 entries, IDs 0x01..0x3e). NXS2+
+// players pick from this palette when assigning a hot-cue colour; 0x00 =
+// default. IDs ≥ 0x40 on CDJs are "hot-cue picker" entries stored as
 // 0x30 + palette_index (e.g. user-set GREEN comes through as 0x42 → 0x12).
 const CUE_COLORS = (() => {
   const p = {
@@ -10421,8 +10420,8 @@ function openImportRekordboxDialog() {
         </div>
         <div class="export-hint">
           In rekordbox: <b>File → Export Collection in XML</b> writes a .xml you can
-          import without any key. The master.db path requires the key Pioneer uses to
-          encrypt it (obtained with a SQLCipher key-recovery tool). Point it at the
+          import without any key. The master.db path requires the 64-hex SQLCipher key
+          that decrypts it (see the key field below). Point it at the
           master.db <i>inside your rekordbox library folder</i> and it also pulls in the
           waveforms, beat grids, cover art, and player/mixer settings sitting beside it;
           a master.db copied out on its own brings metadata + cues only. A
@@ -10440,8 +10439,7 @@ function openImportRekordboxDialog() {
         <div class="export-hint">
           The <code>master.db</code> is encrypted. Paste the 64-hex SQLCipher key
           for your own rekordbox database — rekordbox doesn't show it in its UI,
-          so recover it from your local rekordbox install with a key-recovery
-          tool, then paste it here.
+          so recover it from your local rekordbox install, then paste it here.
         </div>
       </div>
       <div class="export-row">

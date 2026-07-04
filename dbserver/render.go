@@ -140,8 +140,7 @@ func (h *Handler) handleRenderMenu(msg *proto.DBMessage) []*proto.DBMessage {
 		//   - Browse/metadata title (0x2002): [0x01000000, artID, 2, marker, 0]
 		//     where marker is 0x00000100 (compressed) or 0x00000101 (lossless).
 		//   - Track-info title (0x2102, TrackInfo): the decoder ID lives in
-		//     arg[1] and EVERY flag arg is zero. Confirmed against a real
-		//     rekordbox capture (a capture): the M4A track-info
+		//     arg[1] and EVERY flag arg is zero. The M4A track-info
 		//     title row is [parent=0, id=4, …, itemType=4, 0,0,0,0,0]. We were
 		//     sending the metadata flags here too (esp. flags10=0x00000100),
 		//     which — together with the wrong decoder ID — kept AAC from

@@ -399,13 +399,13 @@ func (s *Server) handleSession(ctx context.Context, conn net.Conn) {
 		for _, resp := range responses {
 			data := proto.MarshalDBMessage(resp)
 
-			// Replay mode: if we have a captured response
+			// Replay mode: if we have a recorded response
 			// for this response type, use those exact bytes instead.
 			if s.ReplayDir != "" {
 				if replacement := s.findReplay(resp.Type, len(data), msg); replacement != nil {
 					// Fix up the txid to match the current request.
 					binary.BigEndian.PutUint32(replacement[6:10], msg.TxID)
-					log.Printf("dbserver REPLAY type=0x%04x txid=%08x (%d bytes from captured)",
+					log.Printf("dbserver REPLAY type=0x%04x txid=%08x (%d bytes from recording)",
 						resp.Type, msg.TxID, len(replacement))
 					data = replacement
 				}
@@ -649,7 +649,7 @@ func readMessage(conn net.Conn) (*proto.DBMessage, error) {
 	return msg, nil
 }
 
-// findReplay looks for a captured response file in the replay directory.
+// findReplay looks for a recorded response file in the replay directory.
 // Files are named like "PWV4_651_7273.bin", "PWAV_645_948.bin", etc.
 // Matches by response type and content tag (e.g., PWV4 inside 0x4f02).
 func (s *Server) findReplay(respType uint16, ourSize int, req *proto.DBMessage) []byte {

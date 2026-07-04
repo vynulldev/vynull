@@ -297,7 +297,7 @@ func (m tuiModel) renderPlayers() string {
 	// Mixer strip: print one line per DJM-class peer at the top, so the
 	// user can see the mixer is detected even when no CDJs are playing.
 	// Channel-level state (on-air, master, per-channel BPM) isn't
-	// parsed yet — placeholder hint until we have a per-model pcap.
+	// parsed yet — placeholder hint until we have per-model offsets.
 	if m.peers != nil {
 		for _, p := range m.peers.Peers() {
 			if p.DeviceType != proto.DeviceMixer {

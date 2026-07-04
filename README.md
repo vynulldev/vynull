@@ -206,7 +206,7 @@ Create a rekordbox-compatible USB structure from a music directory:
 | `--generate` | | Generate rekordbox USB structure at this path (no server) |
 | `--copy-files` | `false` | Copy files when generating USB (default: symlink) |
 | `--export-playlist` | | With `--generate`, export only this playlist (by name) |
-| `--replay` | | Replay captured rekordbox response packets |
+| `--replay` | | Replay recorded response packets |
 
 ## HTTP API
 

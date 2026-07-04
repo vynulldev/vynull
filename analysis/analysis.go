@@ -38,7 +38,7 @@ func effectiveCacheVersion() int {
 
 // PWV4Override and PWV5Override, when non-nil, replace every track's color
 // preview / detail waveform at serve time. Set via the --pwv4-override /
-// --pwv5-override CLI flags for reverse-engineering the CDJ's per-point
+// --pwv5-override CLI flags for probing the CDJ's per-point
 // rendering formula by injecting synthetic byte patterns. Does NOT modify
 // the on-disk cache — overrides are applied as a copy via ApplyOverrides.
 var (
