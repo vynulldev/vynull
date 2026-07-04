@@ -109,11 +109,6 @@ type DiagResponse struct {
 	AnalysisAnalyzed int   `json:"analysis_analyzed"`
 	AnalysisCached   int   `json:"analysis_cached"`
 	CacheDirBytes    int64 `json:"cache_dir_bytes"`
-
-	DecodeOK        int `json:"decode_ok"`
-	DecodeWarn      int `json:"decode_warn"`
-	DecodeError     int `json:"decode_error"`
-	DecodeUnchecked int `json:"decode_unchecked"`
 }
 
 func (s *Server) handleDiag(w http.ResponseWriter, r *http.Request) {
@@ -132,19 +127,6 @@ func (s *Server) handleDiag(w http.ResponseWriter, r *http.Request) {
 	}
 	if s.Library != nil {
 		resp.LibraryTracks = s.Library.TrackCount()
-		// Decode-health histogram, walking the live track slice once.
-		for _, t := range s.Library.Tracks() {
-			switch t.DecodeStatus {
-			case "ok":
-				resp.DecodeOK++
-			case "warn":
-				resp.DecodeWarn++
-			case "error":
-				resp.DecodeError++
-			default:
-				resp.DecodeUnchecked++
-			}
-		}
 	}
 	if s.Analysis != nil {
 		resp.AnalysisPending = int(s.Analysis.Pending())

@@ -3408,10 +3408,6 @@ async function refreshDiag() {
   ]);
   fill('diag-library', [
     ['TRACKS',          d.library_tracks],
-    ['DECODE OK',       d.decode_ok],
-    ['DECODE WARN',     d.decode_warn],
-    ['DECODE ERROR',    d.decode_error],
-    ['UNCHECKED',       d.decode_unchecked],
     ['CACHE ON DISK',   fmtBytes(d.cache_dir_bytes)],
   ]);
   fill('diag-analysis', [
@@ -9255,10 +9251,7 @@ function openExportModal(presetSource, presetLabel) {
   const goBtn = m.querySelector('#export-go');
   destInput.focus();
 
-  // Fetch preview (track count + decode errors) for the chosen source.
-  // The user gets a heads-up that any flagged tracks will be transparently
-  // re-encoded by the export pipeline, so a broken source MP3 still lands
-  // on the USB as a clean file the CDJ won't freeze on.
+  // Fetch preview (track count) for the chosen source.
   (async () => {
     try {
       const r = await fetch('/api/export/preview?source=' + encodeURIComponent(apiSource));
@@ -9266,19 +9259,7 @@ function openExportModal(presetSource, presetLabel) {
       const p = await r.json();
       const row = m.querySelector('#export-preview-row');
       const el = m.querySelector('#export-preview');
-      const lines = [`${p.total} tracks total`];
-      const reencode = (p.decode_errors || 0) + (p.decode_warnings || 0);
-      if (reencode > 0) {
-        const sample = (p.sample_error_titles || []).join(', ');
-        const detail = p.decode_warnings
-          ? `${p.decode_errors} error${p.decode_errors === 1 ? '' : 's'}, ${p.decode_warnings} warning${p.decode_warnings === 1 ? '' : 's'}`
-          : `${p.decode_errors} error${p.decode_errors === 1 ? '' : 's'}`;
-        lines.push(`⚠️ ${reencode} track${reencode === 1 ? '' : 's'} will be re-encoded (${detail})${sample ? ': ' + sample : ''}`);
-      }
-      if (p.decode_unchecked > 0) {
-        lines.push(`${p.decode_unchecked} not yet decode-checked — will be checked at export time`);
-      }
-      el.innerHTML = lines.join('<br>');
+      el.innerHTML = `${p.total} track${p.total === 1 ? '' : 's'} total`;
       row.style.display = '';
     } catch (e) { /* preview is best-effort */ }
   })();

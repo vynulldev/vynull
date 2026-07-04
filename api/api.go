@@ -280,7 +280,6 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/tracks/add/status", s.handleAddStatus)
 	mux.HandleFunc("/api/fs/list", s.handleFSList)
 	mux.HandleFunc("/api/tracks/reimport", s.handleReimportTracks)
-	mux.HandleFunc("/api/tracks/check-decode", s.handleCheckDecode)
 	mux.HandleFunc("/api/export/preview", s.handleExportPreview)
 	mux.HandleFunc("/api/import/rekordbox", s.handleImportRekordbox)
 	mux.HandleFunc("/api/import/status", s.handleImportStatus)
@@ -754,126 +753,6 @@ func (s *Server) handleLoadTrack(w http.ResponseWriter, r *http.Request) {
 		"status":        "ok",
 		"track_id":      req.TrackID,
 		"device_number": req.DeviceNumber,
-	})
-}
-
-// preExportDecodeCheck runs library.CheckDecode on every track in
-// opts.Tracks that hasn't been scanned yet, blocking until done.
-// Runs with a small worker pool (4) so a fresh library of a few
-// hundred tracks finishes in tens of seconds instead of minutes.
-// Tracks that come back DecodeStatusError are flagged for re-encode
-// by the existing pipeline in pdb.PrepareUSBLayout.
-//
-// When opts.Tracks is nil, the export pipeline calls LibraryToTracks
-// itself — in that case we walk the whole library.
-func preExportDecodeCheck(lib *library.Library, opts export.Options) {
-	if lib == nil {
-		return
-	}
-	// Map export pdb.Tracks back to library.Tracks via ID. (When
-	// opts.Tracks is nil, every library track is in scope.)
-	var unchecked []*library.Track
-	if opts.Tracks == nil {
-		for _, t := range lib.Tracks() {
-			if t.DecodeStatus == library.DecodeStatusUnchecked {
-				unchecked = append(unchecked, t)
-			}
-		}
-	} else {
-		ids := make(map[uint32]struct{}, len(opts.Tracks))
-		for _, t := range opts.Tracks {
-			ids[t.ID] = struct{}{}
-		}
-		for _, t := range lib.Tracks() {
-			if _, want := ids[t.ID]; !want {
-				continue
-			}
-			if t.DecodeStatus == library.DecodeStatusUnchecked {
-				unchecked = append(unchecked, t)
-			}
-		}
-	}
-	if len(unchecked) == 0 {
-		return
-	}
-	log.Printf("export: decode-checking %d unchecked track(s) before write", len(unchecked))
-	start := time.Now()
-
-	const workers = 4
-	jobs := make(chan *library.Track)
-	var wg sync.WaitGroup
-	var mu sync.Mutex
-	var errs, warns int
-	for i := 0; i < workers; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			for t := range jobs {
-				st, issue := library.CheckDecode(t.FilePath)
-				t.DecodeStatus = st
-				t.DecodeIssue = issue
-				mu.Lock()
-				switch st {
-				case library.DecodeStatusError:
-					errs++
-					log.Printf("export: decode ERROR %s — %s", t.FilePath, issue)
-				case library.DecodeStatusWarn:
-					warns++
-				}
-				mu.Unlock()
-			}
-		}()
-	}
-	for _, t := range unchecked {
-		jobs <- t
-	}
-	close(jobs)
-	wg.Wait()
-	lib.Save()
-	log.Printf("export: decode-check done in %s — %d error(s), %d warning(s) of %d",
-		time.Since(start).Round(time.Millisecond), errs, warns, len(unchecked))
-}
-
-// handleCheckDecode runs library.CheckDecode on every track that hasn't
-// been checked yet (or on every track if ?force=1). The check uses
-// ffmpeg, so it can take a few seconds per file — this runs in a
-// background goroutine; the endpoint returns immediately with the
-// queue size, and the UI can poll /api/tracks/<id> for the updated
-// DecodeStatus.
-func (s *Server) handleCheckDecode(w http.ResponseWriter, r *http.Request) {
-	force := r.URL.Query().Get("force") == "1"
-
-	all := s.Library.Tracks()
-	var queue []*library.Track
-	for _, t := range all {
-		if force || t.DecodeStatus == library.DecodeStatusUnchecked {
-			queue = append(queue, t)
-		}
-	}
-
-	go func() {
-		log.Printf("decode-check: scanning %d tracks (force=%v)", len(queue), force)
-		var errs, warns int
-		for _, t := range queue {
-			st, issue := library.CheckDecode(t.FilePath)
-			t.DecodeStatus = st
-			t.DecodeIssue = issue
-			if st == library.DecodeStatusError {
-				errs++
-				log.Printf("decode-check: ERROR %s — %s", t.FilePath, issue)
-			} else if st == library.DecodeStatusWarn {
-				warns++
-			}
-		}
-		s.Library.Save()
-		log.Printf("decode-check: done — %d errors, %d warnings, %d total", errs, warns, len(queue))
-	}()
-
-	writeJSON(w, map[string]interface{}{
-		"status": "started",
-		"queued": len(queue),
-		"total":  len(all),
-		"force":  force,
 	})
 }
 
@@ -1641,27 +1520,8 @@ func (s *Server) handleExportPreview(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var errs, warns, unchecked int
-	var errTitles []string
-	for _, t := range tracks {
-		switch t.DecodeStatus {
-		case library.DecodeStatusError:
-			errs++
-			if len(errTitles) < 10 {
-				errTitles = append(errTitles, t.Title)
-			}
-		case library.DecodeStatusWarn:
-			warns++
-		case library.DecodeStatusUnchecked:
-			unchecked++
-		}
-	}
 	writeJSON(w, map[string]interface{}{
-		"total":               len(tracks),
-		"decode_errors":       errs,
-		"decode_warnings":     warns,
-		"decode_unchecked":    unchecked,
-		"sample_error_titles": errTitles,
+		"total": len(tracks),
 	})
 }
 
@@ -1857,15 +1717,6 @@ func (s *Server) addTrackByPath(path string, bulk bool) (uint32, error) {
 	// File size
 	if info, err := os.Stat(path); err == nil {
 		track.FileSize = info.Size()
-	}
-
-	// Decode-health check (ffmpeg required). Surfaces malformed MP3 frames
-	// that empirically freeze the CDJ mid-playback. The Track
-	// keeps the result so the UI / export can warn the user before they
-	// burn a bad file to a USB.
-	track.DecodeStatus, track.DecodeIssue = library.CheckDecode(path)
-	if track.DecodeStatus == library.DecodeStatusError {
-		log.Printf("api: %s: DECODE ERROR — %s", path, track.DecodeIssue)
 	}
 
 	var id uint32
@@ -2698,13 +2549,6 @@ func (s *Server) handleExport(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "source must be 'all', 'playlist:<id>', 'smart:<id>', or 'selection:<ids>'", http.StatusBadRequest)
 		return
 	}
-
-	// Decode-check any export-bound tracks that haven't been scanned
-	// yet — so the export's re-encode path catches broken files we'd
-	// otherwise blindly copy to the USB. Only runs the check on the
-	// tracks actually being exported (not the whole library), with a
-	// small worker pool to keep it under a few seconds for typical sets.
-	preExportDecodeCheck(s.Library, opts)
 
 	log.Printf("export: starting (source=%s dest=%s copy=%v)", sourceLabel, req.Destination, req.CopyFiles)
 	if err := export.Run(opts); err != nil {

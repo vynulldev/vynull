@@ -365,12 +365,11 @@ func LibraryToTracks(lib *library.Library) []*pdb.Track {
 			Duration: uint16(t.Duration.Seconds()),
 			Bitrate:  uint32(safeBitrate(t.FileSize, t.Duration.Seconds())),
 			Year:     uint16(t.Year),
-			// Re-encode currently disabled — empirically the CDJ freezes
-			// we were chasing turned out to be PDB-encoding bugs (long-
-			// ASCII paths, stale FileSize), not the source audio itself.
-			// The decode-check still runs at export time and populates
-			// DecodeStatus on each track so the UI can flag problematic
-			// files for the user; we just no longer rewrite them.
+			// Re-encode currently disabled — the CDJ freezes we were
+			// chasing turned out to be PDB-encoding bugs (long-ASCII paths,
+			// stale FileSize), not the source audio itself. The re-encode
+			// path in pdb.PrepareUSBLayout stays available but nothing sets
+			// this true today.
 			NeedsReencode: false,
 			TrackNum:      uint32(t.TrackNum),
 			DiscNumber:    uint16(t.DiscNum),

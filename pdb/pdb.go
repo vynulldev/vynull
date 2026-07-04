@@ -78,9 +78,8 @@ type Track struct {
 
 	// NeedsReencode, when true, signals PrepareUSBLayout to re-encode
 	// the source audio file via ffmpeg instead of copying/symlinking.
-	// Set by the export pipeline for tracks whose library DecodeStatus
-	// flagged hard decode errors — those would freeze the CDJ mid-
-	// playback, so we ship a clean re-encode to the USB.
+	// The export pipeline currently never sets it (the re-encode path is
+	// dormant), but the plumbing stays available.
 	NeedsReencode bool
 }
 

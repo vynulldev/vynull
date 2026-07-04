@@ -66,14 +66,6 @@ type Track struct {
 	ArtChecked     bool        `json:"art_checked,omitempty"`  // true after artwork extraction attempted
 	FileMissing    bool        `json:"file_missing,omitempty"` // FilePath doesn't exist on disk — unplayable (e.g. an imported path not remapped to a local file)
 
-	// Audio-decode health, populated by CheckDecode when the track is
-	// added (or via /api/scan-decode for backfill). DecodeStatus is one
-	// of "ok" / "warning" / "error"; "error" means ffmpeg hit hard
-	// frame errors that empirically freeze the CDJ mid-
-	// playback. DecodeIssue carries the first complaint for display.
-	DecodeStatus string `json:"decode_status,omitempty"`
-	DecodeIssue  string `json:"decode_issue,omitempty"`
-
 	// Beat-grid override fields. DetectedBPM is the auto-detected value
 	// snapshotted before any manual override; BPM (above) is the
 	// effective value used everywhere downstream (CDJ menus, beat grid
