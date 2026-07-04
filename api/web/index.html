@@ -4828,7 +4828,7 @@ const lastDeckTrackIDs = new Map();
 // Show a one-line strip at the top of the PLAYERS tab whenever any
 // peer reports DeviceType=Mixer. Channel-level state (on-air, master,
 // per-channel BPM) is not parsed yet — the mixer packet layout varies
-// between DJM models and we'd need pcap-verified offsets per model.
+// between DJM models and we'd need verified offsets per model.
 // For now this just signals "yes, a DJM is on the network" so the
 // user knows their setup is detected.
 function renderMixerStrip(peers) {
@@ -4838,8 +4838,8 @@ function renderMixerStrip(peers) {
   if (mixers.length === 0) { host.innerHTML = ''; return; }
   host.innerHTML = mixers.map(m => {
     const mx = m.mixer;
-    // Has at least one fielded value? A presence-only mixer (DJM
-    // type 0x30) gives us a populated `mixer` object with all zero
+    // Has at least one fielded value? A presence-only mixer (a
+    // stripped type 0x30) gives us a populated `mixer` object with all zero
     // fields — distinguish that from "rich" 0x29 / 0x03 mixer state
     // by the channel_state_known flag (set after we've parsed at
     // least one channel-bearing packet, even if all 4 channels are
@@ -4849,7 +4849,7 @@ function renderMixerStrip(peers) {
       mx.master_bpm > 0 ||
       mx.master_device > 0
     );
-    let detail = '<span class="dim" title="No 0x29 status received yet, or this DJM only broadcasts the stripped 0x30 packet (DJM confirmed). Channel/on-air/master state would require RE-ing the mixer\'s TCP control protocol, not just listening to broadcasts.">presence only</span>';
+    let detail = '<span class="dim" title="No 0x29 status received yet, or this DJM only broadcasts the stripped 0x30 packet. Channel/on-air/master state would require the mixer\'s separate TCP control protocol, not just listening to broadcasts.">presence only</span>';
     if (hasRichState) {
       const chips = (mx.channel_on_air || [false,false,false,false]).map((on, i) =>
         `<span class="ch ${on ? 'on' : 'off'}">CH${i+1}</span>`).join('');
