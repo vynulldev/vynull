@@ -213,8 +213,7 @@ func (h *Handler) Handle(msg *proto.DBMessage) []*proto.DBMessage {
 	case 0x1200: // SEARCH-result drill-in: resolve the selected item's ID
 		return h.handleSearchSelect(msg)
 	case 0x1602: // session preflight (rekordbox-style ACK; semantics TBD)
-		// rekordbox responds with [0x1602, 0] per
-		// a capture. Leaving it
+		// Respond with [0x1602, 0]. Leaving it
 		// unhandled appears to make the deck stall before entering
 		// some categories (SEARCH keyboard not opening in particular).
 		log.Printf("dbserver: 0x1602 preflight ack")
@@ -257,8 +256,8 @@ func (h *Handler) Handle(msg *proto.DBMessage) []*proto.DBMessage {
 		return h.handleGetTracksByColor(msg)
 	case 0x2005:
 		// Stub: analysis section by track — args [spec, slot?, track_id, 0,
-		// range, 0]. rekordbox sends NO response (verified from a real-RB
-		// pcap, txid 040004aa); replying corrupts the deck's load state.
+		// range, 0]. This opcode expects NO response;
+		// replying corrupts the deck's load state.
 		return h.handleUndecodedStub(msg)
 	case 0x2805:
 		// PVB2 write: the deck uploads a seek index it computed itself (arg[6]
@@ -352,7 +351,7 @@ func (h *Handler) Handle(msg *proto.DBMessage) []*proto.DBMessage {
 			}
 		}
 
-		// rekordbox responds with 0x4e02 containing ALL cues concatenated.
+		// The response is 0x4e02 containing ALL cues concatenated.
 		allBlob := blob
 		if h.cues != nil {
 			if combined := h.cues.GetCombinedBlob(trackID); len(combined) > 0 {
@@ -383,7 +382,7 @@ func (h *Handler) Handle(msg *proto.DBMessage) []*proto.DBMessage {
 			argVals[i] = fmt.Sprintf("0x%08x(%d)", a.Int(), a.Int())
 		}
 		log.Printf("dbserver: unhandled type 0x%04x args=%v", msg.Type, argVals)
-		// Default: echo type in success response (matches real CDJ behavior)
+		// Default: echo type in success response (matches CDJ behavior)
 		return []*proto.DBMessage{{
 			TxID: msg.TxID,
 			Type: proto.DBMsgSuccess,
@@ -409,7 +408,7 @@ func (h *Handler) handleSetup(msg *proto.DBMessage) []*proto.DBMessage {
 
 func (h *Handler) handleMediaInfo(msg *proto.DBMessage) []*proto.DBMessage {
 	log.Printf("dbserver: media info (0x3007)")
-	// Respond: success with [echo_type, 0] — matches real CDJ
+	// Respond: success with [echo_type, 0] — matches the CDJ
 	return []*proto.DBMessage{{
 		TxID: msg.TxID,
 		Type: proto.DBMsgSuccess,
@@ -419,7 +418,7 @@ func (h *Handler) handleMediaInfo(msg *proto.DBMessage) []*proto.DBMessage {
 
 func (h *Handler) handleNXS2Extension(msg *proto.DBMessage) []*proto.DBMessage {
 	log.Printf("dbserver: NXS2 extension (0x3e03)")
-	// Respond: type 0x4b02 with [echo_type, 0, 2, ""] — matches real CDJ
+	// Respond: type 0x4b02 with [echo_type, 0, 2, ""] — matches the CDJ
 	return []*proto.DBMessage{{
 		TxID: msg.TxID,
 		Type: 0x4b02,

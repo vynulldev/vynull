@@ -22,7 +22,7 @@ func synthSine(freqHz, durSec, amplitude float64) []float32 {
 }
 
 // decodePWV5 unpacks one big-endian 2-byte entry into r/g/b/h.
-// Mirrors beat-link's WaveformDetail decoder so the test fails loudly
+// Mirrors the WaveformDetail wire layout so the test fails loudly
 // if the encoder bit positions ever drift.
 func decodePWV5(hi, lo byte) (r, g, b, h uint8) {
 	bits := uint16(hi)<<8 | uint16(lo)

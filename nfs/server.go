@@ -19,10 +19,10 @@ import (
 )
 
 const (
-	// Separate ports for mount and NFS (like real CDJ).
+	// Separate ports for mount and NFS (like a CDJ).
 	mountPortNum = 38251
 	nfsPortNum   = 2049
-	maxReadSize  = 16384 // NFS v2 max read size (matches real CDJ)
+	maxReadSize  = 16384 // NFS v2 max read size (matches the CDJ)
 )
 
 // flac handles transparent FLAC→WAV transcoding for NFS serving.
@@ -72,7 +72,7 @@ func (m *fileHandleMap) Resolve(fh [fhSize]byte) (string, bool) {
 }
 
 // ResolveByPrefix matches a file handle by its first 12 bytes.
-// CDJ modifies bytes 12-31 of file handles with its own data.
+// The CDJ modifies bytes 12-31 of file handles with its own data.
 func (m *fileHandleMap) ResolveByPrefix(fh [fhSize]byte) (string, bool) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -138,8 +138,8 @@ func (s *Server) Start(ctx context.Context) error {
 
 	var wg sync.WaitGroup
 
-	// Mount on separate port. Replies are sent twice (matching real
-	// rekordbox's wire pattern observed in pcaps) — the CDJ apparently
+	// Mount on separate port. Replies are sent twice (matching
+	// rekordbox's wire pattern) — the CDJ apparently
 	// treats a single MOUNT reply as packet loss and retries 200ms
 	// later, which is what was causing our UNLINK to look "unclean"
 	// even after the empty-EXPORT fix.
@@ -611,8 +611,8 @@ func (s *Server) nfsReadDir(hdr *rpcHeader) []byte {
 func (s *Server) nfsStatFS(hdr *rpcHeader) []byte {
 	w := buildRPCReply(hdr.XID)
 	w.putU32(nfsOK)    // status
-	w.putU32(16384)    // tsize: transfer size (matches real CDJ)
-	w.putU32(512)      // bsize: block size (matches real CDJ)
+	w.putU32(16384)    // tsize: transfer size (matches the CDJ)
+	w.putU32(512)      // bsize: block size (matches the CDJ)
 	w.putU32(32000000) // blocks: total (~16GB at 512 byte blocks)
 	w.putU32(16000000) // bfree: free (~8GB)
 	w.putU32(16000000) // bavail: available (~8GB)

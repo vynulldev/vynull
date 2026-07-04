@@ -81,7 +81,7 @@ func (h *Handler) handleGetMetadata(msg *proto.DBMessage) []*proto.DBMessage {
 
 	log.Printf("dbserver: metadata for track %d: %q by %q", trackID, title, artist)
 
-	// Metadata items matching rekordbox format (from pcap).
+	// Metadata items in the standard format.
 	// Item types: 0x000b=duration(secs), 0x000d=BPM(*100), 0x000f=key
 	tempo := uint32(0)
 	if h.pdb != nil {
@@ -116,15 +116,15 @@ func (h *Handler) handleGetMetadata(msg *proto.DBMessage) []*proto.DBMessage {
 		}
 	}
 
-	// Use 0x7FFFFFFF as sentinel for unknown key (matches rekordbox).
+	// Use 0x7FFFFFFF as sentinel for unknown key.
 	if keyID == 0 && key == "" {
 		keyID = 0x7FFFFFFF
 	}
 
 	fileType := h.resolveFileType(trackID)
 
-	// Metadata items matching rekordbox format (16 items from pcap).
-	// ParentID values match real RB: some items have parent=1, others parent=0.
+	// Metadata items in the standard format (16 items).
+	// ParentID values: some items have parent=1, others parent=0.
 	metaItems := []*menuItem{
 		{ID: tID, Label1: title, ArtID: artworkID, ItemType: 0x0004, ParentID: 1, FileType: fileType}, // title
 		{ID: tID, Label1: artist, ItemType: 0x0007, ParentID: 1},                                      // artist
@@ -234,7 +234,7 @@ func (h *Handler) handleGetArtwork(msg *proto.DBMessage) []*proto.DBMessage {
 
 	if art == nil {
 		log.Printf("dbserver: artwork %d not found", artID)
-		// rekordbox returns 0x4002 with status=0x32 (not found) + phantom blob arg.
+		// The response is 0x4002 with status=0x32 (not found) + phantom blob arg.
 		return []*proto.DBMessage{{
 			TxID:             msg.TxID,
 			Type:             0x4002,
@@ -264,7 +264,7 @@ func (h *Handler) handleGetArtwork(msg *proto.DBMessage) []*proto.DBMessage {
 }
 
 func (h *Handler) handleGetWavePreview(msg *proto.DBMessage) []*proto.DBMessage {
-	// 0x2004: wave preview. rekordbox returns type 0x4402
+	// 0x2004: wave preview. The response is type 0x4402
 	// with [echo_type, 0, size, blob].
 	var trackID uint32
 	if len(msg.Args) >= 3 {
@@ -335,7 +335,7 @@ func (h *Handler) handleGetWaveDetail(msg *proto.DBMessage) []*proto.DBMessage {
 }
 
 func (h *Handler) handleGetBeatGrid(msg *proto.DBMessage) []*proto.DBMessage {
-	// 0x2204: beat grid. rekordbox returns type 0x4602.
+	// 0x2204: beat grid. The response is type 0x4602.
 	var trackID uint32
 	if len(msg.Args) >= 2 {
 		trackID = msg.Args[1].Int()
@@ -476,7 +476,7 @@ func (h *Handler) beatGridForTrack(trackID uint32, r *analysis.Result) []byte {
 }
 
 // extAnalysisTags is the tag descriptor for all 0x4f02 responses.
-// rekordbox always declares 5 args: int32, int32, int32, blob, int32.
+// The response always declares 5 args: int32, int32, int32, blob, int32.
 // PWV4 and NOT_FOUND send only 4 on wire (arg4 is phantom).
 // PWV5/PQT2/PVB2 send all 5 (arg4 = data-valid flag).
 var extAnalysisTags = []byte{0x06, 0x06, 0x06, 0x03, 0x06}
@@ -622,8 +622,7 @@ func (h *Handler) handleGetExtAnalysis(msg *proto.DBMessage) []*proto.DBMessage 
 					}}
 				}
 			case "PVB2": // extended VBR seek index
-				// rekordbox SERVES PVB2 here (0x4f02, ~8036-byte blob),
-				// verified against real-RB captures of this exact load. If we
+				// PVB2 is SERVED here (0x4f02, ~8036-byte blob). If we
 				// withhold it, the deck retries via a raw 0x2805 tagged-section
 				// read; that path is unanswered and deadlocks the deck's
 				// dbserver channel (blank details, hung browse) while NFS/audio
@@ -758,7 +757,7 @@ func (h *Handler) handleGetSongStructure(msg *proto.DBMessage) []*proto.DBMessag
 		}}
 	}
 
-	// rekordbox always returns a 1604-byte blob for 0x2504,
+	// The response is always a 1604-byte blob for 0x2504,
 	// even for un-analyzed tracks. The actual PSSI data is served
 	// via 0x2c04 with the PSSI tag. This response signals that
 	// phrase data may be available.
@@ -780,11 +779,10 @@ func (h *Handler) handleGetSongStructure(msg *proto.DBMessage) []*proto.DBMessag
 // from the audio (read over NFS) and uploads it here — arg[6] is a complete
 // PVB2 ANLZ section. This is a WRITE analogous to the 0x2705 cue-write; if we
 // don't answer it, the deck blocks its whole dbserver request channel forever
-// (blank details, hung browse) while NFS/audio keep working. rekordbox
-// never hits this path because its PVB2 is always valid, so there is no
-// captured reply to copy — we mirror the 0x2705 cue-write pattern (reply
-// echoing the written blob) using the 0x4f02 PVB2 response the deck already
-// accepts for 0x2c04 reads.
+// (blank details, hung browse) while NFS/audio keep working. This path is only
+// hit when the served PVB2 is invalid, so we mirror the 0x2705 cue-write
+// pattern (reply echoing the written blob) using the 0x4f02 PVB2 response the
+// deck already accepts for 0x2c04 reads.
 func (h *Handler) handleWritePVB2(msg *proto.DBMessage) []*proto.DBMessage {
 	var trackID uint32
 	if len(msg.Args) >= 2 {
@@ -819,7 +817,7 @@ func (h *Handler) handleWritePVB2(msg *proto.DBMessage) []*proto.DBMessage {
 }
 
 func (h *Handler) handleGetNXS2Cues(msg *proto.DBMessage) []*proto.DBMessage {
-	// 0x3d03: NXS2 cue/loop point data. Real CDJ returns count=6.
+	// 0x3d03: NXS2 cue/loop point data. The response returns count=6.
 	// The CDJ checks this count but doesn't render items for it.
 	log.Printf("dbserver: NXS2 cue data (count=6)")
 	return []*proto.DBMessage{{
@@ -832,7 +830,7 @@ func (h *Handler) handleGetNXS2Cues(msg *proto.DBMessage) []*proto.DBMessage {
 }
 
 func (h *Handler) handleMountInfo(msg *proto.DBMessage) []*proto.DBMessage {
-	// 0x3100: mount/track notification. rekordbox returns [0x3100, 0].
+	// 0x3100: mount/track notification. The response is [0x3100, 0].
 	// This is an ack/notification, not a data query.
 	log.Printf("dbserver: mount info (0x3100)")
 	return []*proto.DBMessage{{
@@ -938,7 +936,7 @@ func (h *Handler) handleGetTrackInfo(msg *proto.DBMessage) []*proto.DBMessage {
 
 	log.Printf("dbserver: track info for track %d: path=%s dur=%d bpm=%d", trackID, relPath, duration, tempo)
 
-	// rekordbox returns 7 items: title, duration, BPM, comment, path, unknown, key.
+	// The response returns 7 items: title, duration, BPM, comment, path, unknown, key.
 	infoItems := []*menuItem{
 		{ID: trackInfoTitleID(h.resolveFileType(trackID)), ItemType: 0x0004, FileType: h.resolveFileType(trackID), TrackInfo: true}, // title
 		{ID: duration, ItemType: 0x000b},                                 // duration (seconds)
@@ -962,7 +960,7 @@ func (h *Handler) handleGetTrackInfo(msg *proto.DBMessage) []*proto.DBMessage {
 func (h *Handler) handleGetCuePoints(msg *proto.DBMessage) []*proto.DBMessage {
 	// 0x2104: legacy (pre-NXS2) cue points, response type 0x4702.
 	// Saved cues are served via the NXS2 path (0x2b04) instead; this older
-	// format was never RE'd, so we return an empty list. Modern players use 0x2b04.
+	// format is unsupported, so we return an empty list. Modern players use 0x2b04.
 	var trackID uint32
 	if len(msg.Args) >= 2 {
 		trackID = msg.Args[1].Int()
@@ -991,7 +989,7 @@ func (h *Handler) handleGetNXS2CuePoints(msg *proto.DBMessage) []*proto.DBMessag
 
 	if len(blob) == 0 {
 		log.Printf("dbserver: NXS2 cues 0x2b04 track=%d (empty)", trackID)
-		// rekordbox: descriptor=06 06 06 03 06, sends 4 int32 on wire.
+		// Wire format: descriptor=06 06 06 03 06, sends 4 int32 on wire.
 		// Arg3 typed as binary(03) in descriptor but sent as int32(0).
 		// Arg4 is phantom (declared but not sent).
 		return []*proto.DBMessage{{

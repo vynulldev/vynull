@@ -21,7 +21,7 @@ const (
 	tagPSSI = "PSSI" // song structure info (phrases)
 	tagPQT2 = "PQT2" // extended beat grid
 	tagPVB2 = "PVB2" // extended VBR seek index
-	tagPWV3 = "PWV3" // mono scroll waveform (.EXT, used by CDJ)
+	tagPWV3 = "PWV3" // mono scroll waveform (.EXT, used by the CDJ)
 	tagPWV4 = "PWV4" // color waveform preview (.EXT)
 	tagPWV5 = "PWV5" // color waveform detail/scroll (.EXT)
 	tagPWV6 = "PWV6" // 3-band waveform preview (.2EX, CDJ-3000)
@@ -37,8 +37,7 @@ const (
 //
 // The algorithm: hash the UTF-16 code points of the path, modulo 0x30D43 →
 // `inner`; pack 7 specific bits of `inner` into `p`. Matched against four
-// known file_path → folder mappings from rekordbox exports until it
-// reproduced them exactly.
+// known file_path → folder mappings until it reproduced them exactly.
 func usbanlzFolder(filePath string) (p, inner uint32) {
 	var h uint32 = 0
 	for _, ch := range filePath {
@@ -96,8 +95,8 @@ func WriteANLZFiles(outDir string, trackID uint32, trackPath string, r *Result) 
 	return "/" + filepath.Join("PIONEER", "USBANLZ", subDir, "ANLZ0000.DAT"), nil
 }
 
-// write2EXFile writes the CDJ-3000 3-band waveform file. Section order matches
-// rekordbox .2EX: PPTH, PWV7 (detail), PWV6 (preview), PWVC (colour). The
+// write2EXFile writes the CDJ-3000 3-band waveform file. Section order in
+// the .2EX: PPTH, PWV7 (detail), PWV6 (preview), PWVC (colour). The
 // 3-band sections are built with WrapANLZ (byte-verified headers) and emitted
 // without its 4-byte dbserver length prefix. PWVC is only present for imported
 // tracks (we don't synthesize colour metadata).
@@ -119,13 +118,13 @@ func write2EXFile(path, trackPath string, r *Result) error {
 func writeDATFile(path, trackPath string, r *Result) error {
 	var sections []byte
 
-	// Order matches rekordbox .DAT exactly:
+	// Section order in the .DAT:
 	//   PPTH, PVBR, PQTZ, PWAV, PWV2, PCOB(hot), PCOB(memory)
 
 	sections = append(sections, makePathSection(trackPath)...)
 
 	// PVBR: VBR seek index. We don't have real seek data, but the section
-	// is present in every real export (even for FLAC/CBR) so the deck may
+	// is present in every export (even for FLAC/CBR) so the deck may
 	// require its presence. 400 entries × u4 = 1600 bytes, all zero.
 	sections = append(sections, makeEmptyVBRSection()...)
 
@@ -156,9 +155,9 @@ func writeDATFile(path, trackPath string, r *Result) error {
 func writeEXTFile(path, trackPath string, r *Result) error {
 	var sections []byte
 
-	// Section order matches rekordbox .EXT exactly:
+	// Section order in the .EXT:
 	//   PPTH, PWV3, PCOB(hot), PCOB(memory), PCO2(hot), PCO2(memory), PWV5, PWV4
-	// We don't yet write PQT2/PVB2/PSSI — those appear in real but the deck
+	// We don't yet write PQT2/PVB2/PSSI — those can appear but the deck
 	// seems to skip them.
 
 	sections = append(sections, makePathSection(trackPath)...)
@@ -167,7 +166,7 @@ func writeEXTFile(path, trackPath string, r *Result) error {
 		sections = append(sections, makeMonoScrollSection(r.WaveDetailMono)...)
 	}
 
-	// Empty cue lists. Real exports always write both list types (hot=1,
+	// Empty cue lists. Exports always write both list types (hot=1,
 	// memory=0) in both PCOB (v1) and PCO2 (v2) flavours, even when the
 	// track has no cues at all.
 	sections = append(sections, makeEmptyCueList(tagPCOB, 1)...)
@@ -189,13 +188,13 @@ func writeEXTFile(path, trackPath string, r *Result) error {
 		sections = append(sections, makeColorPreviewSection(r.WaveColorPreview)...)
 	}
 
-	// PVB2 (extended VBR seek index): rekordbox emits this only for
-	// some tracks (observed: present for some mp3s, absent for
-	// others). Our empty placeholder may interfere with parsing
+	// PVB2 (extended VBR seek index): this is emitted only for
+	// some tracks (present for some mp3s, absent for others).
+	// Our empty placeholder may interfere with parsing
 	// for tracks the deck doesn't expect to have one. Omit until we can
 	// determine the actual selection rule.
 
-	// PSSI (song structure). Real exports always include this section
+	// PSSI (song structure). Exports always include this section
 	// with phrase data; an empty PSSI may signal "still analysing" to
 	// the deck and gate visualisations like the coloured phrase bar
 	// underneath the waveform.
@@ -217,10 +216,10 @@ func writeANLZFile(path string, sections []byte) error {
 	copy(header[0:4], "PMAI")
 	binary.BigEndian.PutUint32(header[4:], headerLen)
 	binary.BigEndian.PutUint32(header[8:], fileLen)
-	// bytes 12-27: version/flags matching rekordbox files
+	// bytes 12-27: version/flags
 	binary.BigEndian.PutUint32(header[12:], 1)       // unknown, always 1
-	binary.BigEndian.PutUint32(header[16:], 0x10000) // version? real has 00 01 00 00
-	binary.BigEndian.PutUint32(header[20:], 0x10000) // version? real has 00 01 00 00
+	binary.BigEndian.PutUint32(header[16:], 0x10000) // version? 00 01 00 00
+	binary.BigEndian.PutUint32(header[20:], 0x10000) // version? 00 01 00 00
 
 	f, err := os.Create(path)
 	if err != nil {
@@ -328,21 +327,21 @@ func makeTinyPreviewSection(preview []byte) []byte {
 }
 
 // makeEmptyVB2Section creates an empty PVB2 (extended VBR) section.
-// Real exports use len_header=32, len_tag=8032 (32 + 8000 byte body).
+// The format uses len_header=32, len_tag=8032 (32 + 8000 byte body).
 // Extra header has a u4 file_size embedded — we use 0 since this is a
 // placeholder; the deck appears to treat it as advisory.
 func makeEmptyVB2Section() []byte {
 	extra := make([]byte, 20)
 	// bytes 8-11: file size (u4) — leave 0 for placeholder
-	binary.BigEndian.PutUint32(extra[12:], 0x00000190) // 400, observed in real
-	binary.BigEndian.PutUint32(extra[16:], 0x00000014) // 20, observed in real
+	binary.BigEndian.PutUint32(extra[12:], 0x00000190) // 400
+	binary.BigEndian.PutUint32(extra[16:], 0x00000014) // 20
 	body := make([]byte, 8000)
 	return makeSection(tagPVB2, extra, body)
 }
 
 // GeneratePVB2 returns a placeholder PVB2 (extended VBR seek index) section
 // wrapped with the 4-byte little-endian length prefix used by the dbserver
-// ANLZ blob format (same layout ReadANLZSection returns). rekordbox
+// ANLZ blob format (same layout ReadANLZSection returns). The dbserver
 // serves an 8036-byte blob (LE len + 8032-byte PVB2 section) in reply to a
 // 0x2c04 PVB2 request; withholding it makes the deck fall back to a raw
 // 0x2805 tagged-section read, which — if unanswered — deadlocks the deck's
@@ -358,8 +357,8 @@ func GeneratePVB2() []byte {
 }
 
 // makeEmptyVBRSection creates a PVBR (variable-bitrate seek index) section.
-// Real exports always have len_header=16, len_tag=1620 (4 bytes extra + 1604
-// bytes body = 401 × u4 seek offsets per the kaitai spec). We write all zeros
+// The format always has len_header=16, len_tag=1620 (4 bytes extra + 1604
+// bytes body = 401 × u4 seek offsets). We write all zeros
 // since we don't compute a real seek table; the deck appears to require the
 // section's presence even for FLAC/CBR.
 func makeEmptyVBRSection() []byte {
@@ -381,7 +380,7 @@ func makeColorPreviewSection(data []byte) []byte {
 }
 
 // makeEmptyCueList creates an empty PCOB cue list section (v1 format).
-// listType: 0 = memory cues, 1 = hot cues. Real exports always emit both,
+// listType: 0 = memory cues, 1 = hot cues. Exports always emit both,
 // using 0xffffffff as a sentinel for memory_count.
 func makeEmptyCueList(fourcc string, listType uint32) []byte {
 	extra := make([]byte, 12)
@@ -404,7 +403,7 @@ func makeEmptyCueListV2(fourcc string, listType uint32) []byte {
 
 // makeSSISection wraps a GeneratePSSI blob (which is `entry_size(4) +
 // num_entries(2) + maskedRegion`) with the standard ANLZ section header.
-// Real PSSI has len_header=32 = 12 (generic header) + 20 (entry_size +
+// PSSI has len_header=32 = 12 (generic header) + 20 (entry_size +
 // num_entries + 14 masked body header bytes). Body = num_entries × 24.
 func makeSSISection(pssi []byte) []byte {
 	if len(pssi) < 20 {
@@ -417,7 +416,7 @@ func makeSSISection(pssi []byte) []byte {
 
 // makeEmptySSI creates an empty PSSI (song structure) section.
 //
-// Layout (matches rekordbox exports, len_header = 0x20):
+// Layout (len_header = 0x20):
 //
 //	u4 len_entry_bytes = 24
 //	u2 len_entries     = 0
@@ -428,7 +427,7 @@ func makeSSISection(pssi []byte) []byte {
 //	u1 raw_bank        = 0
 //	1 byte padding
 //
-// kaitai's `is_masked` check is `raw_mood > 20`; mood=1 stays raw so no XOR
+// The `is_masked` check is `raw_mood > 20`; mood=1 stays raw so no XOR
 // mask is needed. Total tag size = 32 bytes, no body.
 func makeEmptySSI() []byte {
 	extra := make([]byte, 20)
@@ -445,7 +444,7 @@ func makeEmptySSI() []byte {
 
 // makeMonoScrollSection creates a PWV3 section (mono scrolling waveform).
 // 1 byte per entry, where each byte is `(brightness << 5) | (height & 0x1f)`.
-// Real exports' extra header is u4 entry_size=1, u4 num_entries, u4 0x00960000
+// The extra header is u4 entry_size=1, u4 num_entries, u4 0x00960000
 // (entries_per_sec=150 in the high half, no format flags).
 func makeMonoScrollSection(data []byte) []byte {
 	extra := make([]byte, 12)

@@ -129,7 +129,7 @@ func DetectPhrases(samples []float32, sampleRate int, bpm float64, downbeatMs fl
 	numChunks := totalBeats / chunkSize
 	if numChunks < 4 {
 		// Track too short for meaningful phrase analysis — emit a single
-		// "intro" segment matching real rb's behavior on short clips.
+		// "intro" segment, the expected behavior on short clips.
 		return []Phrase{{StartBeat: 1, EndBeat: totalBeats, Kind: 1, Energy: 0.5}}
 	}
 	chunkEnergy := make([]float64, numChunks)
@@ -250,7 +250,7 @@ func DetectPhrases(samples []float32, sampleRate int, bpm float64, downbeatMs fl
 // applies when the phrase is genuinely intro-like (low energy AND short,
 // or first beats <= 64); otherwise we look at energy + direction so a
 // track whose first phrase is already a full-energy section doesn't get
-// mislabeled. Mood_high kind values per the kaitai spec:
+// mislabeled. Mood_high kind values:
 //
 //	1 = intro, 2 = up, 3 = down, 5 = chorus, 6 = outro
 func classifyPhrases(phrases []Phrase) {
@@ -329,7 +329,7 @@ func classifyPhrases(phrases []Phrase) {
 // wraps it with the 12-byte generic section header (PSSI + len_header
 // + len_tag).
 //
-// Per the kaitai spec / real exports, the layout is:
+// The layout is:
 //
 //	extra header (20 bytes total, included in len_header=32):
 //	  u4 entry_size = 24
@@ -342,7 +342,7 @@ func classifyPhrases(phrases []Phrase) {
 //	  1 byte padding
 //	body (num_entries × 24 bytes): phrase entries
 //
-// When num_entries > 0, rekordbox 6 XOR-masks the body (the
+// When num_entries > 0, the body is XOR-masked (the
 // 14 fixed body bytes + the entries). The mask is 19 bytes:
 //
 //	mask[j] = base[j] + num_entries  (mod 256)
@@ -376,10 +376,8 @@ func GeneratePSSI(phrases []Phrase, bpm float64) []byte {
 		// rest of the 24-byte entry stays zero
 	}
 
-	// XOR mask. The mask byte sequence is taken verbatim from Deep Symmetry's
-	// Kaitai spec rekordbox_anlz.ksy (crate-digger, EPL-licensed) — it encodes
-	// the fixed obfuscation constants rekordbox applies to PSSI, so it is a
-	// format-interop fact rather than original expression.
+	// XOR mask. The mask byte sequence encodes the fixed obfuscation
+	// constants applied to PSSI.
 	c := byte(numEntries)
 	mask := make([]byte, len(pssiMaskBase))
 	for j := range pssiMaskBase {

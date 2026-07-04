@@ -212,9 +212,9 @@ func Run(opts Options) error {
 		return fmt.Errorf("export: generating PDB: %w", err)
 	}
 
-	// Skeleton PIONEER subdirs that rekordbox creates but leaves
+	// Skeleton PIONEER subdirs that are created but left
 	// empty on a fresh export (CDJ + MPJ). We don't know what these
-	// are used for — they're empty in every real export we've seen —
+	// are used for — they're empty in every export —
 	// but creating them matches the layout the CDJ probably expects.
 	for _, sub := range []string{"PIONEER/CDJ", "PIONEER/MPJ"} {
 		if err := os.MkdirAll(filepath.Join(opts.DestDir, sub), 0o755); err != nil {
@@ -226,7 +226,7 @@ func Run(opts Options) error {
 	// CDJ accepts a present-but-empty file the same as a fully
 	// populated one for browse / playback. Tag and hot-cue-bank
 	// content will be plumbed through here as those table formats
-	// get RE'd.
+	// are supported.
 	if err := pdb.GenerateExt(opts.DestDir); err != nil {
 		return fmt.Errorf("export: generating exportExt.pdb: %w", err)
 	}

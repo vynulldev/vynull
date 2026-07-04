@@ -467,8 +467,7 @@ func (h *Handler) handleGetFilename(msg *proto.DBMessage) []*proto.DBMessage {
 
 // handleGetHotCueBank — opcode 0x2001. We don't store hot-cue banks
 // separately yet, so return empty. The deck still shows the menu
-// entry (single empty row matches what rekordbox returned in
-// the reference capture).
+// entry (single empty row).
 func (h *Handler) handleGetHotCueBank(msg *proto.DBMessage) []*proto.DBMessage {
 	h.setPendingAll(msg, nil)
 	log.Printf("dbserver: HOT CUE BANK list (empty — not stored)")

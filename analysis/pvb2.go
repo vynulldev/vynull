@@ -15,13 +15,13 @@ import (
 
 // PVB2 (extended VBR seek index) maps decoded sample positions to byte offsets
 // within a variable-frame-size audio file (FLAC, ALAC, …) so the CDJ can seek
-// accurately. rekordbox serves this for every lossless track; when we
+// accurately. This is served for every lossless track; when we
 // withhold it or serve a zeroed placeholder, the deck computes its own from
 // the audio and uploads it via a 0x2805 write — and if that write is dropped,
 // the deck deadlocks its dbserver channel. Generating a correct index here
 // makes the deck accept ours and never regenerate.
 //
-// Wire format (reverse-engineered from rekordbox .EXT captures):
+// Wire format (as it appears in .EXT files):
 //
 //	section header: "PVB2", len_header=32, len_tag=32+body
 //	extra (20 bytes): u4 0, u4 0, u4 total_samples, u4 num_entries, u4 entry_size=20
@@ -33,8 +33,8 @@ import (
 //
 // Entries are recorded roughly every 6 frames, matching rekordbox's density.
 
-const pvb2FrameStep = 6      // record a seek point every N frames (~rekordbox)
-const pvb2BlockSize = 0x1000 // 4096 — constant in real exports, even last frame
+const pvb2FrameStep = 6      // record a seek point every N frames
+const pvb2BlockSize = 0x1000 // 4096 — constant across exports, even last frame
 
 // pvb2Cache memoises the generated blob per absolute file path. A cached nil
 // means generation was attempted and failed (non-seekable / not probeable), so

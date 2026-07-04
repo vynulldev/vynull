@@ -246,7 +246,7 @@ var MenuCategoryContentPointer = map[uint16]uint16{
 	20: 18, 24: 17, 27: 26,
 }
 
-// MenuCategoryUnknown is the byte-4 value real exports use per category.
+// MenuCategoryUnknown is the byte-4 value used per category.
 // Most are 0x63 (99); a few have specific values matching column flags.
 var MenuCategoryUnknown = map[uint16]byte{
 	1: 0x63, 2: 0x02, 3: 0x03, 4: 0x01, 5: 0x05, 6: 0x63, 7: 0x63, 8: 0x63,
@@ -259,7 +259,7 @@ var MenuCategoryUnknown = map[uint16]byte{
 // `visible` entries get sort_order 1..N and visibility=0 (Visible).
 // `hidden` entries get sort_order 0 and visibility=1 (Hidden).
 // Hidden also includes the special category 27 (MATCHING) with visibility=3
-// to match real's layout.
+// to match the expected layout.
 func BuildMenuRows(visible []uint16, hidden []uint16) [][]byte {
 	rows := make([][]byte, 0, len(visible)+len(hidden))
 	make1 := func(cat uint16, vis byte, sort uint16) []byte {
@@ -286,14 +286,14 @@ func BuildMenuRows(visible []uint16, hidden []uint16) [][]byte {
 
 // menu: 22 default rows. Each 8-byte row encodes:
 //   u16 category_id, u16 content_pointer, u8 unknown, u8 visibility, u16 sort_order
-// visibility: 0=Visible, 1=Hidden, 3=Unknown(3) (used for cat 27 in real)
+// visibility: 0=Visible, 1=Hidden, 3=Unknown(3) (used for cat 27)
 //
 // Bytes copied verbatim from a rekordbox 6.6.4 export. The
 // rekordcrate empty fixture has most categories Hidden, but the
 // CDJ uses visibility to gate the track-detail sidebar (BPM,
 // Key, etc. won't display unless their menu category is Visible).
 var menuRows = [][]byte{
-	// 5 Hidden categories first (matches real's layout)
+	// 5 Hidden categories first (matches the expected layout)
 	{0x01, 0x00, 0x01, 0x00, 0x63, 0x01, 0x00, 0x00}, // cat 1, hidden
 	{0x08, 0x00, 0x09, 0x00, 0x63, 0x01, 0x00, 0x00}, // cat 8, hidden
 	{0x0a, 0x00, 0x0b, 0x00, 0x63, 0x01, 0x00, 0x00}, // cat 10, hidden
@@ -323,14 +323,14 @@ var menuRows = [][]byte{
 // heap_used=40 free_size=4010
 
 // makeHistoryRow builds a History row (table 0x13) carrying per-export
-// metadata. Real exports declare the number of tracks present; if that
+// metadata. Exports declare the number of tracks present; if that
 // value is 0 the deck appears to treat the USB as "no real export" and
 // may suppress advanced features. Bytes layout follows the kaitai spec
 // and matches a rekordbox 6.6.4 export verbatim (only num_tracks
 // and the date string differ across exports).
 //
 //	0x00 u2  subtype = 0x0280
-//	0x02 u2  index_shift (real uses 128 = slot 4 × 32 in the row group)
+//	0x02 u2  index_shift (128 = slot 4 × 32 in the row group)
 //	0x04 u4  num_tracks
 //	0x08 u8  ofs_strings[3] + pad (positions of date/version/label strings)
 //	0x10+    inline strings: date, version, label
@@ -346,7 +346,7 @@ func makeHistoryRow(numTracks int, date string) []byte {
 	// ofs_strings[3] (u2 each = 6) + pad(2) = 16 bytes
 	row := make([]byte, 16+len(dateStr)+len(versionStr)+len(labelStr))
 	le16put(row, 0x00, 0x0280)
-	le16put(row, 0x02, 128) // index_shift, matches real
+	le16put(row, 0x02, 128) // index_shift
 	le32put(row, 0x04, uint32(numTracks))
 	le16put(row, 0x08, 16)                                    // ofs_strings[0] = date
 	le16put(row, 0x0A, uint16(16+len(dateStr)))               // ofs_strings[1] = version

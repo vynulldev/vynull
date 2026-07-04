@@ -9,10 +9,10 @@ import (
 
 const (
 	previewPoints      = 900  // mono preview for dbserver network response
-	anlzPreviewPoints  = 400  // mono preview for ANLZ .DAT file (rekordbox uses 400)
-	colorPreviewPoints = 1200 // color preview (PWV4) — rekordbox uses 1200
+	anlzPreviewPoints  = 400  // mono preview for ANLZ .DAT file (uses 400)
+	colorPreviewPoints = 1200 // color preview (PWV4) — uses 1200
 	maxHeight          = 31   // max height for PWV4/PWV5 color waveforms
-	previewMaxHeight   = 16   // max height for PWAV mono preview (rekordbox uses 1-16)
+	previewMaxHeight   = 16   // max height for PWAV mono preview (1-16)
 	fftSize            = 2048 // larger window for better bass frequency resolution
 )
 
@@ -29,7 +29,7 @@ var RGB3BandMode bool
 
 // Band-split crossover frequencies (Hz) for the colour-detail waveform's
 // bass/mid/treble → R/G/B mapping. Exposed as vars so the colour balance can be
-// calibrated against rekordbox; the defaults are the calibrated values.
+// calibrated; the defaults are the calibrated values.
 var (
 	BandBassMidHz   = 200.0
 	BandMidTrebleHz = 750.0
@@ -37,23 +37,23 @@ var (
 	// detail crossover above — PWV4 has its own band structure).
 	PreviewTrebleHz = 2000.0
 	// PWV4 per-band byte scales (d3/d4/d5 = bass/mid/treble). Calibrated so the
-	// overview colour balance matches rekordbox on actual music
-	// (tools/wavecompare): mean d-values land within ~1 of rekordbox's
-	// (bass~64 mid~41 treble~31, balance ~47/30/23). These are much higher than
-	// a single-tone sweep would imply — rekordbox's real-music band levels run
+	// overview colour balance holds on actual music
+	// (tools/wavecompare): mean d-values land near
+	// bass~64 mid~41 treble~31, balance ~47/30/23. These are much higher than
+	// a single-tone sweep would imply — real-music band levels run
 	// higher than a linear extrapolation from isolated tones, so the broadband
 	// balance is the calibration target, not the sweep.
 	PreviewBassScale   = 240.0
 	PreviewMidScale    = 420.0
 	PreviewTrebleScale = 480.0
-	// PWV7 (3-band detail) absolute per-band RMS scales — calibrated against
-	// rekordbox PWV7 (tools/wavecompare -pwv7): bass-heavy, treble-light,
-	// all channels within ~0.7 of rekordbox's means/balance over 120 tracks.
+	// PWV7 (3-band detail) absolute per-band RMS scales — calibrated for
+	// PWV7 (tools/wavecompare -pwv7): bass-heavy, treble-light,
+	// all channels within ~0.7 of the target means/balance over 120 tracks.
 	Detail3BassScale   = 176.0
 	Detail3MidScale    = 283.0
 	Detail3TrebleScale = 115.0
-	// PWV6 (3-band overview) absolute per-band RMS scales — calibrated against
-	// rekordbox PWV6, which is balanced (treble-favouring scales) and low.
+	// PWV6 (3-band overview) absolute per-band RMS scales — calibrated for
+	// PWV6, which is balanced (treble-favouring scales) and low.
 	Preview3BassScale   = 83.0
 	Preview3MidScale    = 166.0
 	Preview3TrebleScale = 198.0
@@ -62,7 +62,7 @@ var (
 // GeneratePreview computes the waveform preview for the dbserver 0x2004 response.
 // Returns 904 bytes: 200×2 (PWAV) + 200×2 (second preview) + 100×1 (PWV2) + 4 (footer).
 // Each PWAV entry is 2 bytes: height + whiteness.
-// rekordbox uses max height 16 and whiteness ~5.
+// Uses max height 16 and whiteness ~5.
 func GeneratePreview(samples []float32, sampleRate int) []byte {
 	h200a := computeHeights(samples, 200, previewMaxHeight) // first half
 	h200b := computeHeights(samples, 200, previewMaxHeight) // second half (same data, different view)
@@ -104,7 +104,7 @@ func GeneratePreview(samples []float32, sampleRate int) []byte {
 }
 
 // GenerateTinyPreviewANLZ computes the 100-point tiny waveform preview for
-// the PWV2 section in ANLZ .DAT files. rekordbox PWV2 has brightness=0
+// the PWV2 section in ANLZ .DAT files. PWV2 has brightness=0
 // for every entry (each byte is just the raw height 0-11), unlike PWAV
 // which packs brightness into the high 3 bits.
 func GenerateTinyPreviewANLZ(samples []float32) []byte {
@@ -112,8 +112,8 @@ func GenerateTinyPreviewANLZ(samples []float32) []byte {
 }
 
 // GeneratePreviewANLZ computes a 400-point waveform preview for ANLZ .DAT files.
-// Each byte is `(brightness << 5) | (height & 0x1f)`. rekordbox encodes
-// brightness inversely to height: brighter pixels for quiet sections,
+// Each byte is `(brightness << 5) | (height & 0x1f)`. Brightness is encoded
+// inversely to height: brighter pixels for quiet sections,
 // darker for loud peaks (mode brightness ≈ 3 across a typical track, with
 // 5 for low heights and 2 for high). We approximate with `5 - h/3`.
 func GeneratePreviewANLZ(samples []float32, sampleRate int) []byte {
@@ -135,17 +135,17 @@ func GeneratePreviewANLZ(samples []float32, sampleRate int) []byte {
 
 // GenerateColorPreview computes a 1200-point color waveform preview (PWV4
 // format). Each point is 6 bytes. Returns raw data bytes (no ANLZ header).
-// V2 is the only encoder now — it targets the byte ranges observed in real
-// rekordbox .EXT PWV4 sections (calibrated against the 20Hz-20kHz sine sweep
+// V2 is the only encoder now — it targets the byte ranges of the
+// .EXT PWV4 sections (calibrated against the 20Hz-20kHz sine sweep
 // reference). V1 was the FFT-based experimental encoder that over-saturated
-// band bytes 10-20× vs rekordbox; it lived behind --pwv4-v2 until V2 was
+// band bytes 10-20×; it lived behind --pwv4-v2 until V2 was
 // validated, then was removed.
 func GenerateColorPreview(samples []float32, sampleRate int) []byte {
 	return generateColorPreviewV2(samples, sampleRate)
 }
 
-// generateColorPreviewV2 targets the byte ranges observed in rekordbox
-// .EXT PWV4 sections (verified against a 20Hz-20kHz sine sweep on 2026-05-16):
+// generateColorPreviewV2 targets the byte ranges of the
+// .EXT PWV4 sections (calibrated against a 20Hz-20kHz sine sweep):
 //
 //	d0: unknown — set to 0 for now.
 //	d1: RMS luminance envelope, 0-255, with pow(0.3) compression so even
@@ -158,10 +158,10 @@ func GenerateColorPreview(samples []float32, sampleRate int) []byte {
 // Uses time-domain IIR Butterworth filters rather than FFT — short-window
 // FFTs leak ~250 Hz of energy from sub-bass tones into the mid band, which
 // rendered as orange/yellow bass on the CDJ instead of pure red. IIR gives
-// clean separation matching the band response rekordbox shows.
+// clean separation matching the expected band response.
 //
 // d_band = pow(peak_amplitude, 0.5) * 31 (sqrt compression), calibrated so
-// A=0.126 (the test sweep) produces d≈11 — exactly what rekordbox emits.
+// A=0.126 (the test sweep) produces d≈11 — the expected value.
 func generateColorPreviewV2(samples []float32, sampleRate int) []byte {
 	segLen := len(samples) / colorPreviewPoints
 	if segLen < 1 {
@@ -171,7 +171,7 @@ func generateColorPreviewV2(samples []float32, sampleRate int) []byte {
 	sr := float64(sampleRate)
 	// 8th-order Butterworth (4 cascaded biquads, 48 dB/oct rolloff). Lower
 	// orders left ~50% of a 1.8 kHz tone in the treble band when cutoff was
-	// at 2 kHz; rekordbox shows essentially zero in that transition zone,
+	// at 2 kHz; the target shows essentially zero in that transition zone,
 	// implying a near-brick-wall response.
 	bp8Low := func(s []float32, cutoff float64) []float32 {
 		c := butterworthLow(cutoff, sr)
@@ -182,13 +182,13 @@ func generateColorPreviewV2(samples []float32, sampleRate int) []byte {
 		return applyBiquad(applyBiquad(applyBiquad(applyBiquad(s, c), c), c), c)
 	}
 	// Mid uses an 8th-order HP@200 for sharp bass rejection followed by a
-	// gentle 2nd-order LP@800 — rekordbox's mid has a humped response
+	// gentle 2nd-order LP@800 — the mid has a humped response
 	// peaking around 400-600 Hz then rolling off at ~3-6 dB/octave above.
 	// A flat band-pass 200-2000 Hz over-emits the 1-2 kHz region by ~2×.
 	midLP := butterworthLow(800, sr)
-	// d2 is a 2nd-order LP@400 with gentle 12 dB/octave rolloff. Real shows
+	// d2 is a 2nd-order LP@400 with gentle 12 dB/octave rolloff. The target is
 	// 16→8→2 from 100→500→1000 Hz which an 8th-order would overshoot at the
-	// top end (still 8 at 1 kHz when real is at 2).
+	// top end (still 8 at 1 kHz when the target is at 2).
 	lowLP := butterworthLow(400, sr)
 	bassSamples := bp8Low(samples, 200)
 	lowSamples := applyBiquad(samples, lowLP)
@@ -247,14 +247,14 @@ func generateColorPreviewV2(samples []float32, sampleRate int) []byte {
 		return buf
 	}
 
-	// Per-band scales calibrated against rekordbox sweep capture
-	// (real maxima: d3≈11, d4≈14, d5≈8). The asymmetry is in real's
+	// Per-band scales calibrated against the sweep reference
+	// (maxima: d3≈11, d4≈14, d5≈8). The asymmetry is in the
 	// encoder — each band of the log sweep carries equal energy. Likely
 	// perceptual weighting baked into the CDJ pixel formula.
 	//
 	// Band bytes are LINEAR in band RMS, full 0-255 range (not 5-bit). The
 	// per-band scales (PreviewBassScale/Mid/Treble, above) are calibrated so the
-	// colour balance matches rekordbox on actual music, not on isolated
+	// colour balance holds on actual music, not on isolated
 	// tones — see tools/wavecompare. d2 (the narrow-low blue-mode detector) is
 	// not part of the colour balance and keeps its own scale.
 	const lowScale = 130.0 // d2
@@ -337,8 +337,8 @@ func applyBiquad(samples []float32, c biquadCoeffs) []float32 {
 // per-segment peak amplitudes for bass, mid, treble, and the unfiltered overall.
 // Used by PWV5 (per-entry relative color) and the 3-band JSON generator.
 //
-// Cutoffs ~200/2000 Hz, matching rekordbox's apparent crossover points
-// (verified via ramp/tone tests). Mid uses a proper band-pass (HP@200 + LP@2000)
+// Cutoffs ~200/2000 Hz, matching the crossover points
+// (confirmed via ramp/tone tests). Mid uses a proper band-pass (HP@200 + LP@2000)
 // rather than complementary subtraction, which had constructive-interference
 // artefacts near the bass cutoff that rendered mid-range tones as bass-tinted
 // on the CDJ (yellow/orange instead of green).
@@ -398,10 +398,9 @@ func splitBandsAndPeaks(samples []float32, sampleRate, numPoints int) (allBass, 
 }
 
 // detailEntriesPerSec is the entry rate for PWV3/PWV5 scrolling waveforms.
-// rekordbox 6.x exports use ~150 entries/sec (verified: real Greece
-// 2000 at 484s has 72,741 PWV5 entries → 150.3/s; real Waveform at 165s
-// has 24,796 entries → 150.3/s). The 0x0096 in the format-flags header
-// is literally this rate.
+// Exports use ~150 entries/sec (e.g. a 484s track has 72,741 PWV5
+// entries → 150.3/s; a 165s track has 24,796 entries → 150.3/s).
+// The 0x0096 in the format-flags header is literally this rate.
 const detailEntriesPerSec = 150
 
 // GenerateDetail computes a high-resolution color waveform detail (PWV5 format).
@@ -435,9 +434,9 @@ func GenerateDetail(samples []float32, sampleRate int) []byte {
 	}
 
 	// 2 bytes per entry. Buffer starts zero — quiet/silent mid-song entries
-	// stay as 0x00 0x00 rather than the 0xff 0x80 padding pattern. Real
-	// rekordbox reserves 0xff 0x80 strictly for pre/post-roll silence; the
-	// CDJ appears to treat mid-song occurrences as "end of
+	// stay as 0x00 0x00 rather than the 0xff 0x80 padding pattern. The
+	// format reserves 0xff 0x80 strictly for pre/post-roll silence; the
+	// the CDJ appears to treat mid-song occurrences as "end of
 	// waveform" and stops color rendering for the rest of the track.
 	buf := make([]byte, numPoints*2)
 	if totalMax < 1e-10 {
@@ -456,7 +455,7 @@ func GenerateDetail(samples []float32, sampleRate int) []byte {
 	// PWV5 format: 16 bits BE — R(3) G(3) B(3) H(5) unused(2)
 	//
 	// Always emit an entry per timestep — never leave 0x00 0x00 mid-song.
-	// rekordbox exports never have all-zero entries; quiet sections
+	// Exports never have all-zero entries; quiet sections
 	// still carry colour bits (height may be 0, RGB non-zero). The CDJ
 	// appears to treat 0x00 0x00 as "no data here" and stops color
 	// rendering past the first occurrence.
@@ -497,12 +496,12 @@ func GenerateDetail(samples []float32, sampleRate int) []byte {
 			b = uint8(math.Pow(tn, 0.75) * 7)
 		} else {
 			// Classic mode: H = (peak/trackMax)² × 31 — per-track normalised
-			// with quadratic (energy) compression. rekordbox fits this
+			// with quadratic (energy) compression. This fits
 			// exactly across the ramp test: ratio 1.0 → H=31, 0.7 → 15, 0.5 → 7,
 			// 0.25 → 1, 0.125 → 0. And in the tones file (all tones at the same
 			// amplitude) every entry has ratio=1 so H=31 throughout, which is
-			// what real shows. Tracks where the loudest moment defines "31"
-			// is what gives real waveforms their punchy character.
+			// the expected result. Tracks where the loudest moment defines "31"
+			// is what gives waveforms their punchy character.
 			amp := allTotal[i] / totalMax
 			compressed := amp * amp * 31.0
 			if compressed > 31 {
@@ -527,8 +526,8 @@ func GenerateDetail(samples []float32, sampleRate int) []byte {
 			}
 		}
 
-		// Floor to avoid emitting 0x00 0x00 mid-song. rekordbox never
-		// emits the all-zero pair; its quiet entries always carry at least
+		// Floor to avoid emitting 0x00 0x00 mid-song. The all-zero pair
+		// is never emitted; quiet entries always carry at least
 		// one non-zero bit (most commonly r=7 from the bass band's
 		// per-track normalisation).
 		if r == 0 && g == 0 && b == 0 && height == 0 {
@@ -540,8 +539,8 @@ func GenerateDetail(samples []float32, sampleRate int) []byte {
 		buf[i*2+1] = byte(word & 0xff)
 	}
 
-	// Pre/post-roll padding. rekordbox marks the silent regions at
-	// the start and end of the track with the padding pattern 0xff 0x80
+	// Pre/post-roll padding. The silent regions at
+	// the start and end of the track are marked with the padding pattern 0xff 0x80
 	// (the only place this pattern legitimately appears). Find the first
 	// and last entries with meaningful height and overwrite outside those
 	// with padding so the deck recognises the track boundaries.
@@ -583,8 +582,8 @@ func GenerateDetailMono(colorDetail []byte) []byte {
 		b0 := colorDetail[i*2]
 		b1 := colorDetail[i*2+1]
 
-		// Padding / silence check. rekordbox emits 0xe0
-		// (brightness=7, height=0) in PWV3 for silent pre/post-roll
+		// Padding / silence check. PWV3 uses 0xe0
+		// (brightness=7, height=0) for silent pre/post-roll
 		// regions. Source PWV5 may carry either the official padding
 		// pattern (0xff 0x80) or our "quiet floor" (0xe0 0x00) — both
 		// represent silence and map to the same PWV3 byte. Falling
@@ -620,7 +619,7 @@ func GenerateDetailMono(colorDetail []byte) []byte {
 func WrapANLZ(fourcc string, entrySize int, data []byte) []byte {
 	numEntries := len(data) / entrySize
 
-	// Header length is tag-specific (verified against rekordbox .EXT/.2EX):
+	// Header length is tag-specific (for .EXT/.2EX):
 	// PVB2/PVBR=32, PWV6=20 (entry_size+num), PWVC=14 (u2 pad), rest=24.
 	var lenHeader uint32
 	switch fourcc {
@@ -670,7 +669,7 @@ func WrapANLZ(fourcc string, entrySize int, data []byte) []byte {
 		// 3-band colour metadata: 14-byte header (u2 pad), 6-byte body.
 		binary.BigEndian.PutUint16(buf[16:], 0)
 	case "PVB2", "PVBR":
-		// rekordbox PVB2: 32-byte header.
+		// PVB2: 32-byte header.
 		// ext bytes 12-15: 0 (u1)
 		// ext bytes 16-19: 0 (u2)
 		// ext bytes 20-23: file size (u3)
@@ -730,16 +729,16 @@ func computeHeights(samples []float32, n int, maxH int) []byte {
 
 	for i, rms := range rmsVals {
 		normalized := rms / maxRMS
-		// Power curve: rekordbox uses aggressive compression that produces
+		// Power curve: aggressive compression that produces
 		// most heights at 4-6 with only loud peaks reaching 16.
-		// pow(2.3) matches the observed distribution from rekordbox PWAV data.
+		// pow(2.3) matches the PWAV height distribution.
 		scaled := math.Pow(normalized, 2.3) * float64(maxH)
 		if scaled > float64(maxH) {
 			scaled = float64(maxH)
 		}
 		h := uint8(scaled)
 		if h == 0 && rmsVals[i] > 0 {
-			h = 1 // rekordbox never produces zero heights for non-silent segments
+			h = 1 // never produce zero heights for non-silent segments
 		}
 		heights[i] = h
 	}
@@ -834,7 +833,7 @@ func splitBands3RMS(samples []float32, sampleRate, numPoints int) (bass, mid, tr
 // GeneratePreview3Band computes the fixed-size (1200-entry) 3-band overview
 // waveform — the PWV6 analog of PWV4, and the preview counterpart to PWV7.
 // 3 bytes per entry (bass, mid, treble; 0-255), absolute per-band RMS × scale,
-// calibrated against rekordbox PWV6 (tools/wavecompare -pwv6).
+// calibrated for PWV6 (tools/wavecompare -pwv6).
 func GeneratePreview3Band(samples []float32, sampleRate int) []byte {
 	return pack3BandAbs(samples, sampleRate, colorPreviewPoints, Preview3BassScale, Preview3MidScale, Preview3TrebleScale)
 }

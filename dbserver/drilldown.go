@@ -117,7 +117,7 @@ func (h *Handler) handleNXS2DrillOrSearchSetup(msg *proto.DBMessage) []*proto.DB
 // string in arg[3]; we respond with the match count, then the CDJ
 // drills into the result list via the standard 0x3000 render path.
 //
-// Results match rekordbox's shape: artists, then albums, then
+// Results follow the standard shape: artists, then albums, then
 // tracks — each list deduped and case-insensitive substring matched.
 // Selecting an artist or album drills into the existing 0x1102 /
 // 0x1202 handlers; selecting a track drills via 0x1200 (handled by
@@ -266,9 +266,8 @@ func (h *Handler) handleUndecodedStub(msg *proto.DBMessage) []*proto.DBMessage {
 			argParts[i] = fmt.Sprintf("0x%08x(%d)", v, v)
 		}
 	}
-	// Send NO response — this matches rekordbox. In a real-RB capture
-	// (a capture, txid 040004aa) the deck sends 0x2005 and
-	// rekordbox replies with NOTHING; the deck simply proceeds to its next
+	// Send NO response. For this opcode the deck sends 0x2005 and
+	// expects NOTHING back; it simply proceeds to its next
 	// request. Our previous bogus "success" reply was an unexpected extra
 	// message that corrupted the deck's load state (0x1c rejections after a
 	// couple of loads). Returning nil → the dispatch writes nothing.
@@ -322,9 +321,8 @@ func (h *Handler) handleSearchSelect(msg *proto.DBMessage) []*proto.DBMessage {
 // containsFold reports whether s contains the lowercased substring q.
 // Caller passes q already lowercased so we don't re-allocate per row;
 // for s we lowercase here. Used for case-insensitive substring search
-// against title/artist/album fields — matches rekordbox's
-// behaviour (queried "PROB" returned tracks with "Probspot" anywhere
-// in the title, not just at the start).
+// against title/artist/album fields: a query of "PROB" matches tracks
+// with "Probspot" anywhere in the title, not just at the start.
 func containsFold(s, q string) bool {
 	if q == "" {
 		return false

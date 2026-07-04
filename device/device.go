@@ -23,7 +23,7 @@ const (
 	claimInterval     = 300 * time.Millisecond
 	claimRepeat       = 3
 	keepAliveInterval = 1500 * time.Millisecond
-	statusInterval    = 100 * time.Millisecond // rekordbox sends at ~10Hz in pairs
+	statusInterval    = 100 * time.Millisecond // status is sent at ~10Hz in pairs
 )
 
 // VirtualDevice emulates a Rekordbox instance or CDJ on the Pro DJ Link network.
@@ -68,7 +68,7 @@ type VirtualDevice struct {
 	// Linked-state machine: `linked` controls whether the NFS server
 	// returns a populated MOUNT EXPORT (via Server.LinkedFn) and
 	// whether dbserver accepts menu sessions. Keep-alives + status
-	// broadcasts flow regardless — matches rekordbox's wire
+	// broadcasts flow regardless — matches the wire
 	// behavior, and is what makes UNLINK look instant on the CDJ:
 	// empty EXPORT response causes the CDJ to drop its LINK indicator
 	// within one poll cycle (~200ms) instead of waiting for the
@@ -93,10 +93,9 @@ func (d *VirtualDevice) LoadTrackOnCDJ(trackID uint32, targetDevice uint8, targe
 	}
 	addr := &net.UDPAddr{IP: targetIP, Port: statusPort}
 
-	// Just the load command. rekordbox sends nothing else on a
-	// load (verified in a capture: 5-min capture with
-	// two loads 245s apart, only two 0x19 pairs and zero
-	// announce/link/media re-sends). The deck's NFS/link state is
+	// Just the load command. Nothing else is sent on a
+	// load: only the 0x19 pair, with zero
+	// announce/link/media re-sends. The deck's NFS/link state is
 	// maintained by the 0x46 (link keepalive) handshake every ~5s
 	// handled in the status read loop — not by anything we resend on
 	// load. Re-sending the announce/link/media trio here was being
@@ -105,7 +104,7 @@ func (d *VirtualDevice) LoadTrackOnCDJ(trackID uint32, targetDevice uint8, targe
 	// the subsequent load command (especially common after a track
 	// played out to the ENDED state).
 	pkt := proto.MarshalLoadTrackCommand(d.Name, d.DeviceNumber, d.MediaSlot, targetDevice, trackID)
-	// Duplicate pair matches rekordbox's 0x19 send pattern (two
+	// Duplicate pair matches the 0x19 send pattern (two
 	// copies <1ms apart).
 	if _, err := d.sendStatus(pkt, addr); err != nil {
 		return fmt.Errorf("send load command: %w", err)
@@ -122,7 +121,7 @@ func (d *VirtualDevice) LoadTrackOnCDJ(trackID uint32, targetDevice uint8, targe
 	// 0x19 (and, worse, re-asserted the media source) when the deck didn't
 	// adopt a track within a window. The media re-assert dropped the deck's
 	// NFS mount and made failures spread ("freezes / stops loading more and
-	// more"), so we send exactly what rekordbox sends: the 0x19 pair,
+	// more"), so we send exactly the 0x19 pair,
 	// once, and nothing else unsolicited.
 	d.statusMu.Lock()
 	if d.pendingLoad == nil {
@@ -139,7 +138,7 @@ func (d *VirtualDevice) LoadTrackOnCDJ(trackID uint32, targetDevice uint8, targe
 }
 
 // BroadcastTrackRefresh sends the type 0x1d "track data invalidated"
-// trigger (twice, ephemeral source port — matching rekordbox) to
+// trigger (twice, ephemeral source port) to
 // the link-local broadcast. Connected CDJs re-fetch the track's data,
 // which is how a cue/colour/rating edit from the web UI reaches the
 // deck without a track reload. CDJ only acts if its loaded track ID
@@ -158,7 +157,7 @@ func (d *VirtualDevice) BroadcastRatingRefresh(trackID uint32) {
 
 // sendEphemeralBroadcastPair opens a fresh UDP socket bound to an
 // ephemeral source port and sends pkt twice to the link-local broadcast
-// on port 50002. rekordbox uses a different ephemeral source port
+// on port 50002. A different ephemeral source port is used
 // for each 50002 broadcast (51725, 51726, …), which CDJs apparently use
 // to distinguish "live rekordbox events" from packets emitted by their
 // own bound-to-50002 listener.
@@ -180,7 +179,7 @@ func (d *VirtualDevice) sendEphemeralBroadcastPair(pkt []byte, label string) {
 // Start brings up the device's network side: binds the announce/status
 // ports, starts the listener and keep-alive loops, and blocks until ctx
 // is cancelled. The device starts UNLINKED — keep-alives and status
-// broadcasts flow unconditionally (matching rekordbox), but the
+// broadcasts flow unconditionally, but the
 // NFS server returns an empty MOUNT EXPORT list and the dbserver
 // rejects menu sessions until the user flips the link on via
 // SetLinked(true). The CDJ's LINK indicator follows the EXPORT
@@ -263,11 +262,11 @@ func (d *VirtualDevice) MixerSnapshot() map[uint8]proto.MixerStatus {
 
 // SendDisconnectSignal sends the unicast 0x16 "session reset" status
 // packet (× 2, ~1ms apart) to every tracked CDJ peer — matching what
-// rekordbox emits at UNLINK time. The actual fast-disconnect
+// is emitted at UNLINK time. The actual fast-disconnect
 // mechanism lives elsewhere: the NFS MOUNT EXPORT handler returns an
 // empty list when unlinked, which causes the CDJ to drop its LINK
 // indicator on its next ~200ms poll. This 0x16 is kept for parity
-// with rekordbox's wire behavior.
+// with the wire behavior.
 //
 // Bypasses the linked-state gate intentionally — this is meant to be
 // called from inside the unlink callback, which fires while the gate
@@ -328,7 +327,7 @@ func (d *VirtualDevice) SetLinked(on bool) {
 
 // claimSequence performs the device number claim.
 // CDJ mode: 4-stage (0x0a → 0x00 → 0x02 → 0x04).
-// Rekordbox mode: 2-stage (0x00 → 0x02) matching rekordbox.
+// Rekordbox mode: 2-stage (0x00 → 0x02).
 func (d *VirtualDevice) claimSequence(ctx context.Context) error {
 	dst := &net.UDPAddr{IP: d.Broadcast, Port: announcePort}
 
@@ -340,7 +339,7 @@ func (d *VirtualDevice) claimSequence(ctx context.Context) error {
 		}
 	}
 
-	// Stage 2: First claim (0x00, MAC). Sent in pairs like rekordbox.
+	// Stage 2: First claim (0x00, MAC). Sent in pairs.
 	for i := uint8(1); i <= claimRepeat; i++ {
 		pkt := proto.MarshalFirstClaim(d.Name, i, d.MAC)
 		d.send(pkt, dst)
@@ -354,13 +353,12 @@ func (d *VirtualDevice) claimSequence(ctx context.Context) error {
 	if d.DeviceType == proto.DeviceRekordbox {
 		// Rekordbox claims multiple device slots: {17, 18, 41, 42, 43, 44}
 		// each sent twice per counter iteration, for 6 iterations.
-		// This matches rekordbox behavior from pcap analysis.
 		rbSlots := []uint8{17, 18, 41, 42, 43, 44}
 		for counter := uint8(1); counter <= 6; counter++ {
 			for _, slot := range rbSlots {
 				pkt := proto.MarshalSecondClaim(d.Name, slot, counter, d.MAC, d.IP)
 				d.send(pkt, dst)
-				d.send(pkt, dst) // sent twice per rekordbox
+				d.send(pkt, dst) // sent twice
 			}
 			if err := d.sleepCtx(ctx, claimInterval); err != nil {
 				return err
@@ -414,7 +412,7 @@ func (d *VirtualDevice) keepAliveLoop(ctx context.Context) error {
 	// for the "long runtime then late link" bug: the burst used to be gated
 	// ONLY on claimDone, so with no CDJ present it cycled device-slot claims
 	// forever, and a CDJ that linked later never saw a stable identity (no
-	// device name, broken settings handshake). rekordbox claims in a
+	// device name, broken settings handshake). Rekordbox mode claims in a
 	// short startup burst then sends only 0x06; the cap matches that intent.
 	var fastTicker *time.Ticker
 	rbSlots := []uint8{17, 18, 41, 42, 43, 44}
@@ -486,7 +484,7 @@ func (d *VirtualDevice) sendKeepAlive(dst *net.UDPAddr) error {
 		pkt02[0x2f] = 0x06                                         // keepalive mode (not claim)
 		d.send(pkt02, dst)
 
-		// Send type 0x06 every 3rd tick (~4.5s, matching rekordbox ratio)
+		// Send type 0x06 every 3rd tick (~4.5s ratio)
 		if d.keepAliveCount%3 == 0 {
 			pkt06 := proto.MarshalKeepAlive(d.Name, d.DeviceNumber, d.DeviceType, d.MAC, d.IP, d.Peers.Count()+1)
 			d.send(pkt06, dst)
@@ -506,9 +504,9 @@ func (d *VirtualDevice) statusBroadcastLoop(ctx context.Context) {
 
 	if d.DeviceType == proto.DeviceRekordbox {
 		// Wait for claim to complete (CDJ sends 0x46) before starting 0x29.
-		// rekordbox only sends 0x11/0x06 in response to CDJ requests,
+		// 0x11/0x06 are only sent in response to CDJ requests,
 		// not proactively. The 0x46 handler manages the full link activation.
-		// rekordbox starts 0x29 at the same time as the first 0x46.
+		// 0x29 starts at the same time as the first 0x46.
 		log.Printf("waiting for claim to complete before starting 0x29 broadcast...")
 		select {
 		case <-d.claimDone:
@@ -526,12 +524,11 @@ func (d *VirtualDevice) statusBroadcastLoop(ctx context.Context) {
 			case <-ctx.Done():
 				return
 			case <-statusTicker.C:
-				// rekordbox sends 0x29 in pairs (two copies) to
+				// 0x29 is sent in pairs (two copies) to
 				// broadcast at ~10Hz effective rate. No unicast to peers.
 				//
 				// NOTE: we do NOT broadcast a periodic 0x4a settings-notify
-				// here. A full rekordbox capture (a capture)
-				// shows rekordbox sends ZERO 0x4a packets on port 50002 in
+				// here. ZERO 0x4a packets are sent on port 50002 in
 				// either direction over an entire session — so 0x4a is not the
 				// "settings available" advertisement the old code comment
 				// claimed, and is not what enables the deck's MY SETTINGS LOAD
@@ -685,7 +682,7 @@ func (d *VirtualDevice) listenStatus(ctx context.Context) {
 		// emit type 0x29 with channel + master state inline; newer
 		// DJMs (DJM confirmed) emit a stripped 0x30 packet with
 		// only name + device number (channel state appears to live
-		// on a separate TCP control protocol that we haven't RE'd
+		// on a separate TCP control protocol that we don't handle
 		// yet). Both flow through ParseMixerStatus; the latter just
 		// produces a MixerStatus with zero channel/master fields.
 		if (pktType == proto.TypeMixerStatusLegacy || pktType == proto.TypeMixerStatusNew) && d.Peers != nil {
@@ -717,8 +714,8 @@ func (d *VirtualDevice) listenStatus(ctx context.Context) {
 		// status (0x0a) plus our own 0x29 echo, each connected CDJ produced
 		// ~20 log lines/sec and a steady stream of allocations in the hot
 		// path. Now we only log unknown packet types (anything not status,
-		// media query, settings, or 0x46 link keepalive) — useful for new
-		// reverse-engineering, silent during normal operation.
+		// media query, settings, or 0x46 link keepalive) — useful when
+		// investigating new packet types, silent during normal operation.
 		switch pktType {
 		case proto.TypeStatusCDJ, 0x29, 0x30, proto.TypeStatusQuery, proto.TypeMediaQuery,
 			0x35, 0x37, 0x48, 0x46, 0x1a:
@@ -738,9 +735,8 @@ func (d *VirtualDevice) listenStatus(ctx context.Context) {
 		// 0x1c = "media unavailable" rejection of our 0x19 load command.
 		//
 		// We do NOT try to "recover" by re-sending MarshalMediaResponse:
-		// pcap analysis (a capture vs the rekordbox reference
-		// a capture) showed rekordbox NEVER resends
-		// the media announce — and that our resend is actively harmful. The
+		// the media announce must NEVER be resent
+		// — a resend is actively harmful. The
 		// deck interprets a fresh media announce as a re-announce and drops
 		// its NFS mount, which turns a single transient 0x1c into a
 		// persistent cascade ("no track will load anymore"). See the matching
@@ -761,11 +757,11 @@ func (d *VirtualDevice) listenStatus(ctx context.Context) {
 				mq.DeviceNumber, mq.TargetDevice, mq.SlotRequested, addr, hex.Dump(buf[:n]))
 			resp := proto.MarshalMediaResponse(d.Name, d.DeviceNumber, d.MediaSlot, d.TrackCount, d.MAC, d.IP)
 			d.sendStatus(resp, replyAddr)
-			d.sendStatus(resp, replyAddr) // rekordbox sends twice
+			d.sendStatus(resp, replyAddr) // sent twice
 		}
 
 		// Respond to type 0x10 (rekordbox hello from CDJ) with 0x11 ONLY.
-		// rekordbox does NOT send 0x06 here — that comes later via 0x05.
+		// 0x06 is NOT sent here — that comes later via 0x05.
 		if pktType == proto.TypeStatusQuery {
 			announce := proto.MarshalRekordboxAnnounce(d.Name, d.DeviceNumber, d.hostname())
 			d.sendStatus(announce, replyAddr)
@@ -823,7 +819,7 @@ func (d *VirtualDevice) listenStatus(ctx context.Context) {
 		}
 
 		// Type 0x46 (Link keepalive) — CDJ sends this every ~5 seconds.
-		// rekordbox sequence (from pcap):
+		// Sequence:
 		//   1st 0x46: respond with 0x16 (simple status) — triggers CDJ to send 0x05
 		//   2nd 0x46: respond with 0x47 (link activation) — triggers CDJ to send 0x35
 		// The CDJ only sends 0x35 (settings request) after receiving 0x47.
@@ -848,7 +844,7 @@ func (d *VirtualDevice) listenStatus(ctx context.Context) {
 			}
 
 			if count == 0 {
-				// First 0x46: send 0x16, then another 3s later (matching rekordbox).
+				// First 0x46: send 0x16, then another 3s later.
 				log.Printf("status: first 0x46 from %s — sending 0x16", addr)
 				statusPkt := proto.MarshalStatusRekordbox(d.Name, d.DeviceNumber)
 				d.sendStatus(statusPkt, replyAddr)
@@ -861,7 +857,7 @@ func (d *VirtualDevice) listenStatus(ctx context.Context) {
 				}()
 			} else {
 				// All subsequent 0x46: respond with 0x47 (link activation with DEVSETTING).
-				// rekordbox responds to every 0x46 with 0x47.
+				// Every 0x46 is answered with 0x47.
 				var ds []byte
 				if d.Settings != nil {
 					ds = d.Settings.GetDevSetting()
@@ -897,7 +893,7 @@ func (d *VirtualDevice) listenStatus(ctx context.Context) {
 }
 
 // NotifySettingsChanged sends a 0x4a settings notification to all connected CDJs.
-// rekordbox sequence: 0x4a → CDJ responds 0x46 → RB sends 0x47.
+// Sequence: 0x4a → CDJ responds 0x46 → RB sends 0x47.
 // We set a flag so the next 0x46 from each peer triggers a 0x47 with updated settings.
 func (d *VirtualDevice) NotifySettingsChanged() {
 	if d.statusConn == nil || d.Peers == nil {
@@ -964,8 +960,8 @@ func (d *VirtualDevice) listenAnnouncements(ctx context.Context) {
 // send writes to the announce port (50000). Suppressed when unlinked
 // so the CDJ times us out and removes us from its source list within
 // ~5-6s (keep-alive timeout). This is the "fast visual disconnect"
-// path — we tried mimicking rekordbox's "keep broadcasting,
-// empty EXPORT" but the CDJ display didn't actually drop, so silence
+// path — we tried the "keep broadcasting,
+// empty EXPORT" approach but the CDJ display didn't actually drop, so silence
 // is the only signal that reliably clears the CDJ.
 func (d *VirtualDevice) send(pkt []byte, dst *net.UDPAddr) error {
 	if !d.linked.Load() {

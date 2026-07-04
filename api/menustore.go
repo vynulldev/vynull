@@ -19,7 +19,7 @@ import (
 // determined server-side by which categories we know how to handle.
 //
 // ID and ItemType are the on-the-wire values the CDJ uses to identify
-// the category — see python-prodj-link / rekordbox pcaps. Changing
+// the category. Changing
 // them silently here would break the menu drill-down, so the schema
 // keeps them as authoritative server-side values rather than user-editable.
 type MenuItem struct {
@@ -32,16 +32,14 @@ type MenuItem struct {
 }
 
 // defaultMenuItems lists every category the user can show or hide in the
-// CDJ root menu. Order matches rekordbox's "Active Categories"
-// default arrangement (see docs/reference/cdj-menu-config.md in the vynull-tools repo).
+// CDJ root menu. Order matches the "Active Categories"
+// default arrangement.
 //
-// Wire IDs and ItemTypes verified against rekordbox's root-menu
-// response in a packet capture.
-// The Locked flag marks rows rekordbox greys out (always active
-// on the deck, can't be moved to the inactive list).
+// The Locked flag marks rows that are always active
+// on the deck (can't be moved to the inactive list).
 //
-// DATE ADDED is intentionally absent — rekordbox doesn't surface
-// it to the CDJ in any capture we have, and the wire opcode is unknown.
+// DATE ADDED is intentionally absent — it is not surfaced
+// to the CDJ, and the wire opcode is unknown.
 // If someone later figures it out, drop a new entry in here.
 var defaultMenuItems = []MenuItem{
 	{Key: "artist", Label: "ARTIST", ID: 2, ItemType: 0x81, Visible: true},
@@ -84,8 +82,8 @@ type MenuStore struct {
 // stable key (used in the API + persistence) to the on-the-wire
 // ItemType high byte and a human label for the UI dropdown.
 //
-// See the deepsymmetry beat-link project for the wire-format mapping —
-// summary: ItemType = (highByte << 8) | 0x04, ParentID carries the
+// Wire-format mapping:
+// ItemType = (highByte << 8) | 0x04, ParentID carries the
 // raw value (hash, count, ID, BPM*100), Label2 carries the display
 // string (CDJ renders some fields from raw value alone).
 type TrackDetailField struct {

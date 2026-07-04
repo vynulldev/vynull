@@ -229,7 +229,7 @@ type MixerInfo struct {
 // PlayerInfo is the JSON representation of a CDJ's current state.
 type PlayerInfo struct {
 	DeviceNumber  uint8   `json:"device_number"`
-	Name          string  `json:"name,omitempty"` // CDJ display name (e.g. "CDJ")
+	Name          string  `json:"name,omitempty"` // CDJ display name
 	TrackID       uint32  `json:"track_id,omitempty"`
 	TrackTitle    string  `json:"track_title"`
 	Artist        string  `json:"artist"`

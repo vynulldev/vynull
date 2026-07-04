@@ -410,8 +410,8 @@ func main() {
 
 	// Forward-declare the device so the NFS server's LinkedFn closure
 	// can reference it (dev itself is constructed further down). Empty
-	// MOUNT EXPORT replies when unlinked are what rekordbox uses
-	// to make the CDJ drop its LINK indicator instantly instead of
+	// MOUNT EXPORT replies when unlinked are what makes
+	// the CDJ drop its LINK indicator instantly instead of
 	// waiting for the keep-alive timeout (~5-6s).
 	var dev *device.VirtualDevice
 	nfsSrv := nfs.NewServer(nfsRoot)
@@ -490,8 +490,7 @@ func main() {
 	}
 
 	// When the user toggles UNLINK in the web UI, fire the rekordbox-
-	// authentic disconnect chain in the order rekordbox uses (from
-	// pcap analysis):
+	// authentic disconnect chain in this order:
 	//   1) unicast 0x16 "session reset" status to each CDJ peer
 	//      (rekordbox sends this before the TCP teardown; without it
 	//      the CDJ's Linked indicator waits for the keep-alive timeout)

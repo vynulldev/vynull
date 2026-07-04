@@ -28,8 +28,8 @@ func WriteSettingsFiles(outDir string, bodies SettingsBodies) error {
 		return err
 	}
 
-	// Per-file metadata. Verified byte-for-byte against a rekordbox
-	// USB export's PIONEER/ directory:
+	// Per-file metadata, byte-exact with the rekordbox USB export's
+	// PIONEER/ directory:
 	//
 	//   file              brand          software        version  pad
 	//   MYSETTING.DAT     "PIONEER"      "rekordbox"     "0.001"  NUL
@@ -78,7 +78,7 @@ func WriteSettingsFiles(outDir string, bodies SettingsBodies) error {
 //
 // padSpace=true fills the three string fields with ASCII spaces
 // (0x20) after the NUL terminator instead of NULs — required for
-// DEVSETTING.DAT to match rekordbox byte-for-byte.
+// DEVSETTING.DAT to match the file format byte-for-byte.
 func settingsFile(brand, software, version string, padSpace bool, body []byte) []byte {
 	const stringsLen = 0x60 // 32*3 = 96, but field value is 0x60
 	headerSize := 4 + 32 + 32 + 32 + 4

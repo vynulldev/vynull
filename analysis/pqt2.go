@@ -54,7 +54,7 @@ func GeneratePQT2(bpm float64, beats []float64, downbeatIdx int) []byte {
 
 	buf := make([]byte, 4+tagLen) // 4-byte LE prefix + tag
 
-	// LE prefix: rekordbox uses tag_len + 2
+	// LE prefix: tag_len + 2
 	binary.LittleEndian.PutUint32(buf[0:], uint32(tagLen+2))
 
 	off := 4

@@ -21,7 +21,7 @@ const (
 
 // MenuConfig describes which CDJ menu categories are visible (in display
 // order) and which are hidden, for the PDB Menu table. Pass nil to use the
-// hard-coded defaults (matches rekordbox 6.6.4 export).
+// hard-coded defaults (matches the rekordbox 6.6.4 export).
 type MenuConfig struct {
 	Visible []uint16 // PDB category IDs in display order
 	Hidden  []uint16 // PDB category IDs to mark as Hidden
@@ -131,8 +131,8 @@ func GenerateWithOptions(tracks []*Track, playlists []*FolderNode, menu *MenuCon
 		labelTable.addRow(encodeLabelRow(id, name))
 	}
 	for name, id := range albums.ids {
-		// Album rows in real exports never carry an artist_id; the
-		// track→artist relationship is the source of truth. Real album
+		// Album rows never carry an artist_id; the
+		// track→artist relationship is the source of truth. Album
 		// rows have zero at every "unknown" u32 field except album_id.
 		albumTable.addRow(encodeAlbumRow(id, name))
 	}
@@ -244,14 +244,14 @@ func GenerateWithOptions(tracks []*Track, playlists []*FolderNode, menu *MenuCon
 // tracks-specific behavior so we don't apply phantom markers to
 // exportExt sentinel pages.
 func writeFile(path string, tables []*tableBuilder, pageSize int, isExt bool) error {
-	// Real exports always pair every table's sentinel with at least
+	// Every table's sentinel is always paired with at least
 	// one data page (real for populated tables, zero-filled for empty
 	// ones). Without that pairing the CDJ freezes on USB load.
 	for _, t := range tables {
 		t.finalizeEmpty()
 	}
 
-	// Assign page indices. Page 0 = header. rekordbox lays pages out
+	// Assign page indices. Page 0 = header. Pages are laid out
 	// in two contiguous regions:
 	//
 	//   indices 1..N:    "real" pages (sentinel + data) for each table,
@@ -261,7 +261,7 @@ func writeFile(path string, tables []*tableBuilder, pageSize int, isExt bool) er
 	//
 	// We previously interleaved placeholders right after each table's
 	// data, which produced a valid PDB that the deck could browse but
-	// (empirically) prevented analysis loading. Matching real's layout
+	// (empirically) prevented analysis loading. Matching this layout
 	// resolves that.
 	pageIdx := uint32(1)
 	for _, t := range tables {
@@ -297,7 +297,7 @@ func writeFile(path string, tables []*tableBuilder, pageSize int, isExt bool) er
 	//   0x10 unnamed (often 0; possibly extension of seqdb)
 	//   0x14 seqdb — sequence number, incremented on every edit. Use
 	//        the next_unused_page value as the "edit count" so it's a
-	//        plausible number rather than 1 (real exports have values
+	//        plausible number rather than 1 (exports have values
 	//        in the dozens, matching their page count).
 	//   0x18 unnamed (often 0)
 	header := make([]byte, pageSize)
@@ -305,13 +305,13 @@ func writeFile(path string, tables []*tableBuilder, pageSize int, isExt bool) er
 	le32put(header, 0x04, uint32(pageSize))
 	le32put(header, 0x08, uint32(len(tables)))
 	le32put(header, 0x0C, pageIdx) // next_unused_page
-	le32put(header, 0x10, 5)       // observed value in real exports — meaning unknown
+	le32put(header, 0x10, 5)       // value used in exports — meaning unknown
 	le32put(header, 0x14, pageIdx) // seqdb (use page count as a reasonable proxy)
 	le32put(header, 0x18, 0)
 
 	// Per-table descriptors: type, empty_candidate, first_page, last_page.
 	//
-	// Real exports allocate a zero placeholder page per table (sized
+	// Exports allocate a zero placeholder page per table (sized
 	// in the file) but DO NOT include it in the table's page chain —
 	// last_page points to the last "real" page (sentinel for empty
 	// tables, last data page for populated ones), and empty_candidate
@@ -419,7 +419,7 @@ func newTableBuilder(tableType int) *tableBuilder {
 }
 
 // finalizeEmpty appends an all-zero "empty placeholder" page to EVERY
-// table. rekordbox exports allocate sentinel + zero or more data
+// table. Exports allocate sentinel + zero or more data
 // pages + ONE trailing empty placeholder per table; that placeholder
 // is used as the table's `empty_candidate` (where the next inserted
 // row would land). Without it, our `empty_candidate` falls back to a
@@ -440,7 +440,7 @@ func (tb *tableBuilder) finalizeEmpty() {
 }
 
 func (tb *tableBuilder) addRow(rowData []byte) {
-	// Pad EVERY row to a multiple of 4 bytes. CDJ freezes on
+	// Pad EVERY row to a multiple of 4 bytes. The CDJ freezes on
 	// USB insert when any row in a multi-row data page has a length
 	// not divisible by 4. See padTo4 for the bisection evidence.
 	rowData = padTo4(rowData)
@@ -455,7 +455,7 @@ func (tb *tableBuilder) addRow(rowData []byte) {
 		current = &pageBuilder{
 			pageType: uint32(tb.tableType),
 			// 0x24 (bit 2 + bit 5) is the canonical data-page flag in
-			// real exports. The 0x34 variant (extra bit 4) was observed
+			// exports. The 0x34 variant (extra bit 4) appears
 			// only on a single page whose num_row_offsets exceeded its
 			// num_rows — likely "this page has experienced row
 			// deletions". Fresh exports never need that, so use 0x24.
@@ -484,13 +484,13 @@ func (pb *pageBuilder) numGroups() int {
 }
 
 // indexSizeFor returns the row index size in bytes for a given row
-// count, using REAL exports' variable-size groups (each group is
+// count, using the variable-size groups (each group is
 // rowsInGroup*2 + 4 bytes, NOT the fixed rowGroupSize=36). For a
 // page with 8 rows that's 20 bytes (not 36); for 22 rows it's
 // 36 (full group 0) + 16 (partial group 1) = 52 bytes.
 //
 // This was a significant correctness bug: with fixed 36-byte groups
-// our row index extended further into the page than real's, so the
+// our row index extended further into the page than expected, so the
 // CDJ would read 16 bytes of "extra index slots" past the actual
 // row offsets — most likely the cause of the on-insert freeze.
 func indexSizeFor(numRows int) int {
@@ -527,13 +527,13 @@ func (pb *pageBuilder) appendRow(rowData []byte) {
 }
 
 // noPageMarker is the "no such page" value used in sentinel page
-// boilerplate slots when no data page exists. Observed on every
-// empty-table sentinel in real exports.
+// boilerplate slots when no data page exists. Appears on every
+// empty-table sentinel in exports.
 const noPageMarker uint32 = 0x03ffffff
 
-// freeSlotMarker fills the unused middle of sentinel pages on real
-// exports. The exact semantics aren't fully reverse-engineered but
-// the pattern is uniform across every sentinel we've seen.
+// freeSlotMarker fills the unused middle of sentinel pages in
+// exports. The exact semantics aren't fully known but the pattern
+// is uniform across every sentinel.
 const freeSlotMarker uint32 = 0x1FFFFFF8
 
 // sentinelTrailerZeros is the count of trailing zero bytes at the end
@@ -565,7 +565,7 @@ func (pb *pageBuilder) serialize(pageSize int, nextPage, firstDataPage, tracksTo
 	le32put(buf, 0x04, pb.pageIndex)
 	le32put(buf, 0x08, pb.pageType)
 	le32put(buf, 0x0C, nextPage)
-	// seqpage — per-page edit sequence number. Real exports have unique
+	// seqpage — per-page edit sequence number. Exports have unique
 	// non-zero values per page. Writing 0 for every page may make the
 	// deck treat the pages as uninitialised / collide in its cache,
 	// which empirically blocks the deck from loading ANLZ analysis.
@@ -596,8 +596,8 @@ func (pb *pageBuilder) serialize(pageSize int, nextPage, firstDataPage, tracksTo
 	//     history): all rows added at once. tx_count=num_rows,
 	//     tx_index=0.
 	//
-	// Verified against rekordcrate's demo_tracks fixture and real
-	// user exports — both follow this split exactly.
+	// Both the rekordcrate demo_tracks fixture and
+	// user exports follow this split exactly.
 	bulkLoadedTx := pb.pageType == TableColors || pb.pageType == TableColumns ||
 		pb.pageType == TableMenu || pb.pageType == TableUnknown12 ||
 		pb.pageType == TableHistory
@@ -621,7 +621,7 @@ func (pb *pageBuilder) serialize(pageSize int, nextPage, firstDataPage, tracksTo
 	// at offset 0x02 — the row's zero-based index in the page scaled
 	// by 0x20. That index isn't known when the row is encoded (the
 	// encoder doesn't see siblings), so we patch it here. Subtypes
-	// with this layout observed in real exports:
+	// with this layout:
 	//   0x0024 (tracks), 0x0060 (artists), 0x0080 (albums).
 	// Genre/label/key rows have no subtype prefix and skip patching.
 	heapOff := 0
@@ -640,12 +640,12 @@ func (pb *pageBuilder) serialize(pageSize int, nextPage, firstDataPage, tracksTo
 
 	// Write row index groups from page end backwards. Each group is
 	// VARIABLE size: rowsInGroup*2 + 4 bytes (NOT a fixed 36-byte
-	// slot). Real exports use this packing; we previously used fixed
+	// slot). Exports use this packing; we previously used fixed
 	// 36-byte groups which left phantom row offset slots that the CDJ
 	// may have read as garbage on insert.
 	//
 	// row_present_flags and transaction_row_flags have two distinct
-	// conventions in real exports:
+	// conventions in exports:
 	//
 	//   * User-data tables (tracks/genres/artists/albums/labels/keys/
 	//     playlist_tree/playlist_entries/artwork): trf = bit for the
@@ -698,7 +698,7 @@ func (pb *pageBuilder) serialize(pageSize int, nextPage, firstDataPage, tracksTo
 }
 
 // writeSentinelPage fills buf as a table's sentinel (index) page,
-// matching the byte pattern observed on rekordbox exports.
+// matching the byte pattern used in exports.
 //
 // The page is essentially an empty index: report num_rows=0,
 // free_size=0, heap_used=0; the magic 0x1fff transaction markers and
@@ -711,7 +711,7 @@ func writeSentinelPage(buf []byte, pageSize int, pageIndex, pageType uint32, fla
 	// Sentinel page layout. Earlier I tried adding tracks-specific
 	// "has data" markers (0x26=0x0001, 0x38=0x0001, 0x3C=totalRows)
 	// when isTracksTable and tracksTotalRows > 0 — that matched
-	// rekordcrate's demo fixture. But the user's own fresh real
+	// rekordcrate's demo fixture. But the user's own fresh
 	// export does NOT use those markers (0x26=0x0000, 0x38=0x0000,
 	// 0x3C starts the fill) and STILL LOADS on the CDJ. So both
 	// shapes are valid; the simpler "always zero" form is safer and
@@ -724,7 +724,7 @@ func writeSentinelPage(buf []byte, pageSize int, pageIndex, pageType uint32, fla
 	le32put(buf, 0x04, pageIndex)
 	le32put(buf, 0x08, pageType)
 	le32put(buf, 0x0C, nextPage)
-	// Real history sentinels have 0x10 here (edit/session counter?); all
+	// History sentinels have 0x10 here (edit/session counter?); all
 	// other tables have 1. Without it the CDJ may treat the History
 	// table as untouched / unauthored.
 	if isHistoryTable {
@@ -742,7 +742,7 @@ func writeSentinelPage(buf []byte, pageSize int, pageIndex, pageType uint32, fla
 	le16put(buf, 0x20, 0x1fff)
 	le16put(buf, 0x22, 0x1fff)
 	le16put(buf, 0x24, 0x03ec)
-	// next_offset (u16): real history has 1 entry, others have 0.
+	// next_offset (u16): the history table has 1 entry, others have 0.
 	if isHistoryTable {
 		le16put(buf, 0x26, 1)
 	} else {
@@ -780,7 +780,7 @@ func writeSentinelPage(buf []byte, pageSize int, pageIndex, pageType uint32, fla
 
 // encodeArtistRow creates an artist row.
 //
-// Format (verified against real exports via cmd/pdbdump):
+// Format:
 //
 //	u16  subtype = 0x0060
 //	u16  index_shift
@@ -802,7 +802,7 @@ func encodeArtistRow(id uint32, name string) []byte {
 
 // encodeGenreRow creates a genre row.
 //
-// Format (verified against real exports — distinct from artist!):
+// Format (distinct from artist!):
 //
 //	u32  id
 //	str  name        (DeviceSQL-encoded, starts immediately after id)
@@ -832,13 +832,13 @@ func encodeLabelRow(id uint32, name string) []byte {
 
 // encodeKeyRow creates a key row.
 //
-// Format (verified against real exports):
+// Format:
 //
 //	u32  id
-//	u32  id2 (matches id in real exports — purpose unknown)
+//	u32  id2 (matches id — purpose unknown)
 //	str  name
 //
-// Real exports always set both u32s to the same value.
+// Both u32s are always set to the same value.
 func encodeKeyRow(id uint32, name string) []byte {
 	nameBytes := encodeString(name)
 	row := make([]byte, 8+len(nameBytes))
@@ -850,16 +850,16 @@ func encodeKeyRow(id uint32, name string) []byte {
 
 // encodeAlbumRow creates an album row.
 //
-// Format (verified against real exports):
+// Format:
 //
 //	u16  subtype = 0x0080
 //	u16  index_shift  (patched by pageBuilder.serialize)
-//	u32  unknown1     (real: always 0)
-//	u32  unknown2     (real: always 0 — NOT artist_id as our earlier
+//	u32  unknown1     (always 0)
+//	u32  unknown2     (always 0 — NOT artist_id as our earlier
 //	                   encoder assumed; track→artist is the only
 //	                   artist link)
 //	u32  album_id
-//	u32  unknown3     (real: always 0)
+//	u32  unknown3     (always 0)
 //	u8   magic = 0x03
 //	u8   ofs_name = 22
 //	str  name
@@ -888,7 +888,7 @@ func encodeTrackRow(t *Track, artistID, albumID, genreID, keyID, labelID uint32)
 	strDateAdded := encodeString(t.DateAdded)
 	strAnalyzePath := encodeString(t.AnalyzePath)
 	strAutoloadHotcues := encodeString("ON")
-	// unknown_string2 / unknown_string3 are always populated in real
+	// unknown_string2 / unknown_string3 are always populated in
 	// exports (single-digit values like "2", "3", "6"). Per the kaitai
 	// docs the purpose is unclear, but every working PDB sets them.
 	// We use "3"/"3" which matches rekordcrate's demo_tracks fixture.
@@ -917,11 +917,11 @@ func encodeTrackRow(t *Track, artistID, albumID, genreID, keyID, labelID uint32)
 	// Assign each of the 21 slots.
 	for i := 0; i < 21; i++ {
 		switch i {
-		case 2: // unknown_string2 — purpose unknown but always populated in real
+		case 2: // unknown_string2 — purpose unknown but always populated
 			offsets[i] = addStr(strUnk2)
-		case 3: // unknown_string3 — purpose unknown but always populated in real
+		case 3: // unknown_string3 — purpose unknown but always populated
 			offsets[i] = addStr(strUnk3)
-		case 7: // autoload_hotcues — real exports populate this with "ON"
+		case 7: // autoload_hotcues — populated with "ON"
 			offsets[i] = addStr(strAutoloadHotcues)
 		case 10: // date_added
 			offsets[i] = addStr(strDateAdded)
@@ -944,19 +944,18 @@ func encodeTrackRow(t *Track, artistID, albumID, genreID, keyID, labelID uint32)
 
 	row := make([]byte, fixedSize+len(strData))
 
-	// Fixed fields. Values verified against real exports via the
-	// cmd/pdbdump tool.
+	// Fixed fields.
 	//
 	// Per-row varying fields are listed inline. The two "unknown"
-	// fields at 0x14 and 0x18 are not documented but real exports
+	// fields at 0x14 and 0x18 are not documented but
 	// follow a precise pattern:
 	//   * 0x14 is unique per row and looks like a precomputed hash —
 	//     possibly used as a key in a fast-lookup index on the CDJ. We
 	//     use the track ID so every row gets a distinct value (a zero
 	//     value here caused the CDJ to freeze, likely from an infinite
 	//     loop on hash collisions).
-	//   * 0x18 is a constant 0x3D0F7FC7 across every row of every real
-	//     export we've inspected — meaning unknown, but copy it verbatim.
+	//   * 0x18 is a constant 0x3D0F7FC7 across every row of every
+	//     export — meaning unknown, but copy it verbatim.
 	//   * 0x04 bitmask is a constant 0x000C0700 (probably "field-valid"
 	//     flags; the CDJ may skip fields when their bit is clear).
 	//
@@ -973,7 +972,7 @@ func encodeTrackRow(t *Track, artistID, albumID, genreID, keyID, labelID uint32)
 	le32put(row, 0x08, sampleRate)
 	le32put(row, 0x0C, 0)            // composer_id
 	le32put(row, 0x10, t.FileSize)
-	// 0x14 is per-row unique. Real exports use 28-bit hash-looking
+	// 0x14 is per-row unique. Exports use 28-bit hash-looking
 	// values uniformly distributed in the 0..2^28 range. A small int
 	// like t.ID lands in low buckets and may collide in the CDJ's
 	// internal index. Use a multiplicative hash (FNV-style mixing)
@@ -985,7 +984,7 @@ func encodeTrackRow(t *Track, artistID, albumID, genreID, keyID, labelID uint32)
 	le32put(row, 0x24, 0)       // original_artist_id
 	le32put(row, 0x28, labelID) // label_id
 	le32put(row, 0x2C, 0)       // remixer_id
-	// Real exports store bitrate in kbps (e.g. 192), not bps. Storing the
+	// Bitrate is stored in kbps (e.g. 192), not bps. Storing the
 	// raw bps value (e.g. 856353) puts a wildly out-of-range number in
 	// this slot which the deck may use to invalidate the whole row /
 	// reject analysis loading.
@@ -999,7 +998,7 @@ func encodeTrackRow(t *Track, artistID, albumID, genreID, keyID, labelID uint32)
 	le16put(row, 0x4C, t.DiscNumber)
 	le16put(row, 0x4E, t.PlayCount)
 	le16put(row, 0x50, t.Year)
-	// Real exports always populate this with the source bit depth (16/24).
+	// This is always populated with the source bit depth (16/24).
 	// Storing 0 may make the deck treat the file as malformed audio.
 	sampleDepth := t.SampleDepth
 	if sampleDepth == 0 {
@@ -1010,15 +1009,15 @@ func encodeTrackRow(t *Track, artistID, albumID, genreID, keyID, labelID uint32)
 	le16put(row, 0x56, 41) // constant per kaitai spec ("always 41?")
 	row[0x58] = t.ColorID
 	row[0x59] = t.Rating
-	// 0x5A is the FileType enum (per rekordcrate's reverse engineering):
+	// 0x5A is the FileType enum:
 	//   0x0000 Unknown, 0x0001 Mp3, 0x0004 M4a, 0x0005 Flac,
 	//   0x000B Wav,     0x000C Aiff
-	// Verified against real exports — a FLAC track has 0x0005 and MP3
+	// A FLAC track has 0x0005 and MP3
 	// tracks have 0x0001. We used to hardcode 0x0001 for every track,
 	// which is plausibly what was freezing the CDJ when it tried to
 	// load a FLAC as MP3.
 	le16put(row, 0x5A, fileTypeFromPath(t.FilePath))
-	le16put(row, 0x5C, 0x0003) // observed in every real track row
+	le16put(row, 0x5C, 0x0003) // present in every track row
 
 	// String offset table at 0x5E.
 	for i, off := range offsets {
@@ -1061,8 +1060,8 @@ func padTo4(row []byte) []byte {
 // could trip the CDJ when it tries to load the audio.
 // hash28 maps a track ID to a 28-bit value distributed across the
 // full 0..2^28 space, matching the shape of unknown_id_1 values
-// observed in rekordbox exports. Real values look like
-// content-derived hashes (we couldn't crack the exact function),
+// in exports. Those values look like
+// content-derived hashes (the exact function is unknown),
 // but spreading our values across the same range avoids the low-
 // bucket clustering that small sequential IDs would produce in any
 // hash-table index the CDJ might build over this field.
@@ -1309,8 +1308,8 @@ func PrepareUSBLayout(tracks []*Track, srcDir, outDir string, copyFiles bool) er
 		// Cap the final USB path so the title field stays in DeviceSQL
 		// short-ASCII encoding (≤126 chars). The CDJ freezes
 		// when pressing INFO on a track whose title field uses the
-		// long-ASCII (0x40-marker) encoding — pcap-confirmed against
-		// rekordbox exports, which always emit short ASCII for
+		// long-ASCII (0x40-marker) encoding; exports always emit
+		// short ASCII for
 		// this slot. Shrink safeName first; if that's not enough, also
 		// shrink safeAlbum (artist last, since it's usually the most
 		// recognizable component to keep intact).

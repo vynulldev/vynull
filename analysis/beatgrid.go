@@ -31,7 +31,7 @@ func GenerateBeatGrid(bpm, durationMs, downbeatMs float64) []byte {
 	dataSize := numBeats * entrySize
 	buf := make([]byte, 20+dataSize)
 
-	// 20-byte preamble matching real CDJ format (LE u32s).
+	// 20-byte preamble (LE u32s).
 	binary.LittleEndian.PutUint32(buf[0:], 0x00080000)
 	binary.LittleEndian.PutUint32(buf[4:], uint32(numBeats))
 	binary.LittleEndian.PutUint32(buf[8:], uint32(dataSize))

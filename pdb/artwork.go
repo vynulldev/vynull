@@ -8,12 +8,11 @@ import (
 	"path/filepath"
 )
 
-// ArtworkPath returns the USB-relative path rekordbox uses for an
+// ArtworkPath returns the USB-relative path used for an
 // artwork JPEG (e.g. `/PIONEER/Artwork/00001/a42.jpg`). Same scheme
 // for the matching thumbnail `_m.jpg`.
 //
-// Verified against a rekordbox USB export: every JPEG
-// lives under the bucket `00001`; the bucket appears to be a 5-digit
+// Every JPEG lives under the bucket `00001`; the bucket is a 5-digit
 // page index that increments past ~1000 artworks per bucket. We use
 // the same 1000-per-bucket scheme here — fine for typical libraries
 // and easy to revisit if a CDJ trips on it.

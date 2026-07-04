@@ -26,7 +26,7 @@ type ImportedCue struct {
 // (where PCO2 and PCOB live); datPath is the .DAT (PCOB also appears there).
 // Returns nil when the track has no saved cues.
 //
-// Section/entry layout was verified against rekordbox NXS2 exports:
+// Section/entry layout for NXS2 exports:
 //
 //	PCOB entry (PCPT, 56 bytes): hot_cue@12 u4, type@28 u1 (1=cue,2=loop),
 //	    time@32 u4 ms, loop_time@36 u4 (0xffffffff = not a loop).

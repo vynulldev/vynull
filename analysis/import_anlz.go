@@ -88,7 +88,7 @@ func ParseANLZ(datPath, extPath, twoEXPath string, bpm float64, durationSec int)
 
 	// .2EX — CDJ-3000 3-band waveforms. We store the raw section bodies so a
 	// later serving path can wrap them back into PWV6/PWV7/PWVC sections; the
-	// CDJ never requests these, so nothing serves them yet.
+	// the CDJ never requests these, so nothing serves them yet.
 	if twoEXPath != "" {
 		if body := anlzSectionBody(twoEXPath, tagPWV6); body != nil {
 			r.WavePreview3Band = body

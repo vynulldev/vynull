@@ -70,7 +70,7 @@ func sortItems(items []*menuItem, order uint32) {
 			return items[i].sortKey < items[j].sortKey
 		})
 	default:
-		// Default: preserve PDB/database order (matches real CDJ behavior).
+		// Default: preserve PDB/database order (matches CDJ behavior).
 	}
 }
 
@@ -108,7 +108,7 @@ func (h *Handler) pdbTrackToStdItem(t *pdb.Track) *menuItem {
 	return m
 }
 
-// trackToStdItem creates a standard track menu item matching rekordbox format.
+// trackToStdItem creates a standard track menu item in the standard format.
 // Detail column is governed by h.menu.TrackDetail() (default "bpm"),
 // producing "BPM - Key" in Label2 + BPM*100 in ParentID + ItemType
 // 0x0d04 for that classic look.
@@ -205,8 +205,7 @@ func (h *Handler) applyTrackDetail(m *menuItem, t *library.Track) {
 	case "dj_play_count":
 		m.ParentID = uint32(t.PlayCount)
 	case "color":
-		// rekordbox encoding (verified against rb-menu-colors-playlist
-		// -classics.pcap with all 8 colours + no-colour tracks):
+		// Color encoding (all 8 colours + no-colour tracks):
 		//   ItemType high byte = 0x13 + ColorID (0x13 = none, 0x14 = Pink
 		//     … 0x1b = Purple); low byte stays 0x04 (track row).
 		//   ParentID = ColorID for coloured tracks, 0x7fffffff sentinel
@@ -333,8 +332,7 @@ func (h *Handler) tracksToStdItems(tracks []*library.Track) []*menuItem {
 //
 //	mp3 = 1, m4a/AAC = 4, flac = 5, wav = 0x0b, aiff = 0x0c
 //
-// The AAC value is confirmed against a rekordbox capture
-// (a capture): the 0x2102 track-info title row carries id=4 for
+// For AAC, the 0x2102 track-info title row carries id=4 for
 // .m4a tracks. The previous "1 = MP3/AAC" assumption handed AAC tracks the
 // MP3 decoder ID; the deck read the whole file, failed to decode it as MP3,
 // and bailed to play-state 0x0e. AIFF is corrected to 0x0c by the same rule

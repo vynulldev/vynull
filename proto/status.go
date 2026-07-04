@@ -58,7 +58,7 @@ func ParseMediaQuery(data []byte) (*MediaQuery, bool) {
 //
 // Packet structure based on DJ Link Ecosystem Analysis documentation.
 func MarshalMediaResponse(name string, deviceNumber uint8, slot uint8, trackCount uint16, mac net.HardwareAddr, ip net.IP) []byte {
-	// 192 bytes matching rekordbox media response exactly.
+	// 192 bytes matching the rekordbox media response wire format exactly.
 	size := 192
 	buf := make([]byte, size)
 
@@ -249,9 +249,8 @@ func MarshalRekordboxAnnounce(name string, deviceNumber uint8, hostname string) 
 // (broadcast) and react by re-issuing dbserver queries for the affected
 // track — that's how the new value reaches the deck without a reload.
 //
-// Reference: packet captures of rekordbox performing a cue-colour
-// edit and a rating edit. Both have identical structure, only the track
-// ID differs.
+// The cue-colour edit and rating edit forms have identical structure,
+// only the track ID differs.
 //
 //	0x00-0x09: magic "Qspt1WmJOL"
 //	0x0a:      0x1d (type)
@@ -290,9 +289,9 @@ func MarshalTrackRefreshTrigger(name string, deviceNumber uint8, trackID uint32)
 // track's rating. CDJs receive it on UDP 50002 and re-fetch the new
 // rating via dbserver — the value isn't encoded in the trigger.
 //
-// Reference: packet captures of rekordbox setting 5★, setting 1★,
-// and clearing a rating. All the packets are byte-identical except the
-// magic+type header — only the track ID varies in practice.
+// Setting 5★, setting 1★, and clearing a rating all produce
+// byte-identical packets except the magic+type header — only the
+// track ID varies in practice.
 //
 //	0x00-0x09: magic "Qspt1WmJOL"
 //	0x0a:      0x1b (type)
@@ -302,10 +301,10 @@ func MarshalTrackRefreshTrigger(name string, deviceNumber uint8, trackID uint32)
 //	0x21:      device number
 //	0x23:      0x0c — payload length (12)
 //	0x24:      device number
-//	0x25:      0x01 — constant in captures (purpose unknown)
+//	0x25:      0x01 — constant (purpose unknown)
 //	0x26-0x27: zeros
 //	0x28-0x2b: BE uint32 track ID
-//	0x2c-0x2f: 00 00 00 23 — constant in captures (likely a "rating
+//	0x2c-0x2f: 00 00 00 23 — constant (likely a "rating
 //	           data type" marker, but unverified)
 func MarshalRatingRefreshTrigger(name string, deviceNumber uint8, trackID uint32) []byte {
 	buf := make([]byte, 48)
@@ -326,11 +325,11 @@ func MarshalRatingRefreshTrigger(name string, deviceNumber uint8, trackID uint32
 // on port 50002. This tells other CDJs about our media and playback state.
 // The mediaSlot indicates which slot has media (SlotUSB, SlotSD, SlotRekordbox).
 func MarshalStatusCDJ(name string, deviceNumber uint8, mediaSlot uint8, trackCount uint16, devSetting []byte) []byte {
-	// Byte-perfect template from a real CDJ (firmware 1.85).
+	// Known-good idle-CDJ status template.
 	// Only name, device number, and media flags are modified.
 	buf := make([]byte, 292)
 
-	// Copy the exact bytes captured from a real CDJ.
+	// Copy the known-good template bytes.
 	copy(buf, []byte{
 		0x51, 0x73, 0x70, 0x74, 0x31, 0x57, 0x6d, 0x4a, 0x4f, 0x4c, 0x0a, // magic + type
 		0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // 0x0b: name placeholder
@@ -346,7 +345,7 @@ func MarshalStatusCDJ(name string, deviceNumber uint8, mediaSlot uint8, trackCou
 
 	buf[0x24] = deviceNumber
 
-	// 0x68: real CDJ has 0x01
+	// 0x68: the CDJ has 0x01
 	buf[0x68] = 0x01
 	// 0x6a-0x6b: media state flags
 	buf[0x6a] = 0x06
@@ -370,10 +369,10 @@ func MarshalStatusCDJ(name string, deviceNumber uint8, mediaSlot uint8, trackCou
 	// Firmware "1.85"
 	copy(buf[0x7c:0x80], []byte("1.85"))
 
-	// 0x87: real CDJ has 0x01
+	// 0x87: the CDJ has 0x01
 	buf[0x87] = 0x01
 
-	// Flags and pitch defaults from real CDJ capture.
+	// Flags and pitch defaults from the CDJ template.
 	buf[0x89] = 0x84
 	buf[0x8a] = 0x0b
 	buf[0x8b] = 0xfe
@@ -398,12 +397,12 @@ func MarshalStatusCDJ(name string, deviceNumber uint8, mediaSlot uint8, trackCou
 	buf[0xc1] = 0x10
 	buf[0xc5] = 0x00
 
-	// Nexus generation: 0x1f matches real CDJ.
+	// Nexus generation marker (0x1f).
 	buf[0xcc] = 0x1f
 
 	// DEVSETTING area (0xcb-0xdd): when WE are the media source,
 	// the CDJ reads our DEVSETTING to determine waveform color mode
-	// for tracks loaded from us. Real CDJs send zeros here because
+	// for tracks loaded from us. CDJs send zeros here because
 	// they read settings from their own USB — but we ARE the USB.
 	if len(devSetting) >= 6 {
 		buf[0xcb] = 0x0a
@@ -467,7 +466,7 @@ func MarshalMySettingsResponse(name string, deviceNumber uint8, slot uint8, mySe
 	} else if len(mySetting) >= 32 {
 		copy(buf[0x30:0x50], mySetting[:32])
 	} else {
-		// Defaults from pyrekordbox / rekordbox.
+		// Defaults from pyrekordbox.
 		copy(buf[0x30:], []byte{
 			0x81, 0x83, 0x81, 0x88, 0x81, 0x01, 0x82, 0x81,
 			0x81, 0x01, 0x01, 0x01, 0x82, 0x80, 0x80, 0x81,
@@ -533,9 +532,9 @@ func MarshalLoadTrackCommand(name string, deviceNumber uint8, slot uint8, target
 	binary.BigEndian.PutUint32(buf[0x44:], 0x32)
 
 	// Byte 0x4b = 0x32 identifies this as a rekordbox-style load (vs the
-	// player-to-player variant which leaves it 0). Per the deepsymmetry
-	// loading-tracks doc: "the packets that rekordbox sends ... byte 4b
-	// has the value 32 rather than 00." Without this byte, CDJs sometimes
+	// player-to-player variant which leaves it 0): the packets that
+	// rekordbox sends have byte 0x4b set to 0x32 rather than 0x00.
+	// Without this byte, CDJs sometimes
 	// treat the command as preview-only and fetch metadata but never
 	// actually load the audio — symptom: dbserver dialogue completes
 	// through PWV4 but stops before PWV5/PVB2/PQT2/0x3100 mount info and
@@ -546,8 +545,8 @@ func MarshalLoadTrackCommand(name string, deviceNumber uint8, slot uint8, target
 }
 
 // MixerStatus is the parsed form of a DJM-class status broadcast
-// (type 0x29 from a DeviceMixer peer). Field offsets are based on
-// community RE for the DJM / DJM family; the DJM may
+// (type 0x29 from a DeviceMixer peer). Field offsets are for the
+// DJM / DJM family; the DJM may
 // have additions past the documented end of the packet that we
 // silently ignore. Treat ChannelOnAir as a bitfield where bit N
 // (0-indexed) = channel N+1 is currently on the master bus.
@@ -567,8 +566,8 @@ type MixerStatus struct {
 // on port 50002 — 36 bytes, presence only.
 // TypeMixerChannels is the DJM's channel-state broadcast on port
 // 50001 — 53 bytes, four per-channel on-air bytes at 0x24-0x27
-// (0x01 = on-air, 0x00 = off-air). Confirmed against pcap of real
-// rekordbox + DJM with manual fader toggles.
+// (0x01 = on-air, 0x00 = off-air). Confirmed with a DJM and
+// manual fader toggles.
 const (
 	TypeMixerStatusLegacy uint8 = 0x29
 	TypeMixerStatusNew    uint8 = 0x30
@@ -581,7 +580,7 @@ const (
 // only — no channel state on the wire). The caller is responsible
 // for gating this on "peer is a DeviceMixer".
 //
-// 0x29 offsets (from dysentery / beat-link):
+// 0x29 offsets:
 //
 //	0x0c-0x1f: device name (null-padded ASCII)
 //	0x21:      this mixer's device number
@@ -596,7 +595,7 @@ const (
 //	           after the type)
 //	0x21:      this mixer's device number
 //	(no channel state — DJM appears to use a separate TCP control
-//	protocol for fader / on-air info that we haven't RE'd yet)
+//	protocol for fader / on-air info that we don't parse yet)
 func ParseMixerStatus(data []byte) (*MixerStatus, bool) {
 	if len(data) < 0x22 {
 		return nil, false

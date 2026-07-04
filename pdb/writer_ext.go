@@ -8,15 +8,15 @@ import (
 	"path/filepath"
 )
 
-// Extension PDB table types. rekordbox writes nine tables in
+// Extension PDB table types. Nine tables are written in
 // `exportExt.pdb` containing the newer NXS2+ data the original
 // `export.pdb` schema doesn't carry: my-tag categories, my-tag
 // entries, my-tag↔track links, history, hot-cue banks, etc.
 //
-// The exact per-row formats vary per table and are reverse-engineered
+// The exact per-row formats vary per table and are handled
 // piecewise. v1 here writes empty tables for every type so the file
 // is present and structurally valid — populated rows can be added one
-// table at a time later (compare against a rekordbox
+// table at a time later (compare against an
 // `exportExt.pdb` from a USB export).
 const (
 	TableExt0 = 0x00
@@ -31,7 +31,7 @@ const (
 )
 
 // GenerateExt writes an empty `exportExt.pdb` skeleton under outDir.
-// The file contains all 9 tables rekordbox produces, but every
+// The file contains all 9 tables an export produces, but every
 // table is empty — useful as a presence sentinel for CDJs that look
 // for the file before enabling NXS2+ features. Future revs can fill
 // individual tables in place by extending this function.

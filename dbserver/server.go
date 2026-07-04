@@ -104,17 +104,16 @@ type Server struct {
 
 	discoveryLn net.Listener
 	dynamicLn   net.Listener
-	dynamicPort uint16 // OS-assigned ephemeral port (like rekordbox)
+	dynamicPort uint16 // OS-assigned ephemeral port
 
 	// activeConns tracks live dynamic-port client connections so we can
-	// send a 0x0100 Teardown message to each one on shutdown (matching
-	// what rekordbox does — verified in a rekordbox pcap).
+	// send a 0x0100 Teardown message to each one on shutdown.
 	activeConns   map[net.Conn]struct{}
 	activeConnsMu sync.Mutex
 }
 
 // Start begins listening on both the discovery port (12523) and a
-// random dynamic query port (matching rekordbox behavior).
+// random dynamic query port.
 func (s *Server) Start(ctx context.Context) error {
 	var err error
 
@@ -123,7 +122,7 @@ func (s *Server) Start(ctx context.Context) error {
 		return fmt.Errorf("bind discovery port %d: %w", discoveryPort, err)
 	}
 
-	// Let the OS pick a random ephemeral port, like rekordbox does.
+	// Let the OS pick a random ephemeral port.
 	s.dynamicLn, err = net.Listen("tcp4", ":0")
 	if err != nil {
 		s.discoveryLn.Close()
@@ -147,8 +146,8 @@ func (s *Server) Start(ctx context.Context) error {
 	}()
 
 	<-ctx.Done()
-	// Politely tell connected CDJs we're going away (rekordbox sends
-	// this exact packet to each active dbserver session on shutdown).
+	// Politely tell connected CDJs we're going away (this exact packet is
+	// sent to each active dbserver session on shutdown).
 	s.sendTeardownToActiveConns()
 	s.discoveryLn.Close()
 	s.dynamicLn.Close()
@@ -395,13 +394,12 @@ func (s *Server) handleSession(ctx context.Context, conn net.Conn) {
 
 		responses := handler.Handle(msg)
 		// Coalesce all response messages into a single TCP write,
-		// matching rekordbox which sends Header+Items+Footer
-		// in one segment.
+		// which sends Header+Items+Footer in one segment.
 		var combined []byte
 		for _, resp := range responses {
 			data := proto.MarshalDBMessage(resp)
 
-			// Replay mode: if we have a captured response from rekordbox
+			// Replay mode: if we have a captured response
 			// for this response type, use those exact bytes instead.
 			if s.ReplayDir != "" {
 				if replacement := s.findReplay(resp.Type, len(data), msg); replacement != nil {
@@ -510,7 +508,7 @@ func readMessage(conn net.Conn) (*proto.DBMessage, error) {
 		return nil, fmt.Errorf("invalid dbserver magic: %x", magic)
 	}
 
-	// Read fields in beat-link format:
+	// Read fields in wire order:
 	// After magic, read: txid(NumberField4), type(NumberField2),
 	// argcount(NumberField1), tags(BinaryField)
 

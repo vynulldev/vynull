@@ -72,10 +72,10 @@ func MarshalFirstClaim(name string, iteration uint8, mac net.HardwareAddr) []byt
 	buf[0x0b] = 0x00
 	PutDeviceName(buf, name)
 	buf[0x20] = 0x01
-	buf[0x21] = 0x03 // subtype: 0x02=CDJ, 0x03=rekordbox (from pcap)
+	buf[0x21] = 0x03 // subtype: 0x02=CDJ, 0x03=rekordbox
 	PutU16BE(buf, 0x22, FirstClaimSize)
 	buf[0x24] = iteration
-	buf[0x25] = 0x04 // device class: 0x01=CDJ, 0x04=rekordbox (from pcap)
+	buf[0x25] = 0x04 // device class: 0x01=CDJ, 0x04=rekordbox
 	copy(buf[0x26:0x2c], mac)
 	return buf
 }
@@ -88,13 +88,13 @@ func MarshalSecondClaim(name string, deviceNumber uint8, iteration uint8, mac ne
 	buf[0x0b] = 0x00
 	PutDeviceName(buf, name)
 	buf[0x20] = 0x01
-	buf[0x21] = 0x03 // 0x02=CDJ, 0x03=rekordbox (from pcap)
+	buf[0x21] = 0x03 // 0x02=CDJ, 0x03=rekordbox
 	PutU16BE(buf, 0x22, SecondClaimSize)
 	copy(buf[0x24:0x28], ip.To4())
 	copy(buf[0x28:0x2e], mac)
 	buf[0x2e] = deviceNumber
 	buf[0x2f] = iteration
-	buf[0x30] = 0x04 // device class: 0x02=CDJ, 0x04=rekordbox (from pcap)
+	buf[0x30] = 0x04 // device class: 0x02=CDJ, 0x04=rekordbox
 	buf[0x31] = 0x01 // auto-assign flag
 	return buf
 }
@@ -124,11 +124,11 @@ func MarshalRekordboxKeepAlive(name string, deviceNumber uint8, mac net.Hardware
 	buf[0x20] = 0x01
 	buf[0x21] = byte(DeviceRekordbox) // 0x03
 	buf[0x22] = 0x00
-	buf[0x23] = 0x32                  // packet size = 50
+	buf[0x23] = 0x32 // packet size = 50
 	copy(buf[0x24:0x28], ip.To4())
 	copy(buf[0x28:0x2e], mac)
 	buf[0x2e] = deviceNumber
-	buf[0x2f] = 0x06                  // matches rekordbox
+	buf[0x2f] = 0x06 // matches the rekordbox keepalive
 	buf[0x30] = 0x04
 	buf[0x31] = 0x01
 	return buf
@@ -141,12 +141,12 @@ func MarshalKeepAlive(name string, deviceNumber uint8, deviceType DeviceType, ma
 	PutHeader(buf, TypeKeepAlive)
 	buf[0x0b] = 0x00
 	PutDeviceName(buf, name)
-	buf[0x20] = 0x01               // constant
-	buf[0x21] = byte(deviceType)   // 0x01=CDJ, 0x02=Mixer, 0x03=Rekordbox
-	buf[0x22] = 0x00               // padding
-	buf[0x23] = 0x36               // subtype (0x36 = status keep-alive)
+	buf[0x20] = 0x01             // constant
+	buf[0x21] = byte(deviceType) // 0x01=CDJ, 0x02=Mixer, 0x03=Rekordbox
+	buf[0x22] = 0x00             // padding
+	buf[0x23] = 0x36             // subtype (0x36 = status keep-alive)
 	buf[0x24] = deviceNumber
-	buf[0x25] = 0x01 // always 0x01 in real keepalive (both CDJ and rekordbox)
+	buf[0x25] = 0x01 // always 0x01 in the keepalive (both CDJ and rekordbox)
 	copy(buf[0x26:0x2c], mac)
 	copy(buf[0x2c:0x30], ip.To4())
 	// Bytes 0x30-0x35 vary by device type.
