@@ -484,6 +484,3 @@ func (h *Handler) handleRootMenu(msg *proto.DBMessage) []*proto.DBMessage {
 		},
 	}}
 }
-
-// handleNXS2MenuLoad handles 0x1010 — generic NXS2 menu load.
-// The category is determined from arg[0] DMST or arg[2] (category-specific).
