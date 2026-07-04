@@ -203,7 +203,7 @@ func (d *VirtualDevice) Start(ctx context.Context) error {
 	defer d.statusConn.Close()
 
 	// Bind beat port 50001 — primarily for beat broadcasts (0x28),
-	// but also where DJM-class mixers broadcast their channel-
+	// but also where newer DJM mixers broadcast their channel-
 	// on-air state (type 0x03 at ~3 Hz). We only listen; nothing
 	// proactive on this port today.
 	beatConn, err := net.ListenPacket("udp4", fmt.Sprintf(":%d", beatPort))
@@ -571,7 +571,7 @@ func (d *VirtualDevice) statusBroadcastLoop(ctx context.Context) {
 // listenStatus reads packets from port 50002 and handles media queries.
 // listenBeats reads from port 50001 — primarily DJ-Link beat packets
 // (which we don't act on yet), but also the type-0x03 mixer channel
-// broadcasts that DJM family devices emit at ~3Hz. We merge the
+// broadcasts that newer DJM mixers emit at ~3Hz. We merge the
 // channel state from those packets into the existing mixerStatuses
 // map so the API surfaces them alongside any 0x29/0x30 presence info.
 func (d *VirtualDevice) listenBeats(ctx context.Context) {
@@ -678,13 +678,13 @@ func (d *VirtualDevice) listenStatus(ctx context.Context) {
 			}
 		}
 
-		// Parse mixer status broadcasts. Older DJMs (900NXS2 family)
-		// emit type 0x29 with channel + master state inline; newer
-		// DJMs (DJM confirmed) emit a stripped 0x30 packet with
-		// only name + device number (channel state appears to live
-		// on a separate TCP control protocol that we don't handle
-		// yet). Both flow through ParseMixerStatus; the latter just
-		// produces a MixerStatus with zero channel/master fields.
+		// Parse mixer status broadcasts. Older DJMs emit type 0x29
+		// with channel + master state inline; newer DJMs emit a
+		// stripped 0x30 packet with only name + device number (channel
+		// state appears to live on a separate TCP control protocol that
+		// we don't handle yet). Both flow through ParseMixerStatus; the
+		// latter just produces a MixerStatus with zero channel/master
+		// fields.
 		if (pktType == proto.TypeMixerStatusLegacy || pktType == proto.TypeMixerStatusNew) && d.Peers != nil {
 			isMixer := false
 			for _, p := range d.Peers.Peers() {

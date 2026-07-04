@@ -546,10 +546,10 @@ func MarshalLoadTrackCommand(name string, deviceNumber uint8, slot uint8, target
 
 // MixerStatus is the parsed form of a DJM-class status broadcast
 // (type 0x29 from a DeviceMixer peer). Field offsets are for the
-// DJM / DJM family; the DJM may
-// have additions past the documented end of the packet that we
-// silently ignore. Treat ChannelOnAir as a bitfield where bit N
-// (0-indexed) = channel N+1 is currently on the master bus.
+// older DJM family; newer mixers may have additions past the
+// documented end of the packet that we silently ignore. Treat
+// ChannelOnAir as a bitfield where bit N (0-indexed) = channel N+1
+// is currently on the master bus.
 type MixerStatus struct {
 	Name              string
 	DeviceNumber      uint8
@@ -560,14 +560,13 @@ type MixerStatus struct {
 	ChannelStateKnown bool    // true once a 0x03 (or rich 0x29) packet has been parsed
 }
 
-// TypeMixerStatusLegacy is the DJM / older mixer status type
+// TypeMixerStatusLegacy is the older mixer status type
 // (port 50002, ~56 bytes, includes channel + master state inline).
-// TypeMixerStatusNew is what newer DJMs (DJM confirmed) broadcast
-// on port 50002 — 36 bytes, presence only.
-// TypeMixerChannels is the DJM's channel-state broadcast on port
+// TypeMixerStatusNew is what newer DJMs broadcast on port 50002 —
+// 36 bytes, presence only.
+// TypeMixerChannels is a newer DJM's channel-state broadcast on port
 // 50001 — 53 bytes, four per-channel on-air bytes at 0x24-0x27
-// (0x01 = on-air, 0x00 = off-air). Confirmed with a DJM and
-// manual fader toggles.
+// (0x01 = on-air, 0x00 = off-air).
 const (
 	TypeMixerStatusLegacy uint8 = 0x29
 	TypeMixerStatusNew    uint8 = 0x30
@@ -575,10 +574,10 @@ const (
 )
 
 // ParseMixerStatus parses a mixer status broadcast. Accepts both the
-// legacy 0x29 (DJM family, ~56 bytes with channel/master
-// state) and the newer 0x30 (DJM confirmed; 36 bytes, presence
-// only — no channel state on the wire). The caller is responsible
-// for gating this on "peer is a DeviceMixer".
+// legacy 0x29 (older DJM family, ~56 bytes with channel/master state)
+// and the newer 0x30 (36 bytes, presence only — no channel state on
+// the wire). The caller is responsible for gating this on "peer is a
+// DeviceMixer".
 //
 // 0x29 offsets:
 //
@@ -589,12 +588,12 @@ const (
 //	0x60:      current master's device number (newer DJMs)
 //	0xa6:      beat-in-bar (1..4) (some models)
 //
-// 0x30 offsets (observed from DJM broadcasts):
+// 0x30 offsets (newer DJM broadcasts):
 //
 //	0x0b-0x1e: device name (no separator byte — name starts immediately
 //	           after the type)
 //	0x21:      this mixer's device number
-//	(no channel state — DJM appears to use a separate TCP control
+//	(no channel state — newer DJMs appear to use a separate TCP control
 //	protocol for fader / on-air info that we don't parse yet)
 func ParseMixerStatus(data []byte) (*MixerStatus, bool) {
 	if len(data) < 0x22 {
@@ -628,14 +627,14 @@ func ParseMixerStatus(data []byte) (*MixerStatus, bool) {
 		}
 		return s, true
 	case TypeMixerStatusNew:
-		// DJM etc. — name shifted left by one byte (no 0x0b
+		// Newer DJMs — name shifted left by one byte (no 0x0b
 		// separator), only presence info available.
 		return &MixerStatus{
 			Name:         mixerNameAt0b(data),
 			DeviceNumber: data[0x21],
 		}, true
 	case TypeMixerChannels:
-		// DJM channel-state broadcast on port 50001. Same name
+		// Newer-DJM channel-state broadcast on port 50001. Same name
 		// layout as 0x30; channels at 0x24-0x27 (1 byte each, 0x01
 		// = on-air). Packet is ~53 bytes.
 		if len(data) < 0x28 {

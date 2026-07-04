@@ -69,10 +69,10 @@ func (pt *PeerTracker) HandlePacket(data []byte) bool {
 	}
 
 	// Override the wire-declared device type for newer Pioneer mixers
-	// — empirically the DJM advertises with type byte 0x02 (CDJ),
-	// not 0x01 (Mixer) as the older documented convention. Without
-	// this, mixers appear as CDJs in /api/peers + the players grid.
-	// Name-prefix is the most reliable discriminator across models.
+	// — some advertise with type byte 0x02 (CDJ), not 0x01 (Mixer) as
+	// the older convention. Without this, mixers appear as CDJs in
+	// /api/peers + the players grid. Name-prefix is the most reliable
+	// discriminator across models.
 	devType := ka.DeviceType
 	upperName := strings.ToUpper(ka.Name)
 	if strings.HasPrefix(upperName, "DJM") || strings.HasPrefix(upperName, "RMX") {
