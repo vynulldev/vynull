@@ -276,6 +276,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/players", s.handlePlayers)
 	mux.HandleFunc("/api/history", s.handleHistory)
 	mux.HandleFunc("/api/tracks", s.handleTracks)
+	mux.HandleFunc("/api/tracks/rev", s.handleTracksRev)
 	mux.HandleFunc("/api/tracks/add", s.handleAddTracks)
 	mux.HandleFunc("/api/tracks/add/status", s.handleAddStatus)
 	mux.HandleFunc("/api/fs/list", s.handleFSList)
@@ -582,6 +583,20 @@ var trackColorNames = map[uint8]string{
 // including tag names when a tag store is configured. Centralised so
 // every endpoint that returns tracks (list, single, playlist tracks)
 // uses the same field set and date format.
+// libTrackListInfo is the payload for the full-collection list. It drops the
+// fields only ever shown in the track-detail drawer (which refetches the full
+// single track via /api/tracks/{id}) — chiefly file_size, which is set on
+// every imported track and adds up across a large library. Everything the
+// table's columns, filters, sort and search read is kept.
+func (s *Server) libTrackListInfo(t *library.Track) TrackInfo {
+	info := s.libTrackToInfo(t)
+	info.FileSize = 0        // omitempty → omitted
+	info.OriginalArtist = "" // detail-only
+	info.MixName = ""        // detail-only
+	info.TrackNum = 0        // detail-only
+	return info
+}
+
 func (s *Server) libTrackToInfo(t *library.Track) TrackInfo {
 	info := TrackInfo{
 		ID:             t.ID,
@@ -671,17 +686,39 @@ func (s *Server) handleTracks(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// All tracks
+	// All tracks. Tag the response with an ETag keyed to the library
+	// revision; an unchanged If-None-Match lets us skip serializing the
+	// whole list (and lets HTTP caches revalidate cheaply).
+	if s.Library != nil {
+		etag := fmt.Sprintf(`"tracks-%d"`, s.Library.Rev())
+		w.Header().Set("ETag", etag)
+		w.Header().Set("Cache-Control", "no-cache")
+		if r.Header.Get("If-None-Match") == etag {
+			w.WriteHeader(http.StatusNotModified)
+			return
+		}
+	}
 	var tracks []TrackInfo
 	if s.Library != nil {
 		for _, t := range s.Library.Tracks() {
-			tracks = append(tracks, trackToInfo(t))
+			tracks = append(tracks, s.libTrackListInfo(t))
 		}
 	}
 	if tracks == nil {
 		tracks = []TrackInfo{}
 	}
 	writeJSON(w, tracks)
+}
+
+// handleTracksRev serves just the library revision — a tiny payload the web
+// UI polls every tick to decide whether the full track list is worth
+// refetching. Cheap on both ends compared to diffing the whole library.
+func (s *Server) handleTracksRev(w http.ResponseWriter, r *http.Request) {
+	var rev uint64
+	if s.Library != nil {
+		rev = s.Library.Rev()
+	}
+	writeJSON(w, map[string]uint64{"rev": rev})
 }
 
 func (s *Server) handleLoadTrack(w http.ResponseWriter, r *http.Request) {
@@ -3654,6 +3691,7 @@ func (s *Server) handleTrackTags(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		s.Tags.SetTagsForTrack(trackID, req.TagIDs)
+		s.Library.Touch() // tags live in the tag store, not a library Save()
 		if s.Device != nil {
 			// Tag-set changes fire the same 0x1d "track data invalidated"
 			// trigger as cue and colour edits — track ID only, no per-tag
@@ -3881,6 +3919,7 @@ func (s *Server) handleTrackColor(w http.ResponseWriter, r *http.Request) {
 		if t := s.Library.Track(trackID); t != nil {
 			t.ColorID = req.ColorID
 		}
+		s.Library.Touch() // colour lives in the tag store, not a library Save()
 		if s.Device != nil {
 			s.Device.BroadcastTrackRefresh(trackID)
 		}
@@ -4023,6 +4062,7 @@ func (s *Server) handleTrackRating(w http.ResponseWriter, r *http.Request) {
 		if t := s.Library.Track(trackID); t != nil {
 			t.Rating = req.Rating
 		}
+		s.Library.Touch() // rating lives in the tag store, not a library Save()
 		if s.Device != nil {
 			s.Device.BroadcastRatingRefresh(trackID)
 		}

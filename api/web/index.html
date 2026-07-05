@@ -6304,6 +6304,8 @@ async function loadTrack(trackID, deviceNumber) {
 // ───────── SETTINGS ─────────
 let lastSettingsKey = '';
 let lastTracksKey = '';
+let lastTracksRev = -1; // last library revision seen; gates full track refetch
+let pollCount = 0;      // poll ticks, for the periodic forced-refetch fallback
 
 // ───────── CDJ MENU CONFIG (modal) ─────────
 // User-configurable visibility + order of the CDJ root menu. Lives in
@@ -11087,9 +11089,9 @@ document.querySelector('.tab[data-tab="tags"]').addEventListener('click', () => 
 
 // ───────── polling ─────────
 async function refresh() {
-  const [players, tracks, settings, enums, cues, peers] = await Promise.all([
+  const [players, trackRev, settings, enums, cues, peers] = await Promise.all([
     fetchJSON('/api/players'),
-    fetchJSON('/api/tracks'),
+    fetchJSON('/api/tracks/rev'),
     fetchJSON('/api/settings'),
     settingsEnums ? Promise.resolve(settingsEnums) : fetchJSON('/api/settings/enums'),
     fetchJSON('/api/cues'),
@@ -11114,21 +11116,35 @@ async function refresh() {
   updateLinkStatus(peers);
   if (Array.isArray(peers))   renderMixerStrip(peers);
   if (Array.isArray(players)) renderPlayers(players);
-  if (Array.isArray(tracks)) {
-    // Overlay any locally-pending mutations that the server may not have
-    // committed yet (race between PUT and the next poll's GET). Without
-    // this, a color/rating edit can visibly "revert" for one poll cycle
-    // while the server catches up.
-    applyPendingTrackEdits(tracks);
-    // Avoid re-rendering on every 1s poll when nothing's changed — the
-    // <img> teardown/recreate causes a visible "loading" → "loaded" opacity
-    // flash on every waveform thumbnail.
-    const key = JSON.stringify(tracks);
-    if (key !== lastTracksKey || cuesChanged) {
-      allTracks = tracks;
-      lastTracksKey = key;
-      refreshLibraryView();
+  // Only refetch the (potentially large) track list when the library
+  // revision actually moved — otherwise the per-second poll costs one tiny
+  // /api/tracks/rev fetch instead of transferring + parsing + diffing the
+  // whole library every tick. A low-frequency forced refetch self-heals if
+  // any mutation ever forgot to bump the rev (the ETag keeps it a cheap 304
+  // when nothing changed).
+  pollCount++;
+  const rev = (trackRev && typeof trackRev.rev === 'number') ? trackRev.rev : null;
+  const revMoved = rev === null || rev !== lastTracksRev;
+  const forced = pollCount % 120 === 0;
+  if (revMoved || forced) {
+    if (rev !== null) lastTracksRev = rev;
+    const tracks = await fetchJSON('/api/tracks');
+    if (Array.isArray(tracks)) {
+      // Overlay any locally-pending mutations the server may not have
+      // committed yet (race between PUT and this GET), then diff so an
+      // edit we already rendered optimistically doesn't re-render the
+      // whole table (the <img> teardown flashes every waveform thumbnail).
+      applyPendingTrackEdits(tracks);
+      const key = JSON.stringify(tracks);
+      if (key !== lastTracksKey || cuesChanged) {
+        allTracks = tracks;
+        lastTracksKey = key;
+        refreshLibraryView();
+      }
     }
+  } else if (cuesChanged) {
+    // Track list unchanged but cue markers did — re-render existing rows.
+    refreshLibraryView();
   }
   if (settings && settings.full) renderSettings(settings.full);
   // Repaint when any display-affecting DEVSETTING changes: waveform colour

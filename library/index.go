@@ -11,6 +11,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 
 	"github.com/vynulldev/vynull/internal/fsutil"
 )
@@ -44,7 +45,22 @@ type Library struct {
 	genres  []string
 
 	dbPath string // if set, persist track list to this JSON file
+
+	// rev is a monotonic revision counter bumped whenever track data
+	// changes. Clients poll it (cheaply) and only refetch the full track
+	// list when it moves, instead of diffing the whole library every tick.
+	// Bumped by Save() (every persisted mutation) and by Touch() (in-place
+	// edits that persist elsewhere, e.g. tag/colour/rating stores).
+	rev atomic.Uint64
 }
+
+// Rev returns the current library revision. It changes whenever track data
+// changes; callers compare it to skip redundant full-list fetches.
+func (l *Library) Rev() uint64 { return l.rev.Load() }
+
+// Touch bumps the revision without writing to disk — for callers that
+// mutate track data in place (or in a side store) without a Save().
+func (l *Library) Touch() { l.rev.Add(1) }
 
 // New creates an empty Library for adding tracks dynamically.
 func New() *Library {
@@ -314,6 +330,10 @@ func (l *Library) SetArtwork(trackID, artID uint32) {
 
 // Save persists the track list to disk.
 func (l *Library) Save() {
+	// Every Save() reflects a track-data change — bump the revision even
+	// when persistence is disabled (dbPath unset), so in-memory-only setups
+	// still notify pollers.
+	l.rev.Add(1)
 	if l.dbPath == "" {
 		return
 	}
