@@ -7,6 +7,7 @@ package api
 import (
 	"archive/zip"
 	"bytes"
+	"compress/gzip"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -707,7 +708,7 @@ func (s *Server) handleTracks(w http.ResponseWriter, r *http.Request) {
 	if tracks == nil {
 		tracks = []TrackInfo{}
 	}
-	writeJSON(w, tracks)
+	writeJSONGzip(w, r, tracks)
 }
 
 // handleTracksRev serves just the library revision — a tiny payload the web
@@ -3535,6 +3536,24 @@ func (s *Server) handleSettings(w http.ResponseWriter, r *http.Request) {
 func writeJSON(w http.ResponseWriter, v interface{}) {
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Access-Control-Allow-Origin", "*")
+	json.NewEncoder(w).Encode(v)
+}
+
+// writeJSONGzip is writeJSON that gzip-compresses the body when the client
+// accepts it. Worth it for the large, highly repetitive track-list payload
+// (keys and long file paths compress well); small responses stay on
+// writeJSON. Content negotiation is advertised via Vary so caches key on it.
+func writeJSONGzip(w http.ResponseWriter, r *http.Request, v interface{}) {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	if strings.Contains(r.Header.Get("Accept-Encoding"), "gzip") {
+		w.Header().Set("Content-Encoding", "gzip")
+		w.Header().Add("Vary", "Accept-Encoding")
+		gz := gzip.NewWriter(w)
+		defer gz.Close()
+		json.NewEncoder(gz).Encode(v)
+		return
+	}
 	json.NewEncoder(w).Encode(v)
 }
 
