@@ -9175,8 +9175,11 @@ function refreshLibraryView() {
   }
   if (actions) {
     if (!sel) {
-      // COLLECTION — only export-all is meaningful here.
+      // COLLECTION — import new audio from disk, or export it all. Labelled
+      // "ADD FILES" (not "ADD TRACKS") to distinguish it from the playlist
+      // "+ ADD TRACKS" button, which only adds *existing* library tracks.
       actions.innerHTML = `
+        <button id="col-add" title="Browse for folders or audio files to import into the library">+ ADD FILES</button>
         <button id="pl-export">EXPORT…</button>`;
     } else if (isFolder) {
       // Folder selected — only rename/delete makes sense (no tracks).
@@ -9383,6 +9386,10 @@ function wireLibraryToolbarActions() {
   if (deleteBtn) deleteBtn.onclick = deleteSelectedPlaylist;
   const addBtn = document.getElementById('pl-add');
   if (addBtn) addBtn.onclick = openPlaylistAddPicker;
+  const colAdd = document.getElementById('col-add');
+  // COLLECTION view: browse for folders/files to import into the library.
+  // Force an immediate refetch when done rather than waiting for the poll.
+  if (colAdd) colAdd.onclick = () => openAddBrowserDialog(() => { lastTracksRev = -1; refresh(); });
   const editRules = document.getElementById('pl-edit-rules');
   if (editRules) editRules.onclick = () => openSmartEditor(plSelectedID);
   const exportBtn = document.getElementById('pl-export');
