@@ -238,9 +238,12 @@ def main():
     except sqlcipher3.dbapi2.OperationalError:
         pass  # Older DBs may not have MyTag tables
 
-    # Cue points (hot + memory). Kind: 0 = memory cue, 1+ = hot cue (A..H).
+    # Cue points (hot + memory). Kind: 0 = memory cue; hot cues are 1,2,3
+    # then 5,6,7,8,9 for A,B,C,D,E,F,G,H — rekordbox reserves Kind 4, so the
+    # caller must map Kind>=5 down by one to get the contiguous A..H slot.
     # OutMsec is the loop end (-1 if not a loop). ColorTableIndex is the
-    # rekordbox hot-cue colour code (0x00-0x3e), same palette the deck uses.
+    # rekordbox hot-cue colour code (0x00-0x3e), same palette the deck uses;
+    # NULL means no colour set (rekordbox shows those in its default green).
     try:
         cur.execute("SELECT ContentID, InMsec, OutMsec, Kind, ColorTableIndex, Comment "
                     "FROM djmdCue WHERE InMsec IS NOT NULL")

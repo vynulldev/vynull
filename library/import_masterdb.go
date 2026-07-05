@@ -41,6 +41,24 @@ type MasterDBCue struct {
 	Comment string
 }
 
+// defaultHotCueColorID is the palette index used for a hot cue that has no
+// colour assigned in rekordbox (djmdCue.ColorTableIndex NULL). rekordbox
+// shows those in its default hot-cue green; 0x16 (#28e214) is that green in
+// the hot-cue palette.
+const defaultHotCueColorID = 0x16
+
+// hotCueSlot maps rekordbox's djmdCue.Kind to the contiguous 1..8 hot-cue
+// slot (A..H) the CDJ expects. rekordbox's Kind numbering skips 4 — hot
+// cues are stored as A=1, B=2, C=3, D=5, E=6, F=7, G=8, H=9 (Kind 4 is
+// reserved and never used) — so without this remap an imported "D" shifts
+// up to "E". Memory cues (Kind 0) are returned unchanged.
+func hotCueSlot(kind int) int {
+	if kind >= 5 {
+		return kind - 1
+	}
+	return kind
+}
+
 type masterDBTrack struct {
 	ID          string  `json:"id"`
 	Title       string  `json:"title"`
@@ -208,12 +226,18 @@ func ImportRekordboxMasterDB(lib *Library, dbPath, key string) (*ImportResult, [
 		if !ok {
 			continue
 		}
-		mc := MasterDBCue{TrackID: id, HotCue: c.Kind, TimeMs: uint32(c.InMsec), LoopMs: -1, Comment: c.Comment}
+		mc := MasterDBCue{TrackID: id, HotCue: hotCueSlot(c.Kind), TimeMs: uint32(c.InMsec), LoopMs: -1, Comment: c.Comment}
 		if c.OutMsec > 0 {
 			mc.LoopMs = int32(c.OutMsec)
 		}
 		if c.Color >= 0 {
 			mc.ColorID = uint32(c.Color)
+		} else if c.Kind >= 1 {
+			// A hot cue with no colour set in rekordbox (ColorTableIndex
+			// NULL). rekordbox renders these with its default hot-cue
+			// colour, green — so do the same rather than falling back to
+			// the "no colour" orange. Memory cues (Kind 0) keep no colour.
+			mc.ColorID = defaultHotCueColorID
 		}
 		cues = append(cues, mc)
 	}
