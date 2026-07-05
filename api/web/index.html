@@ -3263,8 +3263,13 @@
       border-radius: 10px; font-size: 15px; padding: 0 14px;
     }
 
-    /* Detail drawer → full-screen sheet. */
-    .detail-drawer { top: 0; height: 100dvh; border-top: none; }
+    /* Detail drawer → full-screen sheet. Height is 100dvh so the open sheet
+       fits the *visible* area, but when closed it must slide past the *largest*
+       viewport (100lvh) — otherwise translateY(100%) only clears 100dvh and the
+       lvh−dvh gap (the space under a hidden URL bar) leaves a strip of the
+       drawer peeking at the bottom, cutting off the last track. .detail-drawer
+       .open (higher specificity) still wins to reveal it. */
+    .detail-drawer { top: 0; height: 100dvh; border-top: none; transform: translateY(100lvh); }
     .detail-resize { display: none; }
     .detail-drawer .detail-body { overflow-y: auto; padding-bottom: 24px; }
     .detail-drawer canvas { max-width: 100%; }
@@ -11362,7 +11367,17 @@ renderVocalButton();
   if (!drawer || !handle) return;
   const KEY = 'detailDrawerHeight';
   const clamp = h => Math.max(220, Math.min(Math.round(window.innerHeight * 0.92), h));
-  try { const s = parseInt(localStorage.getItem(KEY), 10); if (s > 0) drawer.style.height = clamp(s) + 'px'; } catch (e) {}
+  // On mobile the drawer is a full-screen sheet sized by CSS (height:100dvh)
+  // and the resize handle is hidden. A desktop-persisted inline height would
+  // override that and shrink the open sheet to ~half screen — so only apply
+  // (and honour) the saved height on the desktop layout, and clear the inline
+  // height when we cross into the mobile layout.
+  const applyHeight = () => {
+    if (isMobileLayout()) { drawer.style.height = ''; return; }
+    try { const s = parseInt(localStorage.getItem(KEY), 10); if (s > 0) drawer.style.height = clamp(s) + 'px'; } catch (e) {}
+  };
+  applyHeight();
+  mobileMQ.addEventListener('change', applyHeight);
   let dragging = false;
   handle.addEventListener('pointerdown', e => {
     dragging = true;
