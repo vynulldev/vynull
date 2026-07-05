@@ -3163,6 +3163,112 @@
       transition-duration: 0.001ms !important;
     }
   }
+
+  /* ───────── MOBILE / TABLET (touch) ─────────
+     Additive touch layout: a bottom tab bar, a card-based library, and a
+     full-screen detail sheet. It applies to phones (≤640px) AND to any
+     coarse-pointer device (touch tablets — iPad mini, iPad, etc., in either
+     orientation), since the dense hover/drag table is poor on touch. Every
+     rule is scoped to the media query, so mouse-driven desktops (pointer:
+     fine) are completely untouched. The cards reuse the same filtered/sorted
+     rows and helpers (waveform, rating, colour, LOAD-to-deck) as the desktop
+     table — see renderLibraryCards(). */
+  @media (max-width: 640px), (pointer: coarse) {
+    /* Header: wordmark left, trimmed status cluster right. */
+    .topbar {
+      display: flex; align-items: center; justify-content: space-between;
+      gap: 8px; padding: 9px 12px;
+    }
+    .topbar > div:nth-child(2) { display: none; }        /* the 1fr spacer */
+    .wordmark sub { display: none; }
+    .status-cluster { gap: 6px; flex-shrink: 0; }
+    .status-cluster > *:nth-child(4),                    /* uptime */
+    .status-cluster > *:nth-child(5) { display: none; }  /* theme select (use Settings) */
+
+    /* Tabs → fixed bottom nav. */
+    nav.tabs {
+      position: fixed; left: 0; right: 0; bottom: 0; top: auto; z-index: 60;
+      display: flex; gap: 0; margin: 0;
+      background: var(--panel); border-top: 1px solid var(--line);
+      padding-bottom: env(safe-area-inset-bottom, 0px);
+    }
+    nav.tabs .tab {
+      flex: 1; justify-content: center; text-align: center;
+      padding: 12px 2px; font-size: 10px; letter-spacing: .04em; border: none;
+    }
+    nav.tabs .tab .tick { display: none; }
+    nav.tabs .tab.active::after { top: 0; bottom: auto; }  /* indicator on top edge */
+    main { padding: 0 0 calc(58px + env(safe-area-inset-bottom, 0px)); }
+
+    /* Library: full width, no sidebar, compact toolbar. */
+    .lib-layout { display: block; min-height: 0; gap: 0; }
+    .lib-sidebar { display: none; }
+    .lib-main { padding: 0 8px; }
+    /* The desktop toolbar is sticky at top:96px (below the top tab bar).
+       On touch the tabs are a bottom nav, so that offset is stale and the
+       floating search box overlaps the filter bar — make it flow normally.
+       Also drop the filter bar's -6px top margin that tucked it underneath. */
+    .lib-toolbar { flex-wrap: wrap; gap: 8px; padding: 8px 4px; position: static; margin-bottom: 8px; z-index: auto; }
+    .lib-filterbar { margin: 0 0 8px 0; }
+    .lib-toolbar .lib-source-name,
+    .lib-toolbar #lib-columns-btn,
+    .lib-toolbar .lib-playlist-actions { display: none; }
+    .lib-toolbar .input-wrap { flex: 1 1 100%; max-width: none; }
+    .lib-stats { font-size: 10px; margin-left: auto; }
+
+    /* Cards. Responsive grid: 1 column on phones, more as width allows
+       (≈2 on an iPad mini portrait, 3+ in landscape) so tablets use their
+       width instead of stretching a single column. */
+    .lib-cards {
+      display: grid; gap: 8px; padding: 8px 0 4px;
+      grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+    }
+    .lib-card {
+      display: grid; grid-template-columns: 46px minmax(0, 1fr) auto;
+      gap: 10px; align-items: center;
+      background: var(--panel); border: 1px solid var(--line);
+      border-radius: 12px; padding: 8px 10px;
+    }
+    .lib-card.file-missing { opacity: .5; }
+    .lib-card .lib-art {
+      width: 46px; height: 46px; border-radius: 8px; object-fit: cover; align-self: start;
+    }
+    .lib-card .lib-art.placeholder {
+      display: flex; align-items: center; justify-content: center;
+      color: var(--text3); background: var(--ink); font-size: 18px;
+    }
+    .lib-card-main { min-width: 0; }
+    .lib-card-title {
+      font-weight: 600; font-size: 14px; color: var(--text);
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    .lib-card-artist {
+      font-size: 12px; color: var(--text2);
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    .lib-card-meta {
+      display: flex; align-items: center; gap: 10px;
+      font-size: 11px; color: var(--text3); margin-top: 3px;
+    }
+    .lib-card-meta .mc-facts { white-space: nowrap; }
+    .lib-card-meta .stars { transform: scale(.9); transform-origin: left center; }
+    .lib-card-meta .col-color-chip { width: 14px; height: 14px; flex-shrink: 0; }
+    .lib-card-wave {
+      position: relative; height: 22px; margin-top: 6px;
+      border-radius: 4px; overflow: hidden;
+    }
+    .lib-card-wave img { width: 100%; height: 100%; object-fit: fill; display: block; }
+    .lib-card .load-btn {
+      align-self: center; min-width: 48px; height: 44px;
+      border-radius: 10px; font-size: 15px; padding: 0 14px;
+    }
+
+    /* Detail drawer → full-screen sheet. */
+    .detail-drawer { top: 0; height: 100dvh; border-top: none; }
+    .detail-resize { display: none; }
+    .detail-drawer .detail-body { overflow-y: auto; padding-bottom: 24px; }
+    .detail-drawer canvas { max-width: 100%; }
+  }
 </style>
 <script>
   // Apply the saved theme before first paint to avoid a flash of the default.
@@ -5804,6 +5910,67 @@ function openBulkPlaylistPicker(anchorEl) {
   setTimeout(() => document.addEventListener('click', outsideColorClick), 0);
 }
 
+// ───────── MOBILE LIBRARY (cards) ─────────
+// On narrow screens the desktop table is replaced by a touch-friendly card
+// list. It renders the same filtered + sorted rows and reuses the same
+// helpers (waveform thumbnail, rating stars, colour chip, LOAD-to-deck), so
+// the data path and interactions stay in sync with desktop.
+// Matches the CSS media query: phones (≤640px) or any touch tablet
+// (coarse pointer). Kept in sync so the JS renders cards exactly when the
+// CSS switches to the touch layout.
+const mobileMQ = window.matchMedia('(max-width: 640px), (pointer: coarse)');
+function isMobileLayout() { return mobileMQ.matches; }
+// Re-render the library when crossing the breakpoint (rotate / resize),
+// so the table ↔ cards swap happens live.
+mobileMQ.addEventListener('change', () => {
+  if (typeof refreshLibraryView === 'function') refreshLibraryView();
+});
+
+function libCardHtml(t) {
+  const art = t.art_id > 0
+    ? `<img class="lib-art" loading="lazy" alt="" src="/api/artwork/${t.id}">`
+    : `<div class="lib-art placeholder">♪</div>`;
+  const facts = [];
+  if (t.bpm) facts.push((+t.bpm).toFixed(1));
+  if (t.key) facts.push(t.key);
+  const dur = fmtDuration(t.duration);
+  if (dur) facts.push(dur);
+  const color = t.color_id > 0
+    ? `<button type="button" class="col-color-chip" data-color-pick="${t.id}" style="background:${TRACK_COLORS[t.color_id] || '#666'}" title="${escape(t.color_name || '')}"></button>`
+    : `<button type="button" class="col-color-chip empty" data-color-pick="${t.id}" title="Set color"></button>`;
+  return `<div class="lib-card ${t.file_missing ? 'file-missing' : ''}" data-track-card="${t.id}">
+      ${art}
+      <div class="lib-card-main">
+        <div class="lib-card-title">${escape(t.title || 'Untitled')}</div>
+        <div class="lib-card-artist">${escape(t.artist || '')}</div>
+        <div class="lib-card-meta"><span class="mc-facts">${escape(facts.join(' · '))}</span>${fmtStars(t.rating || 0, t.id)}${color}</div>
+        <div class="lib-card-wave"><img class="loading" data-libtrack="${t.id}" alt="" loading="lazy" src="${waveThumbSrc(t.id)}" onload="thumbLoaded(this)">${cueMarkerOverlay(t.id, t.duration)}</div>
+      </div>
+      <button class="load-btn ${currentPlayers.length === 0 ? '' : 'ready'}" data-track="${t.id}" title="Load to deck"><span class="arrow">▶</span></button>
+    </div>`;
+}
+
+function renderLibraryCards(el, rows) {
+  el.innerHTML = `<div class="lib-cards">${rows.map(libCardHtml).join('')}</div>`;
+  el.querySelectorAll('.load-btn').forEach(btn =>
+    btn.addEventListener('click', e => handleLoadClick(e, btn)));
+  el.querySelectorAll('[data-color-pick]').forEach(chip =>
+    chip.addEventListener('click', e => {
+      e.stopPropagation();
+      const tid = parseInt(chip.getAttribute('data-color-pick'), 10);
+      const tr = allTracks.find(x => x.id === tid);
+      openColorPicker(chip, tid, (tr && tr.color_id) || 0);
+    }));
+  wireStarClicks(el);
+  el.querySelectorAll('.lib-card').forEach(card =>
+    card.addEventListener('click', e => {
+      // The LOAD button, colour chip and stars handle their own taps.
+      if (e.target.closest('.load-btn, [data-color-pick], .stars')) return;
+      openDetail(parseInt(card.getAttribute('data-track-card'), 10));
+    }));
+  if (typeof syncStickyOffsets === 'function') syncStickyOffsets();
+}
+
 function renderLibrary(tracks) {
   const el = document.getElementById('library-content');
   const stats = document.getElementById('lib-stats');
@@ -5839,6 +6006,8 @@ function renderLibrary(tracks) {
   }
   const cols = activeColumns();
   rows = sortedRows(rows);
+  // On phones, render touch cards instead of the desktop table (same rows).
+  if (isMobileLayout()) { renderLibraryCards(el, rows); return; }
   // Render every filtered row — no cap. Off-screen rows are made cheap by
   // `content-visibility: auto` on table.lib tr[data-track-row] (see CSS), so
   // the browser skips their layout/paint until they scroll near the viewport,
