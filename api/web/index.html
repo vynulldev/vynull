@@ -3295,13 +3295,18 @@
       border-radius: 10px; font-size: 15px; padding: 0 14px;
     }
 
-    /* Detail drawer → full-screen sheet. Height is 100dvh so the open sheet
-       fits the *visible* area, but when closed it must slide past the *largest*
-       viewport (100lvh) — otherwise translateY(100%) only clears 100dvh and the
-       lvh−dvh gap (the space under a hidden URL bar) leaves a strip of the
-       drawer peeking at the bottom, cutting off the last track. .detail-drawer
-       .open (higher specificity) still wins to reveal it. */
-    .detail-drawer { top: 0; height: 100dvh; border-top: none; transform: translateY(100lvh); }
+    /* Detail drawer → near-full-screen sheet. It spans top:0 down to just
+       above the bottom nav (bottom = nav height) so the nav stays visible and
+       tappable instead of being covered. When closed it must slide past the
+       *largest* viewport (100lvh) — translateY(100%) would only clear its own
+       height and the lvh−dvh gap (space under a hidden URL bar) would leave a
+       strip peeking at the bottom. .detail-drawer.open (higher specificity)
+       still wins to reveal it. */
+    .detail-drawer {
+      top: 0; height: auto;
+      bottom: calc(44px + env(safe-area-inset-bottom, 0px));
+      border-top: none; transform: translateY(100lvh);
+    }
     .detail-resize { display: none; }
     .detail-drawer .detail-body { overflow-y: auto; padding-bottom: 24px; }
     .detail-drawer canvas { max-width: 100%; }
