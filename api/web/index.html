@@ -2265,6 +2265,10 @@
     overflow: hidden;
   }
   .detail-drawer.open { transform: translateY(0); }
+  /* Closed, the drawer's top edge rests exactly at the viewport bottom, but its
+     top border and upward box-shadow still project into the page as an orange
+     sliver + glow. Suppress both until it's open. */
+  .detail-drawer:not(.open) { box-shadow: none; border-top-color: transparent; }
   /* Drag handle at the top edge — pull up/down to resize the drawer height. */
   .detail-resize {
     position: absolute;
@@ -3199,7 +3203,10 @@
 
     /* Tabs → fixed bottom nav. */
     nav.tabs {
-      position: fixed; left: 0; right: 0; bottom: 0; top: auto; z-index: 60;
+      /* Above the detail drawer (z 90) so the tabs stay visible and tappable
+         while a track sheet is open; still below the playlist panel + its
+         backdrop (z 100/101), which are meant to cover the nav. */
+      position: fixed; left: 0; right: 0; bottom: 0; top: auto; z-index: 95;
       display: flex; gap: 0; margin: 0;
       background: var(--panel); border-top: 1px solid var(--line);
       padding-bottom: env(safe-area-inset-bottom, 0px);
@@ -3295,20 +3302,23 @@
       border-radius: 10px; font-size: 15px; padding: 0 14px;
     }
 
-    /* Detail drawer → near-full-screen sheet. It spans top:0 down to just
-       above the bottom nav (bottom = nav height) so the nav stays visible and
-       tappable instead of being covered. When closed it must slide past the
-       *largest* viewport (100lvh) — translateY(100%) would only clear its own
-       height and the lvh−dvh gap (space under a hidden URL bar) would leave a
-       strip peeking at the bottom. .detail-drawer.open (higher specificity)
-       still wins to reveal it. */
+    /* Detail drawer → full-height sheet. The bottom nav is given a higher
+       z-index (see nav.tabs below) so it paints *over* the drawer and stays
+       tappable on every device — stopping the drawer above the nav with pixel
+       math was unreliable on iOS Safari (safe-area / dynamic-toolbar
+       differences left the nav covered). The body reserves padding so no
+       content hides under the nav. Closed, it slides fully below the viewport
+       (115vh — vh is the largest viewport, plus margin so the header never
+       peeks even under iOS toolbar/safe-area shifts); .detail-drawer.open
+       (higher specificity) reveals it. */
     .detail-drawer {
-      top: 0; height: auto;
-      bottom: calc(44px + env(safe-area-inset-bottom, 0px));
-      border-top: none; transform: translateY(100lvh);
+      top: 0; bottom: auto; height: 100dvh;
+      border-top: none; transform: translateY(115vh);
     }
     .detail-resize { display: none; }
-    .detail-drawer .detail-body { overflow-y: auto; padding-bottom: 24px; }
+    /* Reserve space at the bottom so the last content clears the nav, which
+       now paints over the drawer. */
+    .detail-drawer .detail-body { overflow-y: auto; padding-bottom: calc(64px + env(safe-area-inset-bottom, 0px)); }
     .detail-drawer canvas { max-width: 100%; }
   }
 </style>
@@ -3481,6 +3491,10 @@ document.getElementById('api-info').textContent = 'API · http://' + location.ho
 // tabs
 document.querySelectorAll('.tab').forEach(t => {
   t.addEventListener('click', () => {
+    // Switching tabs should not leave a library overlay floating over the new
+    // view — the detail sheet and playlist panel are position:fixed.
+    closeDetail();
+    closeMobilePlaylists();
     document.querySelectorAll('.tab').forEach(x => x.classList.remove('active'));
     document.querySelectorAll('.panel').forEach(x => x.classList.remove('active'));
     t.classList.add('active');
