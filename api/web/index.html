@@ -3324,6 +3324,26 @@
        now paints over the drawer. */
     .detail-drawer .detail-body { overflow-y: auto; padding-bottom: calc(64px + env(safe-area-inset-bottom, 0px)); }
     .detail-drawer canvas { max-width: 100%; }
+
+    /* Settings: the 200px sidebar + 1fr grid squeezes the content to a sliver
+       on a phone. Stack it — the section nav becomes a horizontal scroller
+       above a full-width content column. */
+    .settings-layout { display: block; }
+    .settings-nav {
+      position: static; top: auto;
+      flex-direction: row; flex-wrap: nowrap;
+      gap: 4px; margin-bottom: 12px;
+      overflow-x: auto; -webkit-overflow-scrolling: touch;
+    }
+    .settings-nav button { flex: 0 0 auto; white-space: nowrap; }
+    .settings-row { padding: 9px 12px; gap: 10px; }
+
+    /* Players: the mixer strip is a single nowrap flex row, so the channel
+       chips + MASTER line overflow off the right edge on a phone. Let it wrap,
+       and drop the margin-left:auto that shoved them off-screen. */
+    .mixer-card { flex-wrap: wrap; gap: 6px 10px; }
+    .mixer-card .ch-row, .mixer-card .dim { margin-left: 0; }
+    .mixer-card .mxr-master { flex-basis: 100%; }
   }
 </style>
 <script>
