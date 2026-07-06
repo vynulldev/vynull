@@ -41,9 +41,6 @@ func main() {
 		fmt.Fprintf(os.Stderr, "warning: unknown --log-level %q; using info\n", cfg.LogLevel)
 	}
 
-	// Apply --rgb-3band before any analysis runs so generators see it.
-	analysis.RGB3BandMode = cfg.RGB3Band
-
 	// Load waveform overrides for CDJ rendering experiments. These bypass the
 	// cache via analysis.ApplyOverrides at serve time.
 	if cfg.PWV4Override != "" {

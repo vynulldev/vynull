@@ -202,7 +202,6 @@ Create a rekordbox-compatible USB structure from a music directory:
 | `--history-format` | `text` | Track-history format: `text`, `csv`, or `json` (JSONL — one object per line) |
 | `--lazy-analysis` | `false` | Analyze tracks on-demand instead of at startup |
 | `--transcode` | `false` | Transcode FLAC/WAV/AIFF to MP3 (default: serve natively) |
-| `--rgb-3band` | `false` | Encode PWV4/PWV5 with per-band global normalization (3-band style) |
 | `--settings` | `<data-dir>/settings.json` | Path to the JSON CDJ settings config |
 | `--import-settings` | | Import rekordbox MYSETTING/DEVSETTING `.DAT` files from a `/PIONEER` dir, then exit |
 | `--generate` | | Generate rekordbox USB structure at this path (no server) |

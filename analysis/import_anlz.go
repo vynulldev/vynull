@@ -17,7 +17,7 @@ import "encoding/binary"
 // the per-section raw entry data lives at [len_header:len_tag].
 func ParseANLZ(datPath, extPath, twoEXPath string, bpm float64, durationSec int) *Result {
 	r := &Result{
-		CacheVersion: effectiveCacheVersion(),
+		CacheVersion: cacheVersion,
 		BPM:          bpm,
 		Duration:     uint16(durationSec),
 	}

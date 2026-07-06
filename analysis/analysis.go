@@ -25,17 +25,6 @@ const analysisRate = 44100
 // here, so the next run re-analyzes once and converges on a single format.
 const cacheVersion = 25
 
-// effectiveCacheVersion returns the version key used for on-disk caching,
-// offset when RGB3BandMode is enabled so PWV5/PWV4 encoded under one mode
-// don't satisfy a cache lookup made under the other mode.
-func effectiveCacheVersion() int {
-	v := cacheVersion
-	if RGB3BandMode {
-		v += 1000
-	}
-	return v
-}
-
 // PWV4Override and PWV5Override, when non-nil, replace every track's color
 // preview / detail waveform at serve time. Set via the --pwv4-override /
 // --pwv5-override CLI flags for probing the CDJ's per-point
@@ -365,8 +354,8 @@ func (s *Store) loadFromDisk(filePath string) *Result {
 		log.Printf("analysis-cache: decode %s: %v", path, err)
 		return nil
 	}
-	if r.CacheVersion != effectiveCacheVersion() {
-		log.Printf("analysis-cache: stale version %d (want %d), discarding %s", r.CacheVersion, effectiveCacheVersion(), filepath.Base(path))
+	if r.CacheVersion != cacheVersion {
+		log.Printf("analysis-cache: stale version %d (want %d), discarding %s", r.CacheVersion, cacheVersion, filepath.Base(path))
 		os.Remove(path)
 		return nil
 	}
@@ -420,7 +409,7 @@ func AnalyzeTrack(filePath string) (*Result, error) {
 	songStructure := GeneratePSSI(phrases, bpm)
 
 	return &Result{
-		CacheVersion:     effectiveCacheVersion(),
+		CacheVersion:     cacheVersion,
 		BPM:              bpm,
 		Duration:         uint16(durationSec),
 		KeyCamelot:       camelot,

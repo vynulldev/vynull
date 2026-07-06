@@ -33,16 +33,6 @@ func decodePWV5(hi, lo byte) (r, g, b, h uint8) {
 	return
 }
 
-// withRGB3Band runs fn with RGB3BandMode set to mode and restores the
-// previous value on return. The global is process-wide; tests must not
-// run in parallel while toggling it.
-func withRGB3Band(mode bool, fn func()) {
-	prev := RGB3BandMode
-	RGB3BandMode = mode
-	defer func() { RGB3BandMode = prev }()
-	fn()
-}
-
 func TestPWV5BitLayout(t *testing.T) {
 	// Property check on the bit-packing formula at waveform.go:457.
 	// Encode every legal combination of r/g/b/h, decode, assert round-trip.
@@ -90,77 +80,45 @@ func TestPWV5ClassicDominantBand(t *testing.T) {
 		{"mid-500Hz", 500, "g"},
 		{"treble-8000Hz", 8000, "b"},
 	}
-	withRGB3Band(false, func() {
-		for _, c := range cases {
-			t.Run(c.name, func(t *testing.T) {
-				samples := synthSine(c.freqHz, 2.0, 0.5)
-				out := GenerateDetail(samples, analysisRate)
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			samples := synthSine(c.freqHz, 2.0, 0.5)
+			out := GenerateDetail(samples, analysisRate)
 
-				// Skip the first and last ~150ms — IIR filter ramp-up and
-				// segment-boundary effects can put a single low-amplitude entry
-				// in a non-dominant state.
-				skip := 30
-				var checked, mismatched int
-				for i := skip * 2; i < len(out)-skip*2; i += 2 {
-					// Skip padding (silent entries pass through unchanged).
-					if out[i] == 0xff && out[i+1] == 0x80 {
-						continue
-					}
-					r, g, b, _ := decodePWV5(out[i], out[i+1])
-					checked++
-					var ok bool
-					switch c.dominant {
-					case "r":
-						ok = r == 7 && r >= g && r >= b
-					case "g":
-						ok = g == 7 && g >= r && g >= b
-					case "b":
-						ok = b == 7 && b >= r && b >= g
-					}
-					if !ok {
-						mismatched++
-					}
+			// Skip the first and last ~150ms — IIR filter ramp-up and
+			// segment-boundary effects can put a single low-amplitude entry
+			// in a non-dominant state.
+			skip := 30
+			var checked, mismatched int
+			for i := skip * 2; i < len(out)-skip*2; i += 2 {
+				// Skip padding (silent entries pass through unchanged).
+				if out[i] == 0xff && out[i+1] == 0x80 {
+					continue
 				}
-				if checked == 0 {
-					t.Fatal("no non-silent entries to check")
+				r, g, b, _ := decodePWV5(out[i], out[i+1])
+				checked++
+				var ok bool
+				switch c.dominant {
+				case "r":
+					ok = r == 7 && r >= g && r >= b
+				case "g":
+					ok = g == 7 && g >= r && g >= b
+				case "b":
+					ok = b == 7 && b >= r && b >= g
 				}
-				// IIR rolloff can leak a tiny bit of energy into neighbours; allow
-				// 5% of entries to disagree but flag wholesale mis-encoding.
-				if float64(mismatched)/float64(checked) > 0.05 {
-					t.Fatalf("%d/%d entries did not have %s dominant", mismatched, checked, c.dominant)
+				if !ok {
+					mismatched++
 				}
-			})
-		}
-	})
-}
-
-func TestPWV5_3BandDiffersFromClassic(t *testing.T) {
-	// Regression guard: classic and 3-band must produce different bytes
-	// for the same input. If someone "unifies" the two branches (as I did),
-	// this should fail loudly.
-	//
-	// Use a signal with uneven band energy across time so the two normalisation
-	// strategies diverge: loud bass for the first half, loud treble for the
-	// second half.
-	half := synthSine(200, 1.0, 0.9)
-	half2 := synthSine(8000, 1.0, 0.2) // quieter — exercises the per-band-vs-global split
-	samples := append(half, half2...)
-
-	var classic, threeBand []byte
-	withRGB3Band(false, func() { classic = GenerateDetail(samples, analysisRate) })
-	withRGB3Band(true, func() { threeBand = GenerateDetail(samples, analysisRate) })
-
-	if len(classic) != len(threeBand) {
-		t.Fatalf("length mismatch: classic=%d 3band=%d", len(classic), len(threeBand))
-	}
-	diffs := 0
-	for i := range classic {
-		if classic[i] != threeBand[i] {
-			diffs++
-		}
-	}
-	if diffs == 0 {
-		t.Fatal("classic and 3-band output is byte-identical — the modes have been merged")
+			}
+			if checked == 0 {
+				t.Fatal("no non-silent entries to check")
+			}
+			// IIR rolloff can leak a tiny bit of energy into neighbours; allow
+			// 5% of entries to disagree but flag wholesale mis-encoding.
+			if float64(mismatched)/float64(checked) > 0.05 {
+				t.Fatalf("%d/%d entries did not have %s dominant", mismatched, checked, c.dominant)
+			}
+		})
 	}
 }
 
@@ -182,20 +140,18 @@ func TestPWV5GoldenHash(t *testing.T) {
 		)
 	}
 
-	withRGB3Band(false, func() {
-		out := GenerateDetail(samples, analysisRate)
-		sum := sha256.Sum256(out)
-		got := hex.EncodeToString(sum[:])
+	out := GenerateDetail(samples, analysisRate)
+	sum := sha256.Sum256(out)
+	got := hex.EncodeToString(sum[:])
 
-		// To update: run `go test ./analysis -run TestPWV5GoldenHash -v`
-		// then paste the printed hash here. (Bumping cacheVersion is optional and
-		// intentionally skipped for the band-crossover change so imported
-		// rekordbox waveforms in existing caches aren't discarded; new/
-		// re-analyzed tracks pick up the calibrated colours.)
-		const want = "053db4c3aa8762da39e4757f1309d9c379b92aae343cab2261a482287dd5ab20"
-		if got != want {
-			t.Fatalf("PWV5 classic encoder output changed.\n  got:  %s\n  want: %s\nIf this change is intentional, bump cacheVersion in analysis.go and update the want constant.",
-				got, want)
-		}
-	})
+	// To update: run `go test ./analysis -run TestPWV5GoldenHash -v`
+	// then paste the printed hash here. (Bumping cacheVersion is optional and
+	// intentionally skipped for the band-crossover change so imported
+	// rekordbox waveforms in existing caches aren't discarded; new/
+	// re-analyzed tracks pick up the calibrated colours.)
+	const want = "053db4c3aa8762da39e4757f1309d9c379b92aae343cab2261a482287dd5ab20"
+	if got != want {
+		t.Fatalf("PWV5 classic encoder output changed.\n  got:  %s\n  want: %s\nIf this change is intentional, bump cacheVersion in analysis.go and update the want constant.",
+			got, want)
+	}
 }

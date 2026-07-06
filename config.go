@@ -35,7 +35,6 @@ type Config struct {
 	LazyAnalysis   bool   // if true, analyze tracks on-demand instead of upfront
 	Transcode      bool   // if true, transcode FLAC/WAV/AIFF to MP3 for NFS serving
 	DataDir        string // directory for cached analysis and settings data
-	RGB3Band       bool   // if true, encode PWV5/PWV4 with per-band global normalization (3-band RGB style)
 	ReplayDir      string // if set, replay recorded response packets from this directory
 	PWV4Override   string // path to raw PWV4 bytes to inject for every track at serve time
 	PWV5Override   string // path to raw PWV5 bytes to inject for every track at serve time
@@ -66,7 +65,6 @@ func parseFlags() Config {
 	flag.BoolVar(&cfg.GenerateCopy, "copy-files", false, "copy files when generating (default: symlink)")
 	flag.BoolVar(&cfg.LazyAnalysis, "lazy-analysis", false, "analyze tracks on-demand when CDJs request them (fast startup)")
 	flag.BoolVar(&cfg.Transcode, "transcode", false, "transcode FLAC/WAV/AIFF to MP3 for CDJ playback")
-	flag.BoolVar(&cfg.RGB3Band, "rgb-3band", false, "encode PWV5/PWV4 waveforms with per-band global normalization (3-band RGB style — CDJs show more dynamic mid/high content). Bumps cache key; existing cached analyses regenerate.")
 	flag.StringVar(&cfg.DataDir, "data-dir", "", "directory for cached analysis/settings (default: ~/.vynull)")
 	flag.StringVar(&cfg.ReplayDir, "replay", "", "replay recorded response packets from this directory")
 	flag.StringVar(&cfg.PWV4Override, "pwv4-override", "", "inject raw PWV4 bytes from this file for every track at serve time (for CDJ rendering experiments)")
@@ -189,7 +187,7 @@ var flagGroups = []flagGroup{
 		"generate", "copy-files", "export-playlist",
 	}},
 	{"Waveform calibration / experiments", []string{
-		"rgb-3band", "pwv4-override", "pwv5-override", "replay",
+		"pwv4-override", "pwv5-override", "replay",
 	}},
 }
 

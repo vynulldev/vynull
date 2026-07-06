@@ -16,17 +16,6 @@ const (
 	fftSize            = 2048 // larger window for better bass frequency resolution
 )
 
-// RGB3BandMode controls how GenerateDetail and GenerateColorPreview encode
-// per-band amplitudes into the PWV5/PWV4 wire formats. When true, each band
-// is normalized to its own global peak across the track (so quieter highs
-// stay visible alongside loud bass); height is driven by the loudest band
-// at each point. When false (default), the original behaviour: r/g/b are
-// per-entry band proportions and h is overall amplitude / global max.
-//
-// Toggled via the --rgb-3band CLI flag at startup. Affects what CDJs render.
-// Changing this requires regenerating the analysis cache.
-var RGB3BandMode bool
-
 // Band-split crossover frequencies (Hz) for the colour-detail waveform's
 // bass/mid/treble → R/G/B mapping. Exposed as vars so the colour balance can be
 // calibrated; the defaults are the calibrated values.
@@ -462,68 +451,34 @@ func GenerateDetail(samples []float32, sampleRate int) []byte {
 	for i := 0; i < numPoints; i++ {
 		var height, r, g, b uint8
 
-		if RGB3BandMode {
-			// 3-band mode: each band normalized to its own global peak.
-			// Height = loudest band at this point (so a quiet hi-hat over silent
-			// bass still produces a visible bar).
-			bn := 0.0
-			if bassMax > 1e-10 {
-				bn = allBass[i] / bassMax
-			}
-			mn := 0.0
-			if midMax > 1e-10 {
-				mn = allMid[i] / midMax
-			}
-			tn := 0.0
-			if trebleMax > 1e-10 {
-				tn = allTreble[i] / trebleMax
-			}
-			peak := bn
-			if mn > peak {
-				peak = mn
-			}
-			if tn > peak {
-				peak = tn
-			}
-			compressed := math.Pow(peak, 0.75) * 31.0
-			if compressed > 31 {
-				compressed = 31
-			}
-			height = uint8(compressed)
+		// Classic mode: H = (peak/trackMax)² × 31 — per-track normalised
+		// with quadratic (energy) compression. This fits
+		// exactly across the ramp test: ratio 1.0 → H=31, 0.7 → 15, 0.5 → 7,
+		// 0.25 → 1, 0.125 → 0. And in the tones file (all tones at the same
+		// amplitude) every entry has ratio=1 so H=31 throughout, which is
+		// the expected result. Tracks where the loudest moment defines "31"
+		// is what gives waveforms their punchy character.
+		amp := allTotal[i] / totalMax
+		compressed := amp * amp * 31.0
+		if compressed > 31 {
+			compressed = 31
+		}
+		height = uint8(compressed)
 
-			r = uint8(math.Pow(bn, 0.75) * 7)
-			g = uint8(math.Pow(mn, 0.75) * 7)
-			b = uint8(math.Pow(tn, 0.75) * 7)
-		} else {
-			// Classic mode: H = (peak/trackMax)² × 31 — per-track normalised
-			// with quadratic (energy) compression. This fits
-			// exactly across the ramp test: ratio 1.0 → H=31, 0.7 → 15, 0.5 → 7,
-			// 0.25 → 1, 0.125 → 0. And in the tones file (all tones at the same
-			// amplitude) every entry has ratio=1 so H=31 throughout, which is
-			// the expected result. Tracks where the loudest moment defines "31"
-			// is what gives waveforms their punchy character.
-			amp := allTotal[i] / totalMax
-			compressed := amp * amp * 31.0
-			if compressed > 31 {
-				compressed = 31
-			}
-			height = uint8(compressed)
-
-			bassE := allBass[i]
-			midE := allMid[i]
-			trebleE := allTreble[i]
-			maxE := bassE
-			if midE > maxE {
-				maxE = midE
-			}
-			if trebleE > maxE {
-				maxE = trebleE
-			}
-			if maxE > 1e-10 {
-				r = uint8(bassE / maxE * 7)
-				g = uint8(midE / maxE * 7)
-				b = uint8(trebleE / maxE * 7)
-			}
+		bassE := allBass[i]
+		midE := allMid[i]
+		trebleE := allTreble[i]
+		maxE := bassE
+		if midE > maxE {
+			maxE = midE
+		}
+		if trebleE > maxE {
+			maxE = trebleE
+		}
+		if maxE > 1e-10 {
+			r = uint8(bassE / maxE * 7)
+			g = uint8(midE / maxE * 7)
+			b = uint8(trebleE / maxE * 7)
 		}
 
 		// Floor to avoid emitting 0x00 0x00 mid-song. The all-zero pair
