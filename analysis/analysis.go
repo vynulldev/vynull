@@ -369,67 +369,40 @@ func AnalyzeTrack(filePath string) (*Result, error) {
 		return nil, err
 	}
 
+	// ---- DSP (brand-neutral) ----
 	beatResult := DetectBeats(samples, analysisRate)
-	bpm := beatResult.BPM
 	camelot, standard := DetectKey(samples, analysisRate)
 	artwork := ExtractArtwork(filePath)
-	preview := GeneratePreview(samples, analysisRate)
-	previewANLZ := GeneratePreviewANLZ(samples, analysisRate)
-	tinyANLZ := GenerateTinyPreviewANLZ(samples)
-	colorPreview := GenerateColorPreview(samples, analysisRate)
-	detail := GenerateDetail(samples, analysisRate)
-	detail3Band := GenerateDetail3Band(samples, analysisRate)
-	preview3Band := GeneratePreview3Band(samples, analysisRate)
-	detailMono := GenerateDetailMono(detail)
 	durationSec := float64(len(samples)) / float64(analysisRate)
-	durationMs := durationSec * 1000.0
 
-	// Use beat positions for grid if available, otherwise fall back to BPM + downbeat.
-	var beatGrid []byte
-	var beatGridPQT2 []byte
+	// Downbeat index into Beats (the first beat at/after the detected downbeat).
 	downbeatIdx := 0
-	if len(beatResult.Beats) > 0 {
-		beatGrid = GenerateBeatGridFromBeats(beatResult)
-		// Find downbeat index for PQT2
-		for i, b := range beatResult.Beats {
-			if b >= beatResult.Downbeat-0.5 {
-				downbeatIdx = i
-				break
-			}
+	for i, b := range beatResult.Beats {
+		if b >= beatResult.Downbeat-0.5 {
+			downbeatIdx = i
+			break
 		}
-		beatGridPQT2 = GeneratePQT2(bpm, beatResult.Beats, downbeatIdx)
-	} else {
-		beatGrid = GenerateBeatGrid(bpm, durationMs, 0)
 	}
 
-	downbeat := beatResult.Downbeat
-	phrases := DetectPhrases(samples, analysisRate, bpm, downbeat)
-	AnnotateVocals(samples, analysisRate, bpm, downbeat, phrases)
-	SetPhraseTimes(phrases, beatResult.Beats, bpm)
-	songStructure := GeneratePSSI(phrases, bpm)
+	phrases := DetectPhrases(samples, analysisRate, beatResult.BPM, beatResult.Downbeat)
+	AnnotateVocals(samples, analysisRate, beatResult.BPM, beatResult.Downbeat, phrases)
+	SetPhraseTimes(phrases, beatResult.Beats, beatResult.BPM)
 
-	return &Result{
-		CacheVersion:     cacheVersion,
-		BPM:              bpm,
-		Duration:         uint16(durationSec),
-		KeyCamelot:       camelot,
-		KeyStandard:      standard,
-		Artwork:          artwork,
-		WavePreview:      preview,
-		WavePreviewANLZ:  previewANLZ,
-		WaveTinyANLZ:     tinyANLZ,
-		WaveColorPreview: colorPreview,
-		WaveDetail:       detail,
-		WaveDetail3Band:  detail3Band,
-		WavePreview3Band: preview3Band,
-		WaveDetailMono:   detailMono,
-		BeatGrid:         beatGrid,
-		BeatGridPQT2:     beatGridPQT2,
-		Beats:            beatResult.Beats,
-		DownbeatIndex:    downbeatIdx,
-		SongStructure:    songStructure,
-		Phrases:          phrases,
-	}, nil
+	r := &Result{
+		CacheVersion:  cacheVersion,
+		BPM:           beatResult.BPM,
+		Duration:      uint16(durationSec),
+		KeyCamelot:    camelot,
+		KeyStandard:   standard,
+		Artwork:       artwork,
+		Beats:         beatResult.Beats,
+		DownbeatIndex: downbeatIdx,
+		Phrases:       phrases,
+	}
+
+	// ---- encode to the installed wire format (Pioneer today) ----
+	waveformEncoder.Encode(samples, analysisRate, r, beatResult)
+	return r, nil
 }
 
 // AnalyzeAll processes all tracks using a worker pool.
