@@ -5,6 +5,8 @@ package analysis
 import (
 	"encoding/binary"
 	"math"
+
+	"github.com/vynulldev/vynull/dsp"
 )
 
 const (
@@ -163,25 +165,25 @@ func generateColorPreviewV2(samples []float32, sampleRate int) []byte {
 	// at 2 kHz; the target shows essentially zero in that transition zone,
 	// implying a near-brick-wall response.
 	bp8Low := func(s []float32, cutoff float64) []float32 {
-		c := butterworthLow(cutoff, sr)
-		return applyBiquad(applyBiquad(applyBiquad(applyBiquad(s, c), c), c), c)
+		c := dsp.ButterworthLow(cutoff, sr)
+		return dsp.ApplyBiquad(dsp.ApplyBiquad(dsp.ApplyBiquad(dsp.ApplyBiquad(s, c), c), c), c)
 	}
 	bp8High := func(s []float32, cutoff float64) []float32 {
-		c := butterworthHigh(cutoff, sr)
-		return applyBiquad(applyBiquad(applyBiquad(applyBiquad(s, c), c), c), c)
+		c := dsp.ButterworthHigh(cutoff, sr)
+		return dsp.ApplyBiquad(dsp.ApplyBiquad(dsp.ApplyBiquad(dsp.ApplyBiquad(s, c), c), c), c)
 	}
 	// Mid uses an 8th-order HP@200 for sharp bass rejection followed by a
 	// gentle 2nd-order LP@800 — the mid has a humped response
 	// peaking around 400-600 Hz then rolling off at ~3-6 dB/octave above.
 	// A flat band-pass 200-2000 Hz over-emits the 1-2 kHz region by ~2×.
-	midLP := butterworthLow(800, sr)
+	midLP := dsp.ButterworthLow(800, sr)
 	// d2 is a 2nd-order LP@400 with gentle 12 dB/octave rolloff. The target is
 	// 16→8→2 from 100→500→1000 Hz which an 8th-order would overshoot at the
 	// top end (still 8 at 1 kHz when the target is at 2).
-	lowLP := butterworthLow(400, sr)
+	lowLP := dsp.ButterworthLow(400, sr)
 	bassSamples := bp8Low(samples, 200)
-	lowSamples := applyBiquad(samples, lowLP)
-	midSamples := applyBiquad(bp8High(samples, 200), midLP)
+	lowSamples := dsp.ApplyBiquad(samples, lowLP)
+	midSamples := dsp.ApplyBiquad(bp8High(samples, 200), midLP)
 	trebleSamples := bp8High(samples, PreviewTrebleHz)
 
 	const entrySize = 6
@@ -269,123 +271,6 @@ func generateColorPreviewV2(samples []float32, sampleRate int) []byte {
 	return buf
 }
 
-// biquadCoeffs holds coefficients for a 2nd-order IIR (biquad) filter.
-type biquadCoeffs struct {
-	b0, b1, b2, a1, a2 float64
-}
-
-// butterworthLow computes 2nd-order Butterworth low-pass filter coefficients.
-// Butterworth Q = 1/√2 ≈ 0.707 (maximally flat passband, no resonant peak).
-// alpha = sin(w0) / (2*Q) = sin(w0) / √2.
-func butterworthLow(cutoff, sampleRate float64) biquadCoeffs {
-	w0 := 2.0 * math.Pi * cutoff / sampleRate
-	alpha := math.Sin(w0) / math.Sqrt2
-	cosW0 := math.Cos(w0)
-	a0 := 1.0 + alpha
-	return biquadCoeffs{
-		b0: (1.0 - cosW0) / 2.0 / a0,
-		b1: (1.0 - cosW0) / a0,
-		b2: (1.0 - cosW0) / 2.0 / a0,
-		a1: -2.0 * cosW0 / a0,
-		a2: (1.0 - alpha) / a0,
-	}
-}
-
-// butterworthHigh computes 2nd-order Butterworth high-pass filter coefficients.
-func butterworthHigh(cutoff, sampleRate float64) biquadCoeffs {
-	w0 := 2.0 * math.Pi * cutoff / sampleRate
-	alpha := math.Sin(w0) / math.Sqrt2
-	cosW0 := math.Cos(w0)
-	a0 := 1.0 + alpha
-	return biquadCoeffs{
-		b0: (1.0 + cosW0) / 2.0 / a0,
-		b1: -(1.0 + cosW0) / a0,
-		b2: (1.0 + cosW0) / 2.0 / a0,
-		a1: -2.0 * cosW0 / a0,
-		a2: (1.0 - alpha) / a0,
-	}
-}
-
-// applyBiquad applies a biquad IIR filter to the samples (in-place would mutate, so returns new slice).
-func applyBiquad(samples []float32, c biquadCoeffs) []float32 {
-	out := make([]float32, len(samples))
-	var x1, x2, y1, y2 float64
-	for i, s := range samples {
-		x0 := float64(s)
-		y0 := c.b0*x0 + c.b1*x1 + c.b2*x2 - c.a1*y1 - c.a2*y2
-		out[i] = float32(y0)
-		x2 = x1
-		x1 = x0
-		y2 = y1
-		y1 = y0
-	}
-	return out
-}
-
-// splitBandsAndPeaks runs IIR band-splitting on samples and returns
-// per-segment peak amplitudes for bass, mid, treble, and the unfiltered overall.
-// Used by PWV5 (per-entry relative color) and the 3-band JSON generator.
-//
-// Cutoffs ~200/2000 Hz, matching the crossover points
-// (confirmed via ramp/tone tests). Mid uses a proper band-pass (HP@200 + LP@2000)
-// rather than complementary subtraction, which had constructive-interference
-// artefacts near the bass cutoff that rendered mid-range tones as bass-tinted
-// on the CDJ (yellow/orange instead of green).
-func splitBandsAndPeaks(samples []float32, sampleRate, numPoints int) (allBass, allMid, allTreble, allTotal []float64) {
-	segLen := len(samples) / numPoints
-	if segLen < 1 {
-		segLen = 1
-	}
-
-	sr := float64(sampleRate)
-	bassFiltered := applyBiquad(samples, butterworthLow(BandBassMidHz, sr))
-	trebleFiltered := applyBiquad(samples, butterworthHigh(BandMidTrebleHz, sr))
-	midFiltered := applyBiquad(
-		applyBiquad(samples, butterworthHigh(BandBassMidHz, sr)),
-		butterworthLow(BandMidTrebleHz, sr),
-	)
-
-	allBass = make([]float64, numPoints)
-	allMid = make([]float64, numPoints)
-	allTreble = make([]float64, numPoints)
-	allTotal = make([]float64, numPoints)
-
-	for i := 0; i < numPoints; i++ {
-		start := i * segLen
-		end := start + segLen
-		if end > len(samples) {
-			end = len(samples)
-		}
-		if start >= len(samples) {
-			break
-		}
-		var bp, mp, tp, overall float64
-		for j := start; j < end; j++ {
-			bv := math.Abs(float64(bassFiltered[j]))
-			mv := math.Abs(float64(midFiltered[j]))
-			tv := math.Abs(float64(trebleFiltered[j]))
-			sv := math.Abs(float64(samples[j]))
-			if bv > bp {
-				bp = bv
-			}
-			if mv > mp {
-				mp = mv
-			}
-			if tv > tp {
-				tp = tv
-			}
-			if sv > overall {
-				overall = sv
-			}
-		}
-		allBass[i] = bp
-		allMid[i] = mp
-		allTreble[i] = tp
-		allTotal[i] = overall
-	}
-	return
-}
-
 // detailEntriesPerSec is the entry rate for PWV3/PWV5 scrolling waveforms.
 // Exports use ~150 entries/sec (e.g. a 484s track has 72,741 PWV5
 // entries → 150.3/s; a 165s track has 24,796 entries → 150.3/s).
@@ -403,7 +288,7 @@ func GenerateDetail(samples []float32, sampleRate int) []byte {
 		numPoints = 1
 	}
 
-	allBass, allMid, allTreble, allTotal := splitBandsAndPeaks(samples, sampleRate, numPoints)
+	allBass, allMid, allTreble, allTotal := dsp.SplitBandsAndPeaks(samples, sampleRate, numPoints, BandBassMidHz, BandMidTrebleHz)
 
 	// Find global maxes — overall (classic mode) and per-band (3-band mode).
 	totalMax, bassMax, midMax, trebleMax := 0.0, 0.0, 0.0, 0.0
@@ -751,9 +636,9 @@ func splitBands3RMS(samples []float32, sampleRate, numPoints int) (bass, mid, tr
 		numPoints = 1
 	}
 	sr := float64(sampleRate)
-	bf := applyBiquad(samples, butterworthLow(BandBassMidHz, sr))
-	tf := applyBiquad(samples, butterworthHigh(BandMidTrebleHz, sr))
-	mf := applyBiquad(applyBiquad(samples, butterworthHigh(BandBassMidHz, sr)), butterworthLow(BandMidTrebleHz, sr))
+	bf := dsp.ApplyBiquad(samples, dsp.ButterworthLow(BandBassMidHz, sr))
+	tf := dsp.ApplyBiquad(samples, dsp.ButterworthHigh(BandMidTrebleHz, sr))
+	mf := dsp.ApplyBiquad(dsp.ApplyBiquad(samples, dsp.ButterworthHigh(BandBassMidHz, sr)), dsp.ButterworthLow(BandMidTrebleHz, sr))
 	segLen := len(samples) / numPoints
 	if segLen < 1 {
 		segLen = 1

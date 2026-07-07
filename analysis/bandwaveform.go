@@ -2,7 +2,10 @@
 
 package analysis
 
-import "github.com/vynulldev/vynull/core"
+import (
+	"github.com/vynulldev/vynull/core"
+	"github.com/vynulldev/vynull/dsp"
+)
 
 // Neutral waveform resolutions. Detail matches the PWV5 detail rate; overview
 // is a fixed coarse width (like the PWV4 overview) whose points-per-second
@@ -20,7 +23,7 @@ func BandWaveformDetail(samples []float32, sampleRate int) core.BandWaveform {
 	if numPoints < 1 {
 		numPoints = 1
 	}
-	bass, mid, treble, _ := splitBandsAndPeaks(samples, sampleRate, numPoints)
+	bass, mid, treble, _ := dsp.SplitBandsAndPeaks(samples, sampleRate, numPoints, BandBassMidHz, BandMidTrebleHz)
 	return bandsToWaveform(detailEntriesPerSec, bass, mid, treble)
 }
 
@@ -31,7 +34,7 @@ func BandWaveformOverview(samples []float32, sampleRate int) core.BandWaveform {
 	if durationSec <= 0 {
 		return core.BandWaveform{}
 	}
-	bass, mid, treble, _ := splitBandsAndPeaks(samples, sampleRate, overviewPoints)
+	bass, mid, treble, _ := dsp.SplitBandsAndPeaks(samples, sampleRate, overviewPoints, BandBassMidHz, BandMidTrebleHz)
 	return bandsToWaveform(float64(overviewPoints)/durationSec, bass, mid, treble)
 }
 
