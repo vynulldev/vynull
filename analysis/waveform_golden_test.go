@@ -52,6 +52,15 @@ func TestPWV4GoldenHash(t *testing.T) { // color overview preview
 		"44bce394255ddcf45e1df0f0b978ada68c665fe645d5bfbd9c6019c05130f5bb")
 }
 
+// PWV5 is the served detail scrolling waveform. If this hash changes on an
+// intentional encoder tweak, also bump cacheVersion in analysis.go so existing
+// caches re-analyze.
+func TestPWV5GoldenHash(t *testing.T) { // detail scrolling waveform
+	checkGolden(t, "PWV5 (detail)",
+		GenerateDetail(goldenSignal(), analysisRate),
+		"053db4c3aa8762da39e4757f1309d9c379b92aae343cab2261a482287dd5ab20")
+}
+
 func TestPWV6GoldenHash(t *testing.T) { // 3-band overview preview
 	checkGolden(t, "PWV6 (3-band preview)",
 		GeneratePreview3Band(goldenSignal(), analysisRate),

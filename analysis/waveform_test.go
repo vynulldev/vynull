@@ -3,8 +3,6 @@
 package analysis
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"math"
 	"testing"
 )
@@ -119,39 +117,5 @@ func TestPWV5ClassicDominantBand(t *testing.T) {
 				t.Fatalf("%d/%d entries did not have %s dominant", mismatched, checked, c.dominant)
 			}
 		})
-	}
-}
-
-// TestPWV5GoldenHash locks the wire format against a deterministic synth
-// signal. If GenerateDetail's output changes byte-for-byte (filter tweaks,
-// formula tweaks, bit-layout changes), this fails — at which point you must
-// bump cacheVersion in analysis.go and update the constant below.
-func TestPWV5GoldenHash(t *testing.T) {
-	// 3-second mixed-band signal: bass + mid + treble at differing amplitudes,
-	// deterministic across machines (math.Sin is bit-stable in Go).
-	n := analysisRate * 3
-	samples := make([]float32, n)
-	for i := 0; i < n; i++ {
-		t := float64(i) / float64(analysisRate)
-		samples[i] = float32(
-			0.6*math.Sin(2*math.Pi*200*t) +
-				0.3*math.Sin(2*math.Pi*2000*t) +
-				0.15*math.Sin(2*math.Pi*8000*t),
-		)
-	}
-
-	out := GenerateDetail(samples, analysisRate)
-	sum := sha256.Sum256(out)
-	got := hex.EncodeToString(sum[:])
-
-	// To update: run `go test ./analysis -run TestPWV5GoldenHash -v`
-	// then paste the printed hash here. (Bumping cacheVersion is optional and
-	// intentionally skipped for the band-crossover change so imported
-	// rekordbox waveforms in existing caches aren't discarded; new/
-	// re-analyzed tracks pick up the calibrated colours.)
-	const want = "053db4c3aa8762da39e4757f1309d9c379b92aae343cab2261a482287dd5ab20"
-	if got != want {
-		t.Fatalf("PWV5 classic encoder output changed.\n  got:  %s\n  want: %s\nIf this change is intentional, bump cacheVersion in analysis.go and update the want constant.",
-			got, want)
 	}
 }
