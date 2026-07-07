@@ -10,12 +10,12 @@ import (
 )
 
 const (
-	previewPoints      = 900  // mono preview for dbserver network response
-	anlzPreviewPoints  = 400  // mono preview for ANLZ .DAT file (uses 400)
-	colorPreviewPoints = 1200 // color preview (PWV4) — uses 1200
-	maxHeight          = 31   // max height for PWV4/PWV5 color waveforms
-	previewMaxHeight   = 16   // max height for PWAV mono preview (1-16)
-	fftSize            = 2048 // larger window for better bass frequency resolution
+	PreviewPoints      = 900  // mono preview for dbserver network response
+	AnlzPreviewPoints  = 400  // mono preview for ANLZ .DAT file (uses 400)
+	ColorPreviewPoints = 1200 // color preview (PWV4) — uses 1200
+	MaxHeight          = 31   // max height for PWV4/PWV5 color waveforms
+	PreviewMaxHeight   = 16   // max height for PWAV mono preview (1-16)
+	FftSize            = 2048 // larger window for better bass frequency resolution
 )
 
 // Band-split crossover frequencies (Hz) for the colour-detail waveform's
@@ -55,8 +55,8 @@ var (
 // Each PWAV entry is 2 bytes: height + whiteness.
 // Uses max height 16 and whiteness ~5.
 func GeneratePreview(samples []float32, sampleRate int) []byte {
-	h200a := computeHeights(samples, 200, previewMaxHeight) // first half
-	h200b := computeHeights(samples, 200, previewMaxHeight) // second half (same data, different view)
+	h200a := computeHeights(samples, 200, PreviewMaxHeight) // first half
+	h200b := computeHeights(samples, 200, PreviewMaxHeight) // second half (same data, different view)
 	h100 := computeHeights(samples, 100, 11)                // tiny waveform (PWV2, max ~11)
 
 	buf := make([]byte, 904) // 400 + 400 + 100 + 4
@@ -108,7 +108,7 @@ func GenerateTinyPreviewANLZ(samples []float32) []byte {
 // darker for loud peaks (mode brightness ≈ 3 across a typical track, with
 // 5 for low heights and 2 for high). We approximate with `5 - h/3`.
 func GeneratePreviewANLZ(samples []float32, sampleRate int) []byte {
-	heights := computeHeights(samples, anlzPreviewPoints, previewMaxHeight)
+	heights := computeHeights(samples, AnlzPreviewPoints, PreviewMaxHeight)
 	for i, h := range heights {
 		h &= 0x1f
 		brightness := uint8(5)
@@ -154,7 +154,7 @@ func GenerateColorPreview(samples []float32, sampleRate int) []byte {
 // d_band = pow(peak_amplitude, 0.5) * 31 (sqrt compression), calibrated so
 // A=0.126 (the test sweep) produces d≈11 — the expected value.
 func generateColorPreviewV2(samples []float32, sampleRate int) []byte {
-	segLen := len(samples) / colorPreviewPoints
+	segLen := len(samples) / ColorPreviewPoints
 	if segLen < 1 {
 		segLen = 1
 	}
@@ -187,19 +187,19 @@ func generateColorPreviewV2(samples []float32, sampleRate int) []byte {
 	trebleSamples := bp8High(samples, PreviewTrebleHz)
 
 	const entrySize = 6
-	buf := make([]byte, colorPreviewPoints*entrySize)
+	buf := make([]byte, ColorPreviewPoints*entrySize)
 
 	// First pass: per-segment RMS (overall + per-band).
 	// Using RMS instead of peak amplitude for band bytes avoids IIR ringing
 	// during sweeps inflating values past the steady-state in-band amplitude.
-	rmsVals := make([]float64, colorPreviewPoints)
-	bassRMS := make([]float64, colorPreviewPoints)
-	lowRMS := make([]float64, colorPreviewPoints)
-	midRMS := make([]float64, colorPreviewPoints)
-	trebleRMS := make([]float64, colorPreviewPoints)
+	rmsVals := make([]float64, ColorPreviewPoints)
+	bassRMS := make([]float64, ColorPreviewPoints)
+	lowRMS := make([]float64, ColorPreviewPoints)
+	midRMS := make([]float64, ColorPreviewPoints)
+	trebleRMS := make([]float64, ColorPreviewPoints)
 	var maxRMS float64
 
-	for i := 0; i < colorPreviewPoints; i++ {
+	for i := 0; i < ColorPreviewPoints; i++ {
 		start := i * segLen
 		end := start + segLen
 		if end > len(samples) {
@@ -250,7 +250,7 @@ func generateColorPreviewV2(samples []float32, sampleRate int) []byte {
 	// not part of the colour balance and keeps its own scale.
 	const lowScale = 130.0 // d2
 
-	for i := 0; i < colorPreviewPoints; i++ {
+	for i := 0; i < ColorPreviewPoints; i++ {
 		var d1 uint8
 		if rmsNorm := rmsVals[i] / maxRMS; rmsNorm > 0 {
 			d1 = uint8(math.Min(math.Pow(rmsNorm, 0.3)*240, 255))
@@ -271,11 +271,11 @@ func generateColorPreviewV2(samples []float32, sampleRate int) []byte {
 	return buf
 }
 
-// detailEntriesPerSec is the entry rate for PWV3/PWV5 scrolling waveforms.
+// DetailEntriesPerSec is the entry rate for PWV3/PWV5 scrolling waveforms.
 // Exports use ~150 entries/sec (e.g. a 484s track has 72,741 PWV5
 // entries → 150.3/s; a 165s track has 24,796 entries → 150.3/s).
 // The 0x0096 in the format-flags header is literally this rate.
-const detailEntriesPerSec = 150
+const DetailEntriesPerSec = 150
 
 // GenerateDetail computes a high-resolution color waveform detail (PWV5 format).
 // Returns raw data bytes: 2 bytes per entry (big-endian), ~150 entries per second.
@@ -283,7 +283,7 @@ const detailEntriesPerSec = 150
 // Uses time-domain IIR filters for band splitting — no FFT needed.
 func GenerateDetail(samples []float32, sampleRate int) []byte {
 	durationSec := float64(len(samples)) / float64(sampleRate)
-	numPoints := int(durationSec * detailEntriesPerSec)
+	numPoints := int(durationSec * DetailEntriesPerSec)
 	if numPoints < 1 {
 		numPoints = 1
 	}
@@ -596,7 +596,7 @@ func computeHeights(samples []float32, n int, maxH int) []byte {
 // own bar height for CDJ-style additive 3-band visualisation.
 func GenerateDetail3Band(samples []float32, sampleRate int) []byte {
 	durationSec := float64(len(samples)) / float64(sampleRate)
-	numPoints := int(durationSec * detailEntriesPerSec)
+	numPoints := int(durationSec * DetailEntriesPerSec)
 	if numPoints < 1 {
 		numPoints = 1
 	}
@@ -675,5 +675,5 @@ func splitBands3RMS(samples []float32, sampleRate, numPoints int) (bass, mid, tr
 // 3 bytes per entry (bass, mid, treble; 0-255), absolute per-band RMS × scale,
 // calibrated for PWV6 (tools/wavecompare -pwv6).
 func GeneratePreview3Band(samples []float32, sampleRate int) []byte {
-	return pack3BandAbs(samples, sampleRate, colorPreviewPoints, Preview3BassScale, Preview3MidScale, Preview3TrebleScale)
+	return pack3BandAbs(samples, sampleRate, ColorPreviewPoints, Preview3BassScale, Preview3MidScale, Preview3TrebleScale)
 }

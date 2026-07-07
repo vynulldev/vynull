@@ -13,18 +13,18 @@ import (
 const overviewPoints = 1200
 
 // BandWaveformDetail extracts the brand-neutral per-band (bass/mid/treble)
-// amplitude envelope of a track at the detail resolution (detailEntriesPerSec).
+// amplitude envelope of a track at the detail resolution (DetailEntriesPerSec).
 // This is the shareable DSP output every backend re-encodes into its own colour
 // waveform (Pioneer PWV5, Engine high-res, …); it reuses the same band split as
 // GenerateDetail so the two agree.
 func BandWaveformDetail(samples []float32, sampleRate int) core.BandWaveform {
 	durationSec := float64(len(samples)) / float64(sampleRate)
-	numPoints := int(durationSec * detailEntriesPerSec)
+	numPoints := int(durationSec * DetailEntriesPerSec)
 	if numPoints < 1 {
 		numPoints = 1
 	}
 	bass, mid, treble, _ := dsp.SplitBandsAndPeaks(samples, sampleRate, numPoints, BandBassMidHz, BandMidTrebleHz)
-	return bandsToWaveform(detailEntriesPerSec, bass, mid, treble)
+	return bandsToWaveform(DetailEntriesPerSec, bass, mid, treble)
 }
 
 // BandWaveformOverview extracts the neutral per-band envelope at a fixed coarse

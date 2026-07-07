@@ -8,10 +8,10 @@ func TestBandWaveformDetail(t *testing.T) {
 	samples := synthSine(100, 2.0, 0.5) // 2s bass tone
 	w := BandWaveformDetail(samples, analysisRate)
 
-	if w.PointsPerSec != detailEntriesPerSec {
-		t.Errorf("PointsPerSec = %v, want %v", w.PointsPerSec, float64(detailEntriesPerSec))
+	if w.PointsPerSec != DetailEntriesPerSec {
+		t.Errorf("PointsPerSec = %v, want %v", w.PointsPerSec, float64(DetailEntriesPerSec))
 	}
-	want := int(2.0 * detailEntriesPerSec)
+	want := int(2.0 * DetailEntriesPerSec)
 	if len(w.Bass) != want || len(w.Mid) != want || len(w.Treble) != want {
 		t.Fatalf("point counts: bass=%d mid=%d treble=%d want=%d", len(w.Bass), len(w.Mid), len(w.Treble), want)
 	}
