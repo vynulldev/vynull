@@ -2,7 +2,7 @@
 .PHONY: build run run-cdj generate clean
 
 build:
-	go build -o vynull -buildvcs=false .
+	go build -o vynull .
 
 # rekordbox mode (the default) — no privileged ports needed
 run: build
