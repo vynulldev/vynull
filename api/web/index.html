@@ -6117,8 +6117,8 @@ function renderLibrary(tracks) {
         <button type="button" id="lib-empty-add" class="source-btn">+ Add tracks or folders</button>
         <div class="lib-empty-sub">MP3 · M4A · FLAC · WAV · AIFF</div>
         <div class="lib-empty-or">or</div>
-        <button type="button" id="lib-empty-import" class="source-btn">↓ Import your rekordbox library</button>
-        <div class="lib-empty-sub">XML · master.db · backup .zip</div>
+        <button type="button" id="lib-empty-import" class="source-btn">↓ Import your library</button>
+        <div class="lib-empty-sub">rekordbox · Traktor</div>
       </div>`;
       const b = document.getElementById('lib-empty-import');
       if (b) b.onclick = () => openImportRekordboxDialog();
@@ -6947,8 +6947,8 @@ function renderSettings(cfg) {
           <div id="add-path-status" class="export-hint" style="display:none; margin-top:8px;"></div>
         </div>
         <div class="source-action">
-          <button type="button" id="set-import-rb" class="source-btn">↓ Import from rekordbox…</button>
-          <div class="export-hint">Bring in tracks, playlists, tags, cues, and analysis from a rekordbox <b>XML</b> export, an encrypted <b>master.db</b>, or a library backup <b>.zip</b>.</div>
+          <button type="button" id="set-import-rb" class="source-btn">↓ Import a library…</button>
+          <div class="export-hint">Bring in tracks, playlists, tags, cues, and analysis from a rekordbox <b>XML</b> export, an encrypted <b>master.db</b>, or a library backup <b>.zip</b> — or a Traktor <b>collection.nml</b>.</div>
         </div>
         <div class="source-action">
           <button type="button" id="set-fix-paths" class="source-btn">↪ Fix track paths…</button>
@@ -10738,7 +10738,7 @@ function openImportRekordboxDialog() {
   m.className = 'menu-modal show';
   m.innerHTML = `
     <div class="head">
-      <span>IMPORT REKORDBOX LIBRARY</span>
+      <span>IMPORT LIBRARY</span>
       <button class="x" type="button" title="Close">×</button>
     </div>
     <div class="body">
@@ -10758,7 +10758,9 @@ function openImportRekordboxDialog() {
           waveforms, beat grids, cover art, and player/mixer settings sitting beside it;
           a master.db copied out on its own brings metadata + cues only. A
           <b>library backup .zip</b> (rekordbox's <b>File → Library → Backup</b>) bundles
-          the same thing in one file — and needs the same key.
+          the same thing in one file — and needs the same key. For <b>Traktor</b>,
+          point it at your <b>collection.nml</b> to bring in tracks, playlists, and
+          cues (no key required).
         </div>
       </div>
       <div class="export-row">
