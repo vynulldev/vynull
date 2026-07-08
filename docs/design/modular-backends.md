@@ -1,7 +1,27 @@
 # Modular backends: a brand-neutral core
 
-- **Status:** Proposed
+- **Status:** Partly implemented; sequence reprioritized (see Status)
 - **Scope:** architecture / refactor
+- **Related:** [import-layer.md](import-layer.md) — refines/reprioritizes step 5
+
+## Status (2026-07)
+
+Steps 1–2 have shipped: `core` exists, and `analysis` is split into pure DSP
+(`core.Analysis`) plus the Pioneer encoders under `link/prolink`. The rest has
+been **reordered** from the sequence below:
+
+- **3d (neutral analysis cache / encode-on-serve)** and **steps 3–4** (move
+  device/dbserver under `link/prolink`, define `core.Backend`, decouple `api`)
+  are **deferred**: they change the live serving path and only pay off with a
+  second protocol, which can't be validated without Denon/StageLinq hardware.
+- **Step 5 (library formats)** was **pulled forward** and is the productive axis
+  now — Traktor import has shipped. Its design lives in
+  [import-layer.md](import-layer.md), which **revises this doc on one point**:
+  the import adapter lands in `library` (`library.Importer` + `ImportBundle`),
+  not `core`, because real imports carry rich rekordbox-shaped side-data (tags,
+  cues, colours, ANLZ assets, smart-playlist rules) the thin `core.Importer`
+  never modelled. That thin `core.Importer` from step 1 is slated for deletion;
+  it can be lifted back to `core` if a non-library consumer ever appears.
 
 ## Goal
 
@@ -97,15 +117,16 @@ imports `core` only.
 ## Migration order (each a shippable PR; 1–4 are pure refactors)
 
 1. **Introduce `core`** with the model types + interfaces (this doc's PR). Purely
-   additive — nothing imports it yet, zero behavior change.
+   additive — nothing imports it yet, zero behavior change. **✅ done.**
 2. **Split `analysis`** into DSP (→ `core.Analysis`) vs encoders (→ `anlz`).
-   Highest-value cleanup; unblocks everything.
-3. **Move `proto/device/dbserver/nfs/pdb` under `link/prolink`**, define + implement `core.Backend`.
-4. **Decouple `api`** from `device`/`dbserver` via `core` interfaces.
-5. **Extract `format/rekordbox`** behind `Importer`/`Exporter`.
-6. `stagelinq` spike + `format/engine` slot in with no core changes.
+   Highest-value cleanup; unblocks everything. **✅ done** (encoders now under `link/prolink`).
+3. **Move `proto/device/dbserver/nfs/pdb` under `link/prolink`**, define + implement `core.Backend`. **⏸ deferred** (see Status).
+4. **Decouple `api`** from `device`/`dbserver` via `core` interfaces. **⏸ deferred.**
+5. **Extract library formats** behind `Importer`/`Exporter`. **➡️ in progress** as `library.Importer` — see [import-layer.md](import-layer.md).
+6. `stagelinq` spike + `format/engine` slot in with no core changes. **⬜ future.**
 
-Steps 1–4 are pure refactors — no new features, fully testable against current
-hardware — and leave the code cleaner even if a second protocol never ships.
-Running two backends at once means the library appears to CDJs *and* Denon
-players simultaneously.
+Steps 1–2 were pure refactors, fully testable against current hardware, and have
+landed. Steps 3–4 remain pure refactors but are on hold until a second protocol
+is worth validating (see Status) — they leave the code cleaner even if a second
+protocol never ships. The end-state is unchanged: running two backends at once
+means the library appears to CDJs *and* Denon players simultaneously.
