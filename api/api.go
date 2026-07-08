@@ -899,6 +899,10 @@ func (s *Server) handleImportRekordbox(w http.ResponseWriter, r *http.Request) {
 		if incTracks {
 			result, playlists, tags, colors, err = library.ImportRekordboxXML(s.Library, req.Path)
 		}
+	case ".nml":
+		if incTracks {
+			result, playlists, tags, colors, masterCues, err = library.ImportTraktorNML(s.Library, req.Path)
+		}
 	case ".db":
 		// The master.db is SQLCipher-encrypted; the user supplies the 64-hex
 		// key (the import dialog collects it). We ship no key and don't extract
@@ -970,7 +974,7 @@ func (s *Server) handleImportRekordbox(w http.ResponseWriter, r *http.Request) {
 			result, playlists, tags, colors, assets, masterCues, err = library.ImportRekordboxMasterDB(s.Library, dbPath, key)
 		}
 	default:
-		http.Error(w, "path must be a .xml, .db, or .zip (rekordbox backup) file", http.StatusBadRequest)
+		http.Error(w, "path must be a .xml, .nml (Traktor), .db, or .zip (rekordbox backup) file", http.StatusBadRequest)
 		return
 	}
 
