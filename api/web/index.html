@@ -6117,8 +6117,8 @@ function renderLibrary(tracks) {
         <button type="button" id="lib-empty-add" class="source-btn">+ Add tracks or folders</button>
         <div class="lib-empty-sub">MP3 · M4A · FLAC · WAV · AIFF</div>
         <div class="lib-empty-or">or</div>
-        <button type="button" id="lib-empty-import" class="source-btn">↓ Import your rekordbox library</button>
-        <div class="lib-empty-sub">XML · master.db · backup .zip</div>
+        <button type="button" id="lib-empty-import" class="source-btn">↓ Import your library</button>
+        <div class="lib-empty-sub">rekordbox · Traktor</div>
       </div>`;
       const b = document.getElementById('lib-empty-import');
       if (b) b.onclick = () => openImportRekordboxDialog();
@@ -6947,8 +6947,8 @@ function renderSettings(cfg) {
           <div id="add-path-status" class="export-hint" style="display:none; margin-top:8px;"></div>
         </div>
         <div class="source-action">
-          <button type="button" id="set-import-rb" class="source-btn">↓ Import from rekordbox…</button>
-          <div class="export-hint">Bring in tracks, playlists, tags, cues, and analysis from a rekordbox <b>XML</b> export, an encrypted <b>master.db</b>, or a library backup <b>.zip</b>.</div>
+          <button type="button" id="set-import-rb" class="source-btn">↓ Import a library…</button>
+          <div class="export-hint">Bring in tracks, playlists, tags, cues, and analysis from a rekordbox <b>XML</b> export, an encrypted <b>master.db</b>, or a library backup <b>.zip</b> — or a Traktor <b>collection.nml</b>.</div>
         </div>
         <div class="source-action">
           <button type="button" id="set-fix-paths" class="source-btn">↪ Fix track paths…</button>
@@ -10738,7 +10738,7 @@ function openImportRekordboxDialog() {
   m.className = 'menu-modal show';
   m.innerHTML = `
     <div class="head">
-      <span>IMPORT REKORDBOX LIBRARY</span>
+      <span>IMPORT LIBRARY</span>
       <button class="x" type="button" title="Close">×</button>
     </div>
     <div class="body">
@@ -10746,6 +10746,7 @@ function openImportRekordboxDialog() {
         <label class="export-label">Source</label>
         <div class="export-radios imp-source">
           <label><input type="radio" name="imp_src" value="xml" checked> XML export <span class="export-hint" style="display:inline">— no key required</span></label>
+          <label><input type="radio" name="imp_src" value="nml"> Traktor NML <span class="export-hint" style="display:inline">— collection.nml</span></label>
           <label><input type="radio" name="imp_src" value="db"> master.db <span class="export-hint" style="display:inline">— needs 64-hex SQLCipher key</span></label>
           <label><input type="radio" name="imp_src" value="zip"> Backup .zip <span class="export-hint" style="display:inline">— full: + waveforms, cues, artwork</span></label>
         </div>
@@ -10757,7 +10758,9 @@ function openImportRekordboxDialog() {
           waveforms, beat grids, cover art, and player/mixer settings sitting beside it;
           a master.db copied out on its own brings metadata + cues only. A
           <b>library backup .zip</b> (rekordbox's <b>File → Library → Backup</b>) bundles
-          the same thing in one file — and needs the same key.
+          the same thing in one file — and needs the same key. For <b>Traktor</b>,
+          point it at your <b>collection.nml</b> to bring in tracks, playlists, and
+          cues (no key required).
         </div>
       </div>
       <div class="export-row">
@@ -10784,10 +10787,10 @@ function openImportRekordboxDialog() {
       <div class="export-row">
         <label class="export-label">Include</label>
         <div id="imp-include" style="display:flex; flex-wrap:wrap; gap:6px 16px;">
-          <label data-src="xml,db,zip"><input type="checkbox" id="inc-tracks" checked> Tracks <span class="export-hint" style="display:inline">— incl. rating, colour, key</span></label>
-          <label data-src="xml,db,zip" data-dep="tracks"><input type="checkbox" id="inc-playlists" checked> Playlists</label>
+          <label data-src="xml,nml,db,zip"><input type="checkbox" id="inc-tracks" checked> Tracks <span class="export-hint" style="display:inline">— incl. rating, colour, key</span></label>
+          <label data-src="xml,nml,db,zip" data-dep="tracks"><input type="checkbox" id="inc-playlists" checked> Playlists</label>
           <label data-src="xml,db,zip" data-dep="tracks"><input type="checkbox" id="inc-tags" checked> Tags</label>
-          <label data-src="db,zip" data-dep="tracks"><input type="checkbox" id="inc-cues" checked> Cues</label>
+          <label data-src="nml,db,zip" data-dep="tracks"><input type="checkbox" id="inc-cues" checked> Cues</label>
           <label data-src="db,zip" data-dep="tracks"><input type="checkbox" id="inc-analysis" checked> Waveforms &amp; beat grids</label>
           <label data-src="db,zip" data-dep="tracks"><input type="checkbox" id="inc-artwork" checked> Artwork</label>
           <label data-src="db,zip"><input type="checkbox" id="inc-settings" checked> Player/mixer settings</label>
@@ -10838,6 +10841,9 @@ function openImportRekordboxDialog() {
     } else if (src === 'zip') {
       keyRow.style.display = '';
       pathInput.placeholder = '/path/to/rekordbox_bak_YYYYMMDD.zip';
+    } else if (src === 'nml') {
+      keyRow.style.display = 'none';
+      pathInput.placeholder = '/path/to/collection.nml';
     } else {
       keyRow.style.display = 'none';
       pathInput.placeholder = '/path/to/rekordbox.xml';
