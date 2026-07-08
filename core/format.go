@@ -2,33 +2,18 @@
 
 package core
 
-// Library is a neutral snapshot of tracks and playlists — the currency of the
-// import/export adapters.
+// Library is a neutral snapshot of tracks and playlists — what the export
+// adapters consume. (Import adapters live in package library, working against
+// the concrete library.Library; see docs/design/import-layer.md.)
 type Library struct {
 	Tracks    []*Track
 	Playlists []*Playlist
-}
-
-// ImportOptions carries adapter-agnostic import knobs; a specific importer may
-// define its own richer options.
-type ImportOptions struct {
-	// RemapPath, when set, rewrites an imported absolute path onto a local file.
-	RemapPath func(string) string
 }
 
 // ExportOptions carries adapter-agnostic export knobs.
 type ExportOptions struct {
 	// CopyFiles copies audio into the destination instead of referencing it.
 	CopyFiles bool
-}
-
-// Importer reads a foreign library (rekordbox XML/master.db, Engine, Serato, …)
-// into the neutral model.
-type Importer interface {
-	Name() string
-	// Detect reports whether path looks like this format (a directory or file).
-	Detect(path string) bool
-	Import(path string, opts ImportOptions) (*Library, error)
 }
 
 // Exporter writes the neutral model out in a foreign format (rekordbox USB/PDB,

@@ -64,10 +64,11 @@ func TestImportTraktorNML(t *testing.T) {
 	}
 
 	lib := NewLibrary(nil, nil)
-	res, playlists, tags, colors, cues, err := ImportTraktorNML(lib, nml)
+	bundle, err := ImportTraktorNML(lib, nml)
 	if err != nil {
 		t.Fatalf("import: %v", err)
 	}
+	res, playlists, tags, colors, cues := bundle.Result, bundle.Playlists, bundle.Tags, bundle.Colors, bundle.Cues
 	if tags != nil || colors != nil {
 		t.Errorf("expected nil tags/colors, got %v / %v", tags, colors)
 	}
@@ -109,7 +110,7 @@ func TestImportTraktorNML(t *testing.T) {
 	if len(cues) != 4 {
 		t.Fatalf("cues=%d want 4: %+v", len(cues), cues)
 	}
-	want := []MasterDBCue{
+	want := []ImportedCue{
 		{TrackID: tr.ID, HotCue: 1, TimeMs: 1000, LoopMs: -1, Comment: "Intro"},     // HOTCUE 0 → slot 1
 		{TrackID: tr.ID, HotCue: 3, TimeMs: 2000, LoopMs: -1, Comment: "Drop"},      // 2000.4 rounds down
 		{TrackID: tr.ID, HotCue: -1, TimeMs: 5000, LoopMs: -1, Comment: "Mem"},      // memory cue
