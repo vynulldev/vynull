@@ -1,18 +1,20 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-package analysis
+package prolink
 
 import (
 	"math"
 	"testing"
+
+	"github.com/vynulldev/vynull/analysis"
 )
 
 // synthSine produces a mono sine wave at the given frequency and amplitude.
-// Duration is in seconds; sample rate is analysisRate.
+// Duration is in seconds; sample rate is analysis.AnalysisRate.
 func synthSine(freqHz, durSec, amplitude float64) []float32 {
-	n := int(float64(analysisRate) * durSec)
+	n := int(float64(analysis.AnalysisRate) * durSec)
 	out := make([]float32, n)
-	twoPiF := 2.0 * math.Pi * freqHz / float64(analysisRate)
+	twoPiF := 2.0 * math.Pi * freqHz / float64(analysis.AnalysisRate)
 	for i := range out {
 		out[i] = float32(amplitude * math.Sin(twoPiF*float64(i)))
 	}
@@ -53,8 +55,8 @@ func TestPWV5BitLayout(t *testing.T) {
 
 func TestPWV5Silence(t *testing.T) {
 	// Zero samples — every entry should be the padding 0xff 0x80.
-	samples := make([]float32, analysisRate*2)
-	out := GenerateDetail(samples, analysisRate)
+	samples := make([]float32, analysis.AnalysisRate*2)
+	out := GenerateDetail(samples, analysis.AnalysisRate)
 	if len(out)%2 != 0 || len(out) == 0 {
 		t.Fatalf("unexpected output length %d", len(out))
 	}
@@ -81,7 +83,7 @@ func TestPWV5ClassicDominantBand(t *testing.T) {
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			samples := synthSine(c.freqHz, 2.0, 0.5)
-			out := GenerateDetail(samples, analysisRate)
+			out := GenerateDetail(samples, analysis.AnalysisRate)
 
 			// Skip the first and last ~150ms — IIR filter ramp-up and
 			// segment-boundary effects can put a single low-amplitude entry

@@ -25,6 +25,7 @@ import (
 	"sync/atomic"
 
 	"github.com/vynulldev/vynull/analysis"
+	"github.com/vynulldev/vynull/link/prolink"
 )
 
 type track struct {
@@ -213,16 +214,16 @@ func main() {
 				switch {
 				case *pwv7:
 					rb = decodePWV6(rbBytes) // PWV7 is also 3 bytes/entry
-					ours = decodePWV6(analysis.GenerateDetail3Band(samples, 44100))
+					ours = decodePWV6(prolink.GenerateDetail3Band(samples, 44100))
 				case *pwv6:
 					rb = decodePWV6(rbBytes)
-					ours = decodePWV6(analysis.GeneratePreview3Band(samples, 44100))
+					ours = decodePWV6(prolink.GeneratePreview3Band(samples, 44100))
 				case *pwv4:
 					rb = decodePWV4(rbBytes)
-					ours = decodePWV4(analysis.GenerateColorPreview(samples, 44100))
+					ours = decodePWV4(prolink.GenerateColorPreview(samples, 44100))
 				default:
 					rb = decodePWV5(rbBytes)
-					ours = decodePWV5(analysis.GenerateDetail(samples, 44100))
+					ours = decodePWV5(prolink.GenerateDetail(samples, 44100))
 				}
 				m := len(rb)
 				if len(ours) < m {

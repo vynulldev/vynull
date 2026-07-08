@@ -1,8 +1,12 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-package analysis
+package prolink
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/vynulldev/vynull/analysis"
+)
 
 // goldenBeats is a deterministic 32-beat grid at 120 BPM (500 ms apart), used
 // to lock the beat-grid / phrase blob encoders independently of the detector.
@@ -22,18 +26,18 @@ func TestPQT2GoldenHash(t *testing.T) {
 
 func TestBeatGridGoldenHash(t *testing.T) {
 	checkGolden(t, "beat grid (0x2204)",
-		GenerateBeatGrid(120, 60000, 0),
+		analysis.GenerateBeatGrid(120, 60000, 0),
 		"6ab4b71bf3643d6d1be9f3ff6659e85fddf950365e1dcec650980743ca86e620")
 }
 
 func TestBeatGridFromBeatsGoldenHash(t *testing.T) {
 	checkGolden(t, "beat grid from beats",
-		GenerateBeatGridFromBeats(&BeatResult{BPM: 120, Beats: goldenBeats(), Downbeat: 0}),
+		analysis.GenerateBeatGridFromBeats(&analysis.BeatResult{BPM: 120, Beats: goldenBeats(), Downbeat: 0}),
 		"8a9ba25e847b08ae25b12dde6d22c50053761cb5d757cd5a2c3b6892dcbde41e")
 }
 
 func TestPSSIGoldenHash(t *testing.T) {
-	phrases := []Phrase{
+	phrases := []analysis.Phrase{
 		{StartBeat: 1, EndBeat: 16, Kind: 1, StartMs: 0, EndMs: 8000},
 		{StartBeat: 17, EndBeat: 32, Kind: 5, StartMs: 8000, EndMs: 16000},
 	}
