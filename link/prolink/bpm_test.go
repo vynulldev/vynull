@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-package analysis
+package prolink
 
 import (
 	"encoding/binary"
@@ -8,6 +8,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/vynulldev/vynull/analysis"
 )
 
 func TestDetectBeats(t *testing.T) {
@@ -35,13 +37,13 @@ func TestDetectBeats(t *testing.T) {
 
 		path := filepath.Join(dir, e.Name())
 		t.Run(e.Name(), func(t *testing.T) {
-			samples, err := DecodePCM(path, analysisRate)
+			samples, err := analysis.DecodePCM(path, analysis.AnalysisRate)
 			if err != nil {
 				t.Fatalf("decode: %v", err)
 			}
 
-			result := DetectBeats(samples, analysisRate)
-			dur := float64(len(samples)) / float64(analysisRate)
+			result := analysis.DetectBeats(samples, analysis.AnalysisRate)
+			dur := float64(len(samples)) / float64(analysis.AnalysisRate)
 
 			t.Logf("BPM=%.2f  beats=%d  downbeat=%.1fms  duration=%.1fs",
 				result.BPM, len(result.Beats), result.Downbeat, dur)
@@ -60,13 +62,13 @@ func TestDetectBeatsSingle(t *testing.T) {
 		t.Skip("Set TEST_AUDIO_FILE to run single-file BPM test")
 	}
 
-	samples, err := DecodePCM(path, analysisRate)
+	samples, err := analysis.DecodePCM(path, analysis.AnalysisRate)
 	if err != nil {
 		t.Fatalf("decode: %v", err)
 	}
 
-	result := DetectBeats(samples, analysisRate)
-	dur := float64(len(samples)) / float64(analysisRate)
+	result := analysis.DetectBeats(samples, analysis.AnalysisRate)
+	dur := float64(len(samples)) / float64(analysis.AnalysisRate)
 
 	fmt.Printf("File: %s\n", filepath.Base(path))
 	fmt.Printf("Duration: %.1fs\n", dur)
@@ -90,7 +92,7 @@ func TestDetectBeatsSingle(t *testing.T) {
 	}
 
 	// Phrase detection.
-	phrases := DetectPhrases(samples, analysisRate, result.BPM, result.Downbeat)
+	phrases := analysis.DetectPhrases(samples, analysis.AnalysisRate, result.BPM, result.Downbeat)
 	fmt.Printf("\nPhrases: %d\n", len(phrases))
 	phraseNames := map[uint16]string{
 		1: "Intro", 2: "Up", 3: "Down", 5: "Chorus", 6: "Outro",
@@ -116,7 +118,7 @@ func TestDetectBeatsSingle(t *testing.T) {
 
 	// Beat grid debug output.
 	if len(result.Beats) > 0 {
-		beatGrid := GenerateBeatGridFromBeats(result)
+		beatGrid := analysis.GenerateBeatGridFromBeats(result)
 		fmt.Printf("\nBeat Grid (0x2204 format): %d bytes\n", len(beatGrid))
 		if len(beatGrid) >= 20 {
 			numBeats := int(binary.LittleEndian.Uint32(beatGrid[4:8]))

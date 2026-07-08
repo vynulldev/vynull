@@ -1,12 +1,14 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-package analysis
+package prolink
 
 import (
 	"fmt"
 	"os"
 	"testing"
 	"time"
+
+	"github.com/vynulldev/vynull/analysis"
 )
 
 func TestAnalysisTiming(t *testing.T) {
@@ -16,12 +18,12 @@ func TestAnalysisTiming(t *testing.T) {
 	}
 
 	t0 := time.Now()
-	samples, err := DecodePCM(path, analysisRate)
+	samples, err := analysis.DecodePCM(path, analysis.AnalysisRate)
 	if err != nil {
 		t.Fatalf("decode: %v", err)
 	}
 	decodeTime := time.Since(t0)
-	dur := float64(len(samples)) / float64(analysisRate)
+	dur := float64(len(samples)) / float64(analysis.AnalysisRate)
 
 	fmt.Printf("File: %s (%.1fs audio, %d samples)\n\n", path, dur, len(samples))
 	fmt.Printf("%-25s %10s\n", "Stage", "Time")
@@ -29,32 +31,32 @@ func TestAnalysisTiming(t *testing.T) {
 	fmt.Printf("%-25s %10s\n", "Decode PCM", decodeTime.Round(time.Millisecond))
 
 	t0 = time.Now()
-	DetectBeats(samples, analysisRate)
+	analysis.DetectBeats(samples, analysis.AnalysisRate)
 	bpmTime := time.Since(t0)
 	fmt.Printf("%-25s %10s\n", "BPM/Beat Detection", bpmTime.Round(time.Millisecond))
 
 	t0 = time.Now()
-	DetectKey(samples, analysisRate)
+	analysis.DetectKey(samples, analysis.AnalysisRate)
 	keyTime := time.Since(t0)
 	fmt.Printf("%-25s %10s\n", "Key Detection", keyTime.Round(time.Millisecond))
 
 	t0 = time.Now()
-	GeneratePreview(samples, analysisRate)
+	GeneratePreview(samples, analysis.AnalysisRate)
 	previewTime := time.Since(t0)
 	fmt.Printf("%-25s %10s\n", "Preview (PWAV)", previewTime.Round(time.Millisecond))
 
 	t0 = time.Now()
-	GeneratePreviewANLZ(samples, analysisRate)
+	GeneratePreviewANLZ(samples, analysis.AnalysisRate)
 	previewANLZTime := time.Since(t0)
 	fmt.Printf("%-25s %10s\n", "Preview ANLZ", previewANLZTime.Round(time.Millisecond))
 
 	t0 = time.Now()
-	GenerateColorPreview(samples, analysisRate)
+	GenerateColorPreview(samples, analysis.AnalysisRate)
 	colorPreviewTime := time.Since(t0)
 	fmt.Printf("%-25s %10s\n", "Color Preview (PWV4)", colorPreviewTime.Round(time.Millisecond))
 
 	t0 = time.Now()
-	detail := GenerateDetail(samples, analysisRate)
+	detail := GenerateDetail(samples, analysis.AnalysisRate)
 	detailTime := time.Since(t0)
 	fmt.Printf("%-25s %10s\n", "Detail Waveform (PWV5)", detailTime.Round(time.Millisecond))
 
@@ -64,7 +66,7 @@ func TestAnalysisTiming(t *testing.T) {
 	fmt.Printf("%-25s %10s\n", "Detail Mono", monoTime.Round(time.Millisecond))
 
 	t0 = time.Now()
-	ExtractArtwork(path)
+	analysis.ExtractArtwork(path)
 	artTime := time.Since(t0)
 	fmt.Printf("%-25s %10s\n", "Artwork Extract", artTime.Round(time.Millisecond))
 

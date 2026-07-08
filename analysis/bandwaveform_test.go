@@ -6,7 +6,7 @@ import "testing"
 
 func TestBandWaveformDetail(t *testing.T) {
 	samples := synthSine(100, 2.0, 0.5) // 2s bass tone
-	w := BandWaveformDetail(samples, analysisRate)
+	w := BandWaveformDetail(samples, AnalysisRate)
 
 	if w.PointsPerSec != DetailEntriesPerSec {
 		t.Errorf("PointsPerSec = %v, want %v", w.PointsPerSec, float64(DetailEntriesPerSec))
@@ -40,7 +40,7 @@ func TestBandWaveformDetail(t *testing.T) {
 }
 
 func TestBandWaveformOverview(t *testing.T) {
-	w := BandWaveformOverview(synthSine(100, 2.0, 0.5), analysisRate)
+	w := BandWaveformOverview(synthSine(100, 2.0, 0.5), AnalysisRate)
 	if len(w.Bass) != overviewPoints {
 		t.Errorf("overview points = %d, want %d", len(w.Bass), overviewPoints)
 	}
@@ -52,7 +52,7 @@ func TestBandWaveformOverview(t *testing.T) {
 func TestCoreWithBands(t *testing.T) {
 	samples := synthSine(100, 2.0, 0.5)
 	r := &Result{BPM: 120, KeyCamelot: "8A", KeyStandard: "Am"}
-	a := r.CoreWithBands(samples, analysisRate)
+	a := r.CoreWithBands(samples, AnalysisRate)
 	if a.BPM != 120 {
 		t.Errorf("BPM = %v, want 120", a.BPM)
 	}

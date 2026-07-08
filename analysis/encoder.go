@@ -14,39 +14,10 @@ type Encoder interface {
 	Encode(samples []float32, sampleRate int, r *Result, beats *BeatResult)
 }
 
-// waveformEncoder is the installed encoder. It defaults to the built-in Pioneer
-// encoder; a backend replaces it via SetEncoder once the encoders move to
-// link/prolink.
-var waveformEncoder Encoder = pioneerEncoder{}
+// waveformEncoder is the installed encoder. It defaults to nil now that the
+// built-in Pioneer encoder lives in link/prolink; the process must install it
+// via SetEncoder (main does this at startup) before AnalyzeTrack runs.
+var waveformEncoder Encoder
 
 // SetEncoder installs the wire-format encoder used by AnalyzeTrack.
 func SetEncoder(e Encoder) { waveformEncoder = e }
-
-// pioneerEncoder is the built-in Pro DJ Link encoder. It will move to
-// link/prolink in the next step; the logic here is exactly the encode sequence
-// AnalyzeTrack used inline, so the output is byte-for-byte unchanged.
-type pioneerEncoder struct{}
-
-func (pioneerEncoder) Encode(samples []float32, sampleRate int, r *Result, beats *BeatResult) {
-	durationMs := float64(len(samples)) / float64(sampleRate) * 1000.0
-
-	detail := GenerateDetail(samples, sampleRate)
-	r.WaveDetail = detail
-	r.WaveDetailMono = GenerateDetailMono(detail)
-	r.WavePreview = GeneratePreview(samples, sampleRate)
-	r.WavePreviewANLZ = GeneratePreviewANLZ(samples, sampleRate)
-	r.WaveTinyANLZ = GenerateTinyPreviewANLZ(samples)
-	r.WaveColorPreview = GenerateColorPreview(samples, sampleRate)
-	r.WaveDetail3Band = GenerateDetail3Band(samples, sampleRate)
-	r.WavePreview3Band = GeneratePreview3Band(samples, sampleRate)
-
-	// Beat grid: prefer detected beat positions, else fall back to BPM.
-	if len(beats.Beats) > 0 {
-		r.BeatGrid = GenerateBeatGridFromBeats(beats)
-		r.BeatGridPQT2 = GeneratePQT2(r.BPM, beats.Beats, r.DownbeatIndex)
-	} else {
-		r.BeatGrid = GenerateBeatGrid(r.BPM, durationMs, 0)
-	}
-
-	r.SongStructure = GeneratePSSI(r.Phrases, r.BPM)
-}

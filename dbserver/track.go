@@ -10,6 +10,7 @@ import (
 
 	"github.com/vynulldev/vynull/analysis"
 	"github.com/vynulldev/vynull/library"
+	"github.com/vynulldev/vynull/link/prolink"
 	"github.com/vynulldev/vynull/proto"
 )
 
@@ -661,7 +662,7 @@ func (h *Handler) handleGetExtAnalysis(msg *proto.DBMessage) []*proto.DBMessage 
 				if blob != nil {
 					log.Printf("dbserver: PVB2 for track %d (%d bytes, generated seek index)", trackID, len(blob))
 				} else {
-					blob = analysis.GeneratePVB2()
+					blob = prolink.GeneratePVB2()
 					log.Printf("dbserver: PVB2 for track %d (%d bytes, placeholder — probe failed)", trackID, len(blob))
 				}
 				return []*proto.DBMessage{{

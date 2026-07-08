@@ -1,11 +1,15 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-package analysis
+package prolink
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/vynulldev/vynull/analysis"
+)
 
 func TestPSSIRoundTrip(t *testing.T) {
-	in := []Phrase{
+	in := []analysis.Phrase{
 		{StartBeat: 1, EndBeat: 33, Kind: 1},    // intro
 		{StartBeat: 33, EndBeat: 97, Kind: 2},   // up
 		{StartBeat: 97, EndBeat: 161, Kind: 5},  // chorus
@@ -15,7 +19,7 @@ func TestPSSIRoundTrip(t *testing.T) {
 	if blob == nil {
 		t.Fatal("GeneratePSSI returned nil")
 	}
-	out := ParsePSSI(blob)
+	out := analysis.ParsePSSI(blob)
 	if len(out) != len(in) {
 		t.Fatalf("got %d phrases, want %d", len(out), len(in))
 	}
@@ -27,13 +31,13 @@ func TestPSSIRoundTrip(t *testing.T) {
 }
 
 func TestPSSIEmpty(t *testing.T) {
-	if ParsePSSI(nil) != nil {
+	if analysis.ParsePSSI(nil) != nil {
 		t.Error("nil blob should yield nil")
 	}
-	if ParsePSSI([]byte{0, 0, 0, 24, 0, 0}) != nil {
+	if analysis.ParsePSSI([]byte{0, 0, 0, 24, 0, 0}) != nil {
 		t.Error("zero-entry blob should yield nil")
 	}
-	if ParsePSSI([]byte{1, 2, 3}) != nil {
+	if analysis.ParsePSSI([]byte{1, 2, 3}) != nil {
 		t.Error("too-short blob should yield nil")
 	}
 }

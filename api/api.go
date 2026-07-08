@@ -34,6 +34,7 @@ import (
 	"github.com/vynulldev/vynull/device"
 	"github.com/vynulldev/vynull/export"
 	"github.com/vynulldev/vynull/library"
+	"github.com/vynulldev/vynull/link/prolink"
 	"github.com/vynulldev/vynull/pdb"
 )
 
@@ -3187,7 +3188,7 @@ func (s *Server) handleBeatGridAdjust(w http.ResponseWriter, r *http.Request) {
 				beatResult.Downbeat = result.Beats[result.DownbeatIndex]
 			}
 			result.BeatGrid = analysis.GenerateBeatGridFromBeats(beatResult)
-			result.BeatGridPQT2 = analysis.GeneratePQT2(result.BPM, result.Beats, result.DownbeatIndex)
+			result.BeatGridPQT2 = prolink.GeneratePQT2(result.BPM, result.Beats, result.DownbeatIndex)
 		}
 		s.Analysis.Set(req.TrackID, result)
 	}

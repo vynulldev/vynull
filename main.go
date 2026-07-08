@@ -27,6 +27,7 @@ import (
 	"github.com/vynulldev/vynull/internal/dlog"
 	"github.com/vynulldev/vynull/internal/netutil"
 	"github.com/vynulldev/vynull/library"
+	"github.com/vynulldev/vynull/link/prolink"
 	"github.com/vynulldev/vynull/nfs"
 	"github.com/vynulldev/vynull/pdb"
 )
@@ -40,6 +41,11 @@ func main() {
 	} else {
 		fmt.Fprintf(os.Stderr, "warning: unknown --log-level %q; using info\n", cfg.LogLevel)
 	}
+
+	// Install the Pro DJ Link wire-format encoder before any analysis runs.
+	// analysis.AnalyzeTrack delegates encoding to the installed Encoder, which
+	// defaults to nil — so this must happen before AnalyzeAll / AnalyzeTrack.
+	analysis.SetEncoder(prolink.NewEncoder())
 
 	// Load waveform overrides for CDJ rendering experiments. These bypass the
 	// cache via analysis.ApplyOverrides at serve time.

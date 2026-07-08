@@ -15,7 +15,10 @@ import (
 	"github.com/vynulldev/vynull/pdb"
 )
 
-const analysisRate = 44100
+// AnalysisRate is the fixed decode/analysis sample rate (Hz). Exported so the
+// prolink encoder package (and its golden tests) can reference the same rate
+// the DSP runs at.
+const AnalysisRate = 44100
 
 // cacheVersion is incremented when the analysis format changes.
 // Cached results with a different version are discarded and re-analyzed.
@@ -364,16 +367,16 @@ func (s *Store) loadFromDisk(filePath string) *Result {
 
 // AnalyzeTrack decodes and analyzes a single track.
 func AnalyzeTrack(filePath string) (*Result, error) {
-	samples, err := DecodePCM(filePath, analysisRate)
+	samples, err := DecodePCM(filePath, AnalysisRate)
 	if err != nil {
 		return nil, err
 	}
 
 	// ---- DSP (brand-neutral) ----
-	beatResult := DetectBeats(samples, analysisRate)
-	camelot, standard := DetectKey(samples, analysisRate)
+	beatResult := DetectBeats(samples, AnalysisRate)
+	camelot, standard := DetectKey(samples, AnalysisRate)
 	artwork := ExtractArtwork(filePath)
-	durationSec := float64(len(samples)) / float64(analysisRate)
+	durationSec := float64(len(samples)) / float64(AnalysisRate)
 
 	// Downbeat index into Beats (the first beat at/after the detected downbeat).
 	downbeatIdx := 0
@@ -384,8 +387,8 @@ func AnalyzeTrack(filePath string) (*Result, error) {
 		}
 	}
 
-	phrases := DetectPhrases(samples, analysisRate, beatResult.BPM, beatResult.Downbeat)
-	AnnotateVocals(samples, analysisRate, beatResult.BPM, beatResult.Downbeat, phrases)
+	phrases := DetectPhrases(samples, AnalysisRate, beatResult.BPM, beatResult.Downbeat)
+	AnnotateVocals(samples, AnalysisRate, beatResult.BPM, beatResult.Downbeat, phrases)
 	SetPhraseTimes(phrases, beatResult.Beats, beatResult.BPM)
 
 	r := &Result{
@@ -401,7 +404,7 @@ func AnalyzeTrack(filePath string) (*Result, error) {
 	}
 
 	// ---- encode to the installed wire format (Pioneer today) ----
-	waveformEncoder.Encode(samples, analysisRate, r, beatResult)
+	waveformEncoder.Encode(samples, AnalysisRate, r, beatResult)
 	return r, nil
 }
 
