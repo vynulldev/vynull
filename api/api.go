@@ -888,20 +888,21 @@ func (s *Server) handleImportRekordbox(w http.ResponseWriter, r *http.Request) {
 	var playlists []library.PlaylistImport
 	var tags []library.TagImport
 	var colors []library.ColorImport
-	var assets []library.MasterDBAsset   // ANLZ + artwork paths (.zip, or .db in its lib folder)
-	var masterCues []library.MasterDBCue // cue points from djmdCue (.db/.zip)
+	var assets []library.ImportedAsset   // ANLZ + artwork paths (.zip, or .db in its lib folder)
+	var masterCues []library.ImportedCue // cue points from djmdCue (.db/.zip)
 	var shareRoot string                 // share/ root (.zip extract, or a .db's own folder)
 	var settingsDir string               // *SETTING.DAT dir (.zip extract, or a .db's own folder)
+	var bundle *library.ImportBundle     // importer side-data; destructured into the locals below
 	var err error
 
 	switch ext {
 	case ".xml":
 		if incTracks {
-			result, playlists, tags, colors, err = library.ImportRekordboxXML(s.Library, req.Path)
+			bundle, err = library.ImportRekordboxXML(s.Library, req.Path)
 		}
 	case ".nml":
 		if incTracks {
-			result, playlists, tags, colors, masterCues, err = library.ImportTraktorNML(s.Library, req.Path)
+			bundle, err = library.ImportTraktorNML(s.Library, req.Path)
 		}
 	case ".db":
 		// The master.db is SQLCipher-encrypted; the user supplies the 64-hex
@@ -913,7 +914,7 @@ func (s *Server) handleImportRekordbox(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if incTracks {
-			result, playlists, tags, colors, assets, masterCues, err = library.ImportRekordboxMasterDB(s.Library, req.Path, key)
+			bundle, err = library.ImportRekordboxMasterDB(s.Library, req.Path, key)
 		}
 		// A master.db that still lives in its rekordbox library folder has its
 		// analysis (share/PIONEER/USBANLZ), artwork (share/PIONEER/Artwork), and
@@ -971,7 +972,7 @@ func (s *Server) handleImportRekordbox(w http.ResponseWriter, r *http.Request) {
 		}
 		if incTracks {
 			s.importPhase("Reading rekordbox database…")
-			result, playlists, tags, colors, assets, masterCues, err = library.ImportRekordboxMasterDB(s.Library, dbPath, key)
+			bundle, err = library.ImportRekordboxMasterDB(s.Library, dbPath, key)
 		}
 	default:
 		http.Error(w, "path must be a .xml, .nml (Traktor), .db, or .zip (rekordbox backup) file", http.StatusBadRequest)
@@ -981,6 +982,16 @@ func (s *Server) handleImportRekordbox(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		http.Error(w, "import failed: "+err.Error(), http.StatusInternalServerError)
 		return
+	}
+	// Spread the importer's side-data into the locals the apply pipeline below
+	// reads. shareRoot/settingsDir stay handler-managed (set per case above).
+	if bundle != nil {
+		result = bundle.Result
+		playlists = bundle.Playlists
+		tags = bundle.Tags
+		colors = bundle.Colors
+		assets = bundle.Assets
+		masterCues = bundle.Cues
 	}
 	// !incTracks paths skip the importer entirely (e.g. a settings-only zip
 	// import), so synthesize an empty result for the materialization + summary.

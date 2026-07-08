@@ -115,18 +115,18 @@ type traktorPrimaryKey struct {
 	Key  string `xml:"KEY,attr"`  // VOLUME+DIR+FILE location key
 }
 
-// ImportTraktorNML imports a Traktor collection.nml. It returns cues (hot cues,
-// memory cues, and loops from CUE_V2) in the same MasterDBCue carrier the
+// ImportTraktorNML imports a Traktor collection.nml. Cues (hot cues, memory
+// cues, and loops from CUE_V2) come back in the bundle's ImportedCue carrier the
 // api.go applier already consumes; Traktor has no MyTags or per-track colours,
-// so those two slices are always nil.
-func ImportTraktorNML(lib *Library, nmlPath string) (*ImportResult, []PlaylistImport, []TagImport, []ColorImport, []MasterDBCue, error) {
+// so the bundle's Tags/Colors are always nil.
+func ImportTraktorNML(lib *Library, nmlPath string) (*ImportBundle, error) {
 	data, err := os.ReadFile(nmlPath)
 	if err != nil {
-		return nil, nil, nil, nil, nil, fmt.Errorf("read nml: %w", err)
+		return nil, fmt.Errorf("read nml: %w", err)
 	}
 	var doc traktorNML
 	if err := xml.Unmarshal(data, &doc); err != nil {
-		return nil, nil, nil, nil, nil, fmt.Errorf("parse nml: %w", err)
+		return nil, fmt.Errorf("parse nml: %w", err)
 	}
 	log.Printf("import: Traktor NML v%d, %d entries declared",
 		doc.Version, doc.Collection.Entries)
@@ -135,7 +135,7 @@ func ImportTraktorNML(lib *Library, nmlPath string) (*ImportResult, []PlaylistIm
 	// Traktor playlists reference tracks by their location key (VOLUME+DIR+FILE
 	// with Traktor's "/:" separators) rather than a numeric ID, so index by it.
 	idMap := make(map[string]uint32, len(doc.Collection.Tracks))
-	var cues []MasterDBCue
+	var cues []ImportedCue
 	for i := range doc.Collection.Tracks {
 		t := &doc.Collection.Tracks[i]
 		path := traktorLocationToPath(t.Location)
@@ -168,16 +168,16 @@ func ImportTraktorNML(lib *Library, nmlPath string) (*ImportResult, []PlaylistIm
 	res.PlaylistsTotal = countTraktorPlaylists(doc.Playlists.Root.Subnodes)
 
 	lib.FinalizeBulk()
-	return res, imports, nil, nil, cues, nil
+	return &ImportBundle{Result: res, Playlists: imports, Cues: cues}, nil
 }
 
-// traktorCues converts a track's CUE_V2 markers to the neutral MasterDBCue
+// traktorCues converts a track's CUE_V2 markers to the neutral ImportedCue
 // carrier. Grid anchors (TYPE 4, the beat grid) are dropped; hot cues (HOTCUE
 // 0-7) map to slots 1-8 to match the applier's convention, and memory markers
 // are kept only when they are plain cues or loops (fade-in/out/load markers are
 // skipped as clutter). Traktor CUE_V2 carries no per-cue colour.
-func traktorCues(trackID uint32, cs []traktorCue) []MasterDBCue {
-	var out []MasterDBCue
+func traktorCues(trackID uint32, cs []traktorCue) []ImportedCue {
+	var out []ImportedCue
 	for _, c := range cs {
 		if c.Type == traktorCueTypeGrid {
 			continue
@@ -186,7 +186,7 @@ func traktorCues(trackID uint32, cs []traktorCue) []MasterDBCue {
 		if !isHot && c.Type != traktorCueTypeCue && c.Type != traktorCueTypeLoop {
 			continue
 		}
-		mc := MasterDBCue{
+		mc := ImportedCue{
 			TrackID: trackID,
 			HotCue:  -1,
 			TimeMs:  uint32(c.Start + 0.5),

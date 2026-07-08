@@ -205,14 +205,14 @@ func nodeToImport(n *rbxmlNode, idMap map[string]uint32) PlaylistImport {
 // third is the MyTags extracted from track comments (empty unless the
 // export had the "Add MyTag to Comments" preference enabled); the fourth
 // is the track colour labels resolved from each TRACK's Colour attribute.
-func ImportRekordboxXML(lib *Library, xmlPath string) (*ImportResult, []PlaylistImport, []TagImport, []ColorImport, error) {
+func ImportRekordboxXML(lib *Library, xmlPath string) (*ImportBundle, error) {
 	data, err := os.ReadFile(xmlPath)
 	if err != nil {
-		return nil, nil, nil, nil, fmt.Errorf("read xml: %w", err)
+		return nil, fmt.Errorf("read xml: %w", err)
 	}
 	var doc RekordboxXML
 	if err := xml.Unmarshal(data, &doc); err != nil {
-		return nil, nil, nil, nil, fmt.Errorf("parse xml: %w", err)
+		return nil, fmt.Errorf("parse xml: %w", err)
 	}
 	log.Printf("import: %s v%s, %d tracks declared",
 		doc.Product.Name, doc.Product.Version, doc.Collection.Entries)
@@ -269,7 +269,7 @@ func ImportRekordboxXML(lib *Library, xmlPath string) (*ImportResult, []Playlist
 	}
 	res.TagsTotal = len(tags)
 	lib.FinalizeBulk()
-	return res, imports, tags, colors, nil
+	return &ImportBundle{Result: res, Playlists: imports, Tags: tags, Colors: colors}, nil
 }
 
 // locationToPath converts a rekordbox XML Location ("file://localhost/...")

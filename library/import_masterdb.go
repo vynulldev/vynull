@@ -30,9 +30,9 @@ type masterDBCue struct {
 	Comment   string `json:"comment"`
 }
 
-// MasterDBCue is a djmdCue row with its rekordbox ContentID resolved to a
+// ImportedCue is a djmdCue row with its rekordbox ContentID resolved to a
 // library Track.ID. HotCue 0 = memory cue, 1..8 = hot cue A..H.
-type MasterDBCue struct {
+type ImportedCue struct {
 	TrackID uint32
 	HotCue  int
 	TimeMs  uint32
@@ -86,11 +86,11 @@ type masterDBTrack struct {
 	ImagePath   string  `json:"image_path"`   // /PIONEER/Artwork/.../artwork.jpg, relative to share/
 }
 
-// MasterDBAsset pairs a library Track.ID with the rekordbox-relative paths
+// ImportedAsset pairs a library Track.ID with the rekordbox-relative paths
 // to its analysis (ANLZ) and artwork files inside a backup's share/ tree.
 // The caller resolves these against the extracted backup directory to import
 // the existing waveforms/beat grids and cover art.
-type MasterDBAsset struct {
+type ImportedAsset struct {
 	TrackID     uint32
 	AnalyzePath string // e.g. /PIONEER/USBANLZ/<bucket>/<uuid>/ANLZ0000.DAT
 	ImagePath   string // e.g. /PIONEER/Artwork/<bucket>/<uuid>/artwork.jpg
@@ -141,20 +141,19 @@ type MasterDBTag struct {
 // decryption key for the user's own database, supplied by the caller — this
 // project ships no key and does not extract one.
 //
-// Returns the same shape as ImportRekordboxXML: the resolved playlist tree
-// ([]PlaylistImport, track IDs already mapped to library Track.IDs), the
-// MyTags and track colours (also resolved, matching []TagImport/[]ColorImport),
-// and []MasterDBAsset carrying each track's ANLZ + artwork paths (relative to
+// Returns an ImportBundle like the other importers: the resolved playlist tree
+// (track IDs already mapped to library Track.IDs), the MyTags, track colours,
+// and cues, plus Assets carrying each track's ANLZ + artwork paths (relative to
 // the backup's share/ root) for the caller to import.
-func ImportRekordboxMasterDB(lib *Library, dbPath, key string) (*ImportResult, []PlaylistImport, []TagImport, []ColorImport, []MasterDBAsset, []MasterDBCue, error) {
+func ImportRekordboxMasterDB(lib *Library, dbPath, key string) (*ImportBundle, error) {
 	dump, err := runMasterDBDump(dbPath, key)
 	if err != nil {
-		return nil, nil, nil, nil, nil, nil, err
+		return nil, err
 	}
 	res := &ImportResult{TracksTotal: len(dump.Tracks)}
 	idMap := make(map[string]uint32, len(dump.Tracks)) // rekordbox ContentID → library Track.ID
 	var colors []ColorImport
-	var assets []MasterDBAsset
+	var assets []ImportedAsset
 	for _, t := range dump.Tracks {
 		path := t.FilePath
 		if path != "" && t.FileName != "" && !strings.HasSuffix(path, t.FileName) {
@@ -183,7 +182,7 @@ func ImportRekordboxMasterDB(lib *Library, dbPath, key string) (*ImportResult, [
 			colors = append(colors, ColorImport{TrackID: id, ColorID: track.ColorID})
 		}
 		if t.AnalyzePath != "" || t.ImagePath != "" {
-			assets = append(assets, MasterDBAsset{TrackID: id, AnalyzePath: t.AnalyzePath, ImagePath: t.ImagePath})
+			assets = append(assets, ImportedAsset{TrackID: id, AnalyzePath: t.AnalyzePath, ImagePath: t.ImagePath})
 		}
 	}
 
@@ -220,13 +219,13 @@ func ImportRekordboxMasterDB(lib *Library, dbPath, key string) (*ImportResult, [
 	res.PlaylistsTotal = countPlaylists2(playlists)
 
 	// Resolve cue points to library track IDs. OutMsec -1 means "not a loop".
-	cues := make([]MasterDBCue, 0, len(dump.Cues))
+	cues := make([]ImportedCue, 0, len(dump.Cues))
 	for _, c := range dump.Cues {
 		id, ok := idMap[c.ContentID]
 		if !ok {
 			continue
 		}
-		mc := MasterDBCue{TrackID: id, HotCue: hotCueSlot(c.Kind), TimeMs: uint32(c.InMsec), LoopMs: -1, Comment: c.Comment}
+		mc := ImportedCue{TrackID: id, HotCue: hotCueSlot(c.Kind), TimeMs: uint32(c.InMsec), LoopMs: -1, Comment: c.Comment}
 		if c.OutMsec > 0 {
 			mc.LoopMs = int32(c.OutMsec)
 		}
@@ -243,7 +242,7 @@ func ImportRekordboxMasterDB(lib *Library, dbPath, key string) (*ImportResult, [
 	}
 
 	lib.FinalizeBulk()
-	return res, playlists, tags, colors, assets, cues, nil
+	return &ImportBundle{Result: res, Playlists: playlists, Tags: tags, Colors: colors, Assets: assets, Cues: cues}, nil
 }
 
 // masterDBPlaylistTree turns the flat djmdPlaylist rows into a nested
