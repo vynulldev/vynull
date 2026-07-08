@@ -2,8 +2,9 @@
 
 // Package core is the brand-neutral heart of vynull: the domain model (tracks,
 // cues, playlists, analysis, player state) and the interfaces that pluggable
-// adapters implement — live link protocols (Backend/Source) and library file
-// formats (Importer/Exporter).
+// adapters implement — live link protocols (Backend/Source) and library export
+// formats (Exporter). Import adapters live in package library (see
+// docs/design/import-layer.md).
 //
 // Dependency rule: core imports nothing from analysis, link/*, format/*, or api;
 // everything else imports core. Keeping the model and contracts free of any one
