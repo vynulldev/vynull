@@ -115,6 +115,19 @@ type traktorPrimaryKey struct {
 	Key  string `xml:"KEY,attr"`  // VOLUME+DIR+FILE location key
 }
 
+type traktorImporter struct{}
+
+func (traktorImporter) Label() string           { return "Traktor NML" }
+func (traktorImporter) Handles(p string) bool   { return hasExt(p, ".nml") }
+func (traktorImporter) RequiresKey(string) bool { return false }
+
+func (traktorImporter) Import(lib *Library, o ImportOptions) (*ImportBundle, error) {
+	if !o.WantTracks {
+		return &ImportBundle{}, nil
+	}
+	return ImportTraktorNML(lib, o.Path)
+}
+
 // ImportTraktorNML imports a Traktor collection.nml. Cues (hot cues, memory
 // cues, and loops from CUE_V2) come back in the bundle's ImportedCue carrier the
 // api.go applier already consumes; Traktor has no MyTags or per-track colours,

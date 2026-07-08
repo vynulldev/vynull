@@ -5,7 +5,6 @@
 package api
 
 import (
-	"archive/zip"
 	"bytes"
 	"compress/gzip"
 	"context"
@@ -16,7 +15,6 @@ import (
 	"image"
 	"image/color"
 	"image/png"
-	"io"
 	"log"
 	"math"
 	"net"
@@ -883,116 +881,44 @@ func (s *Server) handleImportRekordbox(w http.ResponseWriter, r *http.Request) {
 	s.importBegin("Reading rekordbox database…")
 	defer s.importEnd()
 
-	ext := strings.ToLower(filepath.Ext(req.Path))
-	var result *library.ImportResult
-	var playlists []library.PlaylistImport
-	var tags []library.TagImport
-	var colors []library.ColorImport
-	var assets []library.ImportedAsset   // ANLZ + artwork paths (.zip, or .db in its lib folder)
-	var masterCues []library.ImportedCue // cue points from djmdCue (.db/.zip)
-	var shareRoot string                 // share/ root (.zip extract, or a .db's own folder)
-	var settingsDir string               // *SETTING.DAT dir (.zip extract, or a .db's own folder)
-	var bundle *library.ImportBundle     // importer side-data; destructured into the locals below
-	var err error
-
-	switch ext {
-	case ".xml":
-		if incTracks {
-			bundle, err = library.ImportRekordboxXML(s.Library, req.Path)
-		}
-	case ".nml":
-		if incTracks {
-			bundle, err = library.ImportTraktorNML(s.Library, req.Path)
-		}
-	case ".db":
-		// The master.db is SQLCipher-encrypted; the user supplies the 64-hex
-		// key (the import dialog collects it). We ship no key and don't extract
-		// one, so it is required here.
-		key := strings.ToLower(strings.TrimPrefix(strings.TrimSpace(req.Key), "0x"))
-		if !isHex64(key) {
-			http.Error(w, "a 64-hex SQLCipher key is required", http.StatusBadRequest)
-			return
-		}
-		if incTracks {
-			bundle, err = library.ImportRekordboxMasterDB(s.Library, req.Path, key)
-		}
-		// A master.db that still lives in its rekordbox library folder has its
-		// analysis (share/PIONEER/USBANLZ), artwork (share/PIONEER/Artwork), and
-		// *SETTING.DAT blobs right beside it — the same layout a backup zip
-		// mirrors. Point shareRoot/settingsDir at the DB's own directory so the
-		// asset + settings import below picks them up, making a bare-.db import
-		// nearly as complete as a .zip. (A DB copied out on its own has no
-		// neighbours, so these stay empty and nothing extra is imported.)
-		dbDir := filepath.Dir(req.Path)
-		if fi, e := os.Stat(filepath.Join(dbDir, "share")); e == nil && fi.IsDir() {
-			shareRoot = filepath.Join(dbDir, "share")
-		}
-		if incSettings && s.Settings != nil {
-			hasSettings := func(dir string) bool {
-				for _, sf := range rekordboxSettingsFiles {
-					if _, e := os.Stat(filepath.Join(dir, sf)); e == nil {
-						return true
-					}
-				}
-				return false
-			}
-			// rekordbox 6 keeps the *SETTING.DAT blobs in a sibling "rekordbox6"
-			// folder (master.db lives in "rekordbox"); a backup zip instead puts
-			// them beside the db. Check the sibling first, then the db's dir.
-			for _, cand := range []string{filepath.Join(filepath.Dir(dbDir), "rekordbox6"), dbDir} {
-				if hasSettings(cand) {
-					settingsDir = cand
-					break
-				}
-			}
-		}
-	case ".zip":
-		// rekordbox library backup: master.db (+ share/PIONEER analysis &
-		// artwork, + *SETTING.DAT blobs) inside a zip. Extract to a temp dir,
-		// import the DB, then pull in the ANLZ waveforms/beat grids, cover art,
-		// and settings below. The master.db is SQLCipher-encrypted; the user
-		// supplies the 64-hex key (we ship none and don't extract one).
-		key := strings.ToLower(strings.TrimPrefix(strings.TrimSpace(req.Key), "0x"))
-		if !isHex64(key) {
-			http.Error(w, "a 64-hex SQLCipher key is required", http.StatusBadRequest)
-			return
-		}
-		tmp, terr := os.MkdirTemp("", "rb-backup-*")
-		if terr != nil {
-			http.Error(w, "could not create temp dir: "+terr.Error(), http.StatusInternalServerError)
-			return
-		}
-		defer os.RemoveAll(tmp)
-		var dbPath string
-		s.importPhase("Extracting backup…")
-		dbPath, shareRoot, settingsDir, err = extractRekordboxBackup(req.Path, tmp, incSettings && s.Settings != nil)
-		if err != nil {
-			http.Error(w, "extract backup: "+err.Error(), http.StatusBadRequest)
-			return
-		}
-		if incTracks {
-			s.importPhase("Reading rekordbox database…")
-			bundle, err = library.ImportRekordboxMasterDB(s.Library, dbPath, key)
-		}
-	default:
+	imp := library.ImporterFor(req.Path)
+	if imp == nil {
 		http.Error(w, "path must be a .xml, .nml (Traktor), .db, or .zip (rekordbox backup) file", http.StatusBadRequest)
 		return
 	}
+	// Encrypted rekordbox formats (master.db / backup zip) need the user's 64-hex
+	// SQLCipher key — we ship none and don't extract one.
+	key := strings.ToLower(strings.TrimPrefix(strings.TrimSpace(req.Key), "0x"))
+	if imp.RequiresKey(req.Path) && !isHex64(key) {
+		http.Error(w, "a 64-hex SQLCipher key is required", http.StatusBadRequest)
+		return
+	}
 
+	bundle, err := imp.Import(s.Library, library.ImportOptions{
+		Path:         req.Path,
+		Key:          key,
+		WantTracks:   incTracks,
+		WantSettings: incSettings && s.Settings != nil,
+		Progress:     s.importPhase,
+	})
 	if err != nil {
 		http.Error(w, "import failed: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
-	// Spread the importer's side-data into the locals the apply pipeline below
-	// reads. shareRoot/settingsDir stay handler-managed (set per case above).
-	if bundle != nil {
-		result = bundle.Result
-		playlists = bundle.Playlists
-		tags = bundle.Tags
-		colors = bundle.Colors
-		assets = bundle.Assets
-		masterCues = bundle.Cues
+	if bundle == nil {
+		bundle = &library.ImportBundle{}
 	}
+	if bundle.Cleanup != nil {
+		defer bundle.Cleanup() // release the backup-zip temp dir after apply reads it
+	}
+	result := bundle.Result
+	playlists := bundle.Playlists
+	tags := bundle.Tags
+	colors := bundle.Colors
+	assets := bundle.Assets   // ANLZ + artwork paths (.zip, or .db in its lib folder)
+	masterCues := bundle.Cues // cue points from djmdCue (.db/.zip)
+	shareRoot := bundle.ShareRoot
+	settingsDir := bundle.SettingsDir
 	// !incTracks paths skip the importer entirely (e.g. a settings-only zip
 	// import), so synthesize an empty result for the materialization + summary.
 	if result == nil {
@@ -1348,87 +1274,6 @@ func (s *Server) handleImportRekordbox(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, result)
-}
-
-// rekordboxSettingsFiles are the player/mixer setting blobs rekordbox writes
-// to the root of a library-backup zip (and to /PIONEER on a USB export).
-var rekordboxSettingsFiles = []string{
-	"MYSETTING.DAT", "MYSETTING2.DAT", "DJMMYSETTING.DAT", "DEVSETTING.DAT",
-}
-
-// extractRekordboxBackup unpacks the parts of a rekordbox library-backup zip
-// we care about — master.db, the share/PIONEER/{USBANLZ,Artwork} trees, and
-// (when wantSettings) the *SETTING.DAT blobs at the zip root — into dest. It
-// returns the extracted master.db path, the share/ root, and the directory
-// holding the settings files (empty if none were extracted). Other entries
-// (lighting DBs, XML prefs, etc.) are skipped. Guards against zip-slip.
-func extractRekordboxBackup(zipPath, dest string, wantSettings bool) (dbPath, shareRoot, settingsDir string, err error) {
-	zr, err := zip.OpenReader(zipPath)
-	if err != nil {
-		return "", "", "", err
-	}
-	defer zr.Close()
-
-	isSettingsFile := func(name string) bool {
-		for _, s := range rekordboxSettingsFiles {
-			if name == s {
-				return true
-			}
-		}
-		return false
-	}
-
-	cleanDest := filepath.Clean(dest)
-	gotSettings := false
-	for _, f := range zr.File {
-		name := f.Name // zip paths use forward slashes
-		settings := wantSettings && isSettingsFile(name)
-		keep := name == "master.db" ||
-			strings.HasPrefix(name, "share/PIONEER/USBANLZ/") ||
-			strings.HasPrefix(name, "share/PIONEER/Artwork/") ||
-			settings
-		if !keep || f.FileInfo().IsDir() {
-			continue
-		}
-		target := filepath.Join(cleanDest, filepath.FromSlash(name))
-		if target != cleanDest && !strings.HasPrefix(target, cleanDest+string(os.PathSeparator)) {
-			continue // zip-slip: entry escapes dest
-		}
-		if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
-			return "", "", "", err
-		}
-		if err := extractZipEntry(f, target); err != nil {
-			return "", "", "", err
-		}
-		if settings {
-			gotSettings = true
-		}
-	}
-
-	dbPath = filepath.Join(cleanDest, "master.db")
-	if _, err := os.Stat(dbPath); err != nil {
-		return "", "", "", fmt.Errorf("master.db not found in backup zip")
-	}
-	if gotSettings {
-		settingsDir = cleanDest
-	}
-	return dbPath, filepath.Join(cleanDest, "share"), settingsDir, nil
-}
-
-// extractZipEntry copies one zip file entry to target on disk.
-func extractZipEntry(f *zip.File, target string) error {
-	rc, err := f.Open()
-	if err != nil {
-		return err
-	}
-	defer rc.Close()
-	out, err := os.Create(target)
-	if err != nil {
-		return err
-	}
-	defer out.Close()
-	_, err = io.Copy(out, rc)
-	return err
 }
 
 // handleRemapPaths rewrites every track whose FilePath starts with
