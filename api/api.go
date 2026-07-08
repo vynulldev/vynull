@@ -911,6 +911,25 @@ func (s *Server) handleImportRekordbox(w http.ResponseWriter, r *http.Request) {
 	if bundle.Cleanup != nil {
 		defer bundle.Cleanup() // release the backup-zip temp dir after apply reads it
 	}
+	s.applyImportBundle(w, bundle, importInclude{
+		Tracks: incTracks, Playlists: incPlaylists, Tags: incTags, Analysis: incAnalysis,
+		Artwork: incArtwork, Cues: incCues, Settings: incSettings,
+	}, req.RemapFrom, req.RemapTo)
+}
+
+// importInclude selects which categories of an import to materialize.
+type importInclude struct {
+	Tracks, Playlists, Tags, Analysis, Artwork, Cues, Settings bool
+}
+
+// applyImportBundle materializes an importer's ImportBundle into the stores
+// (playlists, tags, colours, cues, analysis, artwork, settings), flags missing
+// audio files, and writes the JSON summary. Split out of handleImportRekordbox
+// so the dispatch stays small; the body is otherwise unchanged from when it ran
+// inline.
+func (s *Server) applyImportBundle(w http.ResponseWriter, bundle *library.ImportBundle, inc importInclude, remapFrom, remapTo string) {
+	incTracks, incPlaylists, incTags := inc.Tracks, inc.Playlists, inc.Tags
+	incAnalysis, incArtwork, incCues, incSettings := inc.Analysis, inc.Artwork, inc.Cues, inc.Settings
 	result := bundle.Result
 	playlists := bundle.Playlists
 	tags := bundle.Tags
@@ -928,9 +947,9 @@ func (s *Server) handleImportRekordbox(w http.ResponseWriter, r *http.Request) {
 	// Optional path-prefix remap (e.g. "Z:/Music/" → "/media/usb/Music/").
 	// Applied after import so it covers tracks added in *this* import as
 	// well as any already present with the matching prefix.
-	if req.RemapFrom != "" && req.RemapTo != "" {
-		n, _ := s.Library.RemapPaths(req.RemapFrom, req.RemapTo)
-		log.Printf("import: remapped %d track paths %q -> %q", n, req.RemapFrom, req.RemapTo)
+	if remapFrom != "" && remapTo != "" {
+		n, _ := s.Library.RemapPaths(remapFrom, remapTo)
+		log.Printf("import: remapped %d track paths %q -> %q", n, remapFrom, remapTo)
 	}
 
 	s.Library.Save()
