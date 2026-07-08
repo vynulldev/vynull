@@ -1616,13 +1616,17 @@
     font-size: 11px; color: var(--text2);
     min-height: 14px; margin-top: 4px;
   }
-  /* Import progress bar (shown while a rekordbox import runs). */
-  .imp-progress { margin-top: 10px; display: none; }
-  .imp-progress.show { display: block; }
-  .imp-progress-phase { font-size: 11px; color: var(--cyan); letter-spacing: 0.04em; margin-bottom: 6px; }
+  /* Import progress — takes over the dialog body while an import runs. */
+  .imp-progress { display: none; }
+  .imp-progress.show { display: block; padding: 30px 8px 22px; text-align: center; }
+  .imp-progress-phase {
+    font-size: 13px; color: var(--cyan); letter-spacing: 0.06em;
+    text-transform: uppercase; font-weight: 600; margin-bottom: 16px;
+  }
   .imp-progress-track {
-    height: 6px; background: #000; border: 1px solid var(--wire);
-    border-radius: 3px; overflow: hidden; position: relative;
+    height: 10px; background: #000; border: 1px solid var(--wire);
+    border-radius: 5px; overflow: hidden; position: relative;
+    max-width: 440px; margin: 0 auto;
   }
   .imp-progress-fill {
     height: 100%; width: 0%;
@@ -1636,9 +1640,21 @@
   }
   @keyframes imp-slide { 0% { left: -35%; } 100% { left: 100%; } }
   .imp-progress-count {
-    font-size: 10px; color: var(--text3); margin-top: 5px; text-align: right;
+    font-size: 11px; color: var(--text3); margin-top: 10px; text-align: center;
     font-variant-numeric: tabular-nums; min-height: 12px;
   }
+  /* Advanced-options disclosure in the import dialog. */
+  .imp-advanced { margin-top: 6px; border-top: 1px solid var(--wire); padding-top: 12px; }
+  .imp-advanced > summary {
+    cursor: pointer; list-style: none; user-select: none;
+    font-size: 11px; color: var(--text2); letter-spacing: 0.08em;
+    text-transform: uppercase; padding: 2px 0;
+  }
+  .imp-advanced > summary::-webkit-details-marker { display: none; }
+  .imp-advanced > summary::before { content: '▸ '; color: var(--text3); }
+  .imp-advanced[open] > summary::before { content: '▾ '; }
+  .imp-advanced > summary:hover { color: var(--orange); }
+  .imp-advanced .export-row:first-of-type { margin-top: 14px; }
   .menu-modal .foot #export-go {
     background: var(--orange-soft); color: var(--black); border-color: var(--orange);
     margin-left: auto;
@@ -10742,67 +10758,57 @@ function openImportRekordboxDialog() {
       <button class="x" type="button" title="Close">×</button>
     </div>
     <div class="body">
-      <div class="export-row">
-        <label class="export-label">Source</label>
-        <div class="export-radios imp-source">
-          <label><input type="radio" name="imp_src" value="xml" checked> XML export <span class="export-hint" style="display:inline">— no key required</span></label>
-          <label><input type="radio" name="imp_src" value="nml"> Traktor NML <span class="export-hint" style="display:inline">— collection.nml</span></label>
-          <label><input type="radio" name="imp_src" value="db"> master.db <span class="export-hint" style="display:inline">— needs 64-hex SQLCipher key</span></label>
-          <label><input type="radio" name="imp_src" value="zip"> Backup .zip <span class="export-hint" style="display:inline">— full: + waveforms, cues, artwork</span></label>
+      <div id="imp-form">
+        <div class="export-row">
+          <label class="export-label">Source</label>
+          <div class="export-radios imp-source">
+            <label><input type="radio" name="imp_src" value="xml" checked> rekordbox XML</label>
+            <label><input type="radio" name="imp_src" value="nml"> Traktor NML</label>
+            <label><input type="radio" name="imp_src" value="db"> rekordbox master.db</label>
+            <label><input type="radio" name="imp_src" value="zip"> rekordbox backup .zip</label>
+          </div>
+          <div class="export-hint" id="imp-src-hint"></div>
         </div>
-        <div class="export-hint">
-          In rekordbox: <b>File → Export Collection in XML</b> writes a .xml you can
-          import without any key. The master.db path requires the 64-hex SQLCipher key
-          that decrypts it (see the key field below). Point it at the
-          master.db <i>inside your rekordbox library folder</i> and it also pulls in the
-          waveforms, beat grids, cover art, and player/mixer settings sitting beside it;
-          a master.db copied out on its own brings metadata + cues only. A
-          <b>library backup .zip</b> (rekordbox's <b>File → Library → Backup</b>) bundles
-          the same thing in one file — and needs the same key. For <b>Traktor</b>,
-          point it at your <b>collection.nml</b> to bring in tracks, playlists, and
-          cues (no key required).
+        <div class="export-row">
+          <label class="export-label">Path</label>
+          <input type="text" id="imp-path" class="input" placeholder="/path/to/rekordbox.xml" autocomplete="off" spellcheck="false">
         </div>
-      </div>
-      <div class="export-row">
-        <label class="export-label">Path</label>
-        <input type="text" id="imp-path" class="input" placeholder="/path/to/rekordbox.xml" autocomplete="off" spellcheck="false">
-      </div>
-      <div class="export-row" id="imp-key-row" style="display:none">
-        <label class="export-label">SQLCipher key <span class="export-hint" style="display:inline">(required)</span></label>
-        <input type="text" id="imp-key" class="input" placeholder="64-hex SQLCipher key" autocomplete="off" spellcheck="false">
-        <div class="export-hint">
-          The <code>master.db</code> is encrypted. Paste the 64-hex SQLCipher key
-          for your own rekordbox database — rekordbox doesn't show it in its UI,
-          so recover it from your local rekordbox install, then paste it here.
+        <div class="export-row" id="imp-key-row" style="display:none">
+          <label class="export-label">SQLCipher key <span class="export-hint" style="display:inline">(required)</span></label>
+          <input type="text" id="imp-key" class="input" placeholder="64-hex SQLCipher key" autocomplete="off" spellcheck="false">
+          <div class="export-hint">rekordbox doesn't show this — recover it from your local install, then paste it here.</div>
         </div>
+        <details class="imp-advanced">
+          <summary>Advanced options</summary>
+          <div class="export-row">
+            <label class="export-label">Include</label>
+            <div id="imp-include" style="display:flex; flex-wrap:wrap; gap:6px 16px;">
+              <label data-src="xml,nml,db,zip"><input type="checkbox" id="inc-tracks" checked> Tracks</label>
+              <label data-src="xml,nml,db,zip" data-dep="tracks"><input type="checkbox" id="inc-playlists" checked> Playlists</label>
+              <label data-src="xml,db,zip" data-dep="tracks"><input type="checkbox" id="inc-tags" checked> Tags</label>
+              <label data-src="nml,db,zip" data-dep="tracks"><input type="checkbox" id="inc-cues" checked> Cues</label>
+              <label data-src="db,zip" data-dep="tracks"><input type="checkbox" id="inc-analysis" checked> Waveforms &amp; beat grids</label>
+              <label data-src="db,zip" data-dep="tracks"><input type="checkbox" id="inc-artwork" checked> Artwork</label>
+              <label data-src="db,zip"><input type="checkbox" id="inc-settings" checked> Player/mixer settings</label>
+            </div>
+            <div class="export-hint">Derived options (playlists, tags, cues, analysis, artwork) need Tracks.</div>
+          </div>
+          <div class="export-row">
+            <label class="export-label">Path remap</label>
+            <div style="display:flex; gap:6px;">
+              <input type="text" id="imp-from" class="input" placeholder="From: Z:/Music/" autocomplete="off" spellcheck="false" style="flex:1">
+              <input type="text" id="imp-to"   class="input" placeholder="To: /media/usb/Music/" autocomplete="off" spellcheck="false" style="flex:1">
+            </div>
+            <div class="export-hint">Rewrites any track path starting with the From prefix.</div>
+          </div>
+        </details>
       </div>
-      <div class="export-row">
-        <label class="export-label">Path remap <span class="export-hint" style="display:inline">(optional)</span></label>
-        <div style="display:flex; gap:6px;">
-          <input type="text" id="imp-from" class="input" placeholder="From prefix: Z:/Music/" autocomplete="off" spellcheck="false" style="flex:1">
-          <input type="text" id="imp-to"   class="input" placeholder="To prefix: /media/usb/Music/" autocomplete="off" spellcheck="false" style="flex:1">
-        </div>
-        <div class="export-hint">Rewrites any track path starting with the From prefix. Leave blank to import paths as-is.</div>
-      </div>
-      <div class="export-row">
-        <label class="export-label">Include</label>
-        <div id="imp-include" style="display:flex; flex-wrap:wrap; gap:6px 16px;">
-          <label data-src="xml,nml,db,zip"><input type="checkbox" id="inc-tracks" checked> Tracks <span class="export-hint" style="display:inline">— incl. rating, colour, key</span></label>
-          <label data-src="xml,nml,db,zip" data-dep="tracks"><input type="checkbox" id="inc-playlists" checked> Playlists</label>
-          <label data-src="xml,db,zip" data-dep="tracks"><input type="checkbox" id="inc-tags" checked> Tags</label>
-          <label data-src="nml,db,zip" data-dep="tracks"><input type="checkbox" id="inc-cues" checked> Cues</label>
-          <label data-src="db,zip" data-dep="tracks"><input type="checkbox" id="inc-analysis" checked> Waveforms &amp; beat grids</label>
-          <label data-src="db,zip" data-dep="tracks"><input type="checkbox" id="inc-artwork" checked> Artwork</label>
-          <label data-src="db,zip"><input type="checkbox" id="inc-settings" checked> Player/mixer settings</label>
-        </div>
-        <div class="export-hint">Uncheck anything you don't want. Options the chosen source can't provide are hidden. (Playlists, tags, cues, analysis and artwork all require Tracks.)</div>
-      </div>
-      <div class="export-status" id="imp-status"></div>
       <div class="imp-progress" id="imp-progress">
         <div class="imp-progress-phase" id="imp-prog-phase"></div>
         <div class="imp-progress-track"><div class="imp-progress-fill" id="imp-prog-fill"></div></div>
         <div class="imp-progress-count" id="imp-prog-count"></div>
       </div>
+      <div class="export-status" id="imp-status"></div>
     </div>
     <div class="foot">
       <button type="button" id="imp-go">IMPORT</button>
@@ -10821,6 +10827,13 @@ function openImportRekordboxDialog() {
   const statusEl   = m.querySelector('#imp-status');
   const goBtn      = m.querySelector('#imp-go');
   const srcRadios  = m.querySelectorAll('input[name="imp_src"]');
+  const srcHint    = m.querySelector('#imp-src-hint');
+  const SRC_HINTS = {
+    xml: 'rekordbox → File → Export Collection in XML. Metadata + playlists, no key needed.',
+    nml: "Traktor's collection.nml — tracks, playlists, and cues. No key needed.",
+    db:  'The master.db inside your rekordbox library folder (also pulls in waveforms, artwork, and settings). Needs the SQLCipher key.',
+    zip: 'rekordbox → File → Library → Backup. Everything in one file. Needs the SQLCipher key.',
+  };
 
   const incTracksCb = m.querySelector('#inc-tracks');
   // Derived options (everything that needs the track import) are disabled when
@@ -10848,6 +10861,7 @@ function openImportRekordboxDialog() {
       keyRow.style.display = 'none';
       pathInput.placeholder = '/path/to/rekordbox.xml';
     }
+    srcHint.textContent = SRC_HINTS[src] || '';
     // Show only the include options this source can actually provide.
     m.querySelectorAll('#imp-include label[data-src]').forEach(lab => {
       const ok = lab.getAttribute('data-src').split(',').includes(src);
@@ -10894,9 +10908,8 @@ function openImportRekordboxDialog() {
       return;
     }
     goBtn.disabled = true;
-    pathInput.disabled = true;
-    keyInput.disabled = true;
     statusEl.textContent = '';
+    m.querySelector('#imp-form').style.display = 'none'; // swap the form out for the progress panel
     const stopProgress = startImportProgress(m);
     try {
       const r = await fetch('/api/import/rekordbox', {
@@ -10906,8 +10919,9 @@ function openImportRekordboxDialog() {
       stopProgress();
       if (!r.ok) {
         const t = await r.text();
+        m.querySelector('#imp-form').style.display = '';
         statusEl.textContent = `Failed: ${r.status} ${t}`;
-        goBtn.disabled = false; pathInput.disabled = false; keyInput.disabled = false;
+        goBtn.disabled = false;
         return;
       }
       const res = await r.json();
@@ -10933,8 +10947,9 @@ function openImportRekordboxDialog() {
       refreshLibraryView();
     } catch (err) {
       stopProgress();
+      m.querySelector('#imp-form').style.display = '';
       statusEl.textContent = `Failed: ${err}`;
-      goBtn.disabled = false; pathInput.disabled = false; keyInput.disabled = false;
+      goBtn.disabled = false;
     }
   };
 }
