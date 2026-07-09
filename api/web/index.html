@@ -3494,8 +3494,6 @@
 </aside>
 
 <div class="statusbar">
-  <span class="item"><span class="led green pulse"></span>POLLING 1HZ</span>
-  <span class="item" id="api-info">API ·</span>
   <span class="item" id="server-status" style="display:none"><span class="led"></span><span class="server-status-text"></span></span>
   <span class="spacer"></span>
   <span class="item" id="wave-color-btn" title="Web waveform colour — click to cycle. AUTO follows the CDJ 'waveform color' DEVSETTING." style="cursor:pointer; user-select:none"><span class="led green"></span><span id="wave-color-label">WAVE: AUTO</span></span>
@@ -3510,7 +3508,6 @@
 
 // ───────── boot ─────────
 const STARTED = Date.now();
-document.getElementById('api-info').textContent = 'API · http://' + location.host;
 
 // tabs
 document.querySelectorAll('.tab').forEach(t => {
