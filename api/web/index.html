@@ -1591,16 +1591,16 @@
   }
   .export-radios input[type="radio"] { accent-color: var(--orange); }
   /* Import-dialog source picker: stacked, selectable cards. */
-  /* Import: system picker (top-level) — a horizontal row of ecosystem tabs. */
-  .imp-systems { display: flex; gap: 8px; }
-  .imp-systems button {
+  /* Import: system + format pickers — horizontal rows of select buttons. */
+  .imp-systems, .imp-formats { display: flex; gap: 8px; }
+  .imp-systems button, .imp-formats button {
     flex: 1; font: inherit; font-size: 12px; padding: 10px 12px;
     background: transparent; color: var(--text2);
     border: 1px solid var(--wire); border-radius: 6px; cursor: pointer;
     transition: border-color 0.12s, background 0.12s, color 0.12s;
   }
-  .imp-systems button:hover { border-color: var(--orange); color: var(--text); }
-  .imp-systems button.on { border-color: var(--orange); background: rgba(255,119,20,0.10); color: var(--text); }
+  .imp-systems button:hover, .imp-formats button:hover { border-color: var(--orange); color: var(--text); }
+  .imp-systems button.on, .imp-formats button.on { border-color: var(--orange); background: rgba(255,119,20,0.10); color: var(--text); }
   /* Add-from-folder browser */
   .fs-crumb { font-size: 11px; color: var(--text2); margin-bottom: 8px; word-break: break-all; }
   .fs-list { max-height: 340px; overflow-y: auto; border: 1px solid var(--wire); border-radius: 6px; }
@@ -10765,7 +10765,7 @@ function openImportRekordboxDialog() {
         </div>
         <div class="export-row" id="imp-format-row" style="display:none">
           <label class="export-label">Format</label>
-          <div class="export-radios imp-formats" id="imp-formats"></div>
+          <div class="imp-formats" id="imp-formats"></div>
         </div>
         <div class="export-hint" id="imp-src-hint"></div>
         <div class="export-row">
@@ -10864,6 +10864,7 @@ function openImportRekordboxDialog() {
   // Include options the format can provide.
   const applyFormat = (fmt) => {
     curFormat = fmt;
+    formatsEl.querySelectorAll('button').forEach(b => b.classList.toggle('on', b.dataset.fmt === fmt.id));
     keyRow.style.display = fmt.needsKey ? '' : 'none';
     pathInput.placeholder = fmt.placeholder;
     srcHint.textContent = fmt.hint;
@@ -10878,10 +10879,10 @@ function openImportRekordboxDialog() {
     systemsEl.querySelectorAll('button').forEach(b => b.classList.toggle('on', b.dataset.sys === sys.id));
     const multi = sys.formats.length > 1;
     formatRow.style.display = multi ? '' : 'none';
-    formatsEl.innerHTML = multi ? sys.formats.map((f, i) =>
-      `<label><input type="radio" name="imp_fmt" value="${f.id}"${i === 0 ? ' checked' : ''}> ${f.label}</label>`).join('') : '';
-    formatsEl.querySelectorAll('input').forEach(r => {
-      r.onchange = () => applyFormat(sys.formats.find(f => f.id === r.value));
+    formatsEl.innerHTML = multi ? sys.formats.map(f =>
+      `<button type="button" data-fmt="${f.id}">${f.label}</button>`).join('') : '';
+    formatsEl.querySelectorAll('button').forEach(b => {
+      b.onclick = () => applyFormat(sys.formats.find(f => f.id === b.dataset.fmt));
     });
     applyFormat(sys.formats[0]);
   };
