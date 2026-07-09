@@ -1591,16 +1591,16 @@
   }
   .export-radios input[type="radio"] { accent-color: var(--orange); }
   /* Import-dialog source picker: stacked, selectable cards. */
-  .export-radios.imp-source { flex-direction: column; gap: 8px; }
-  .export-radios.imp-source label {
-    display: flex; align-items: baseline; gap: 8px;
-    font-size: 12px; padding: 8px 10px;
-    border: 1px solid var(--wire); border-radius: 6px;
-    transition: border-color 0.12s, background 0.12s;
+  /* Import: system picker (top-level) — a horizontal row of ecosystem tabs. */
+  .imp-systems { display: flex; gap: 8px; }
+  .imp-systems button {
+    flex: 1; font: inherit; font-size: 12px; padding: 10px 12px;
+    background: transparent; color: var(--text2);
+    border: 1px solid var(--wire); border-radius: 6px; cursor: pointer;
+    transition: border-color 0.12s, background 0.12s, color 0.12s;
   }
-  .export-radios.imp-source label:hover { border-color: var(--orange); background: rgba(255,119,20,0.04); }
-  .export-radios.imp-source label:has(input:checked) { border-color: var(--orange); background: rgba(255,119,20,0.07); }
-  .export-radios.imp-source .export-hint { margin-top: 0; }
+  .imp-systems button:hover { border-color: var(--orange); color: var(--text); }
+  .imp-systems button.on { border-color: var(--orange); background: rgba(255,119,20,0.10); color: var(--text); }
   /* Add-from-folder browser */
   .fs-crumb { font-size: 11px; color: var(--text2); margin-bottom: 8px; word-break: break-all; }
   .fs-list { max-height: 340px; overflow-y: auto; border: 1px solid var(--wire); border-radius: 6px; }
@@ -10760,15 +10760,14 @@ function openImportRekordboxDialog() {
     <div class="body">
       <div id="imp-form">
         <div class="export-row">
-          <label class="export-label">Source</label>
-          <div class="export-radios imp-source">
-            <label><input type="radio" name="imp_src" value="xml" checked> rekordbox XML</label>
-            <label><input type="radio" name="imp_src" value="nml"> Traktor NML</label>
-            <label><input type="radio" name="imp_src" value="db"> rekordbox master.db</label>
-            <label><input type="radio" name="imp_src" value="zip"> rekordbox backup .zip</label>
-          </div>
-          <div class="export-hint" id="imp-src-hint"></div>
+          <label class="export-label">System</label>
+          <div class="imp-systems" id="imp-systems"></div>
         </div>
+        <div class="export-row" id="imp-format-row" style="display:none">
+          <label class="export-label">Format</label>
+          <div class="export-radios imp-formats" id="imp-formats"></div>
+        </div>
+        <div class="export-hint" id="imp-src-hint"></div>
         <div class="export-row">
           <label class="export-label">Path</label>
           <input type="text" id="imp-path" class="input" placeholder="/path/to/rekordbox.xml" autocomplete="off" spellcheck="false">
@@ -10826,14 +10825,29 @@ function openImportRekordboxDialog() {
   const keyRow     = m.querySelector('#imp-key-row');
   const statusEl   = m.querySelector('#imp-status');
   const goBtn      = m.querySelector('#imp-go');
-  const srcRadios  = m.querySelectorAll('input[name="imp_src"]');
   const srcHint    = m.querySelector('#imp-src-hint');
-  const SRC_HINTS = {
-    xml: 'rekordbox → File → Export Collection in XML. Metadata + playlists, no key needed.',
-    nml: "Traktor's collection.nml — tracks, playlists, and cues. No key needed.",
-    db:  'The master.db inside your rekordbox library folder (also pulls in waveforms, artwork, and settings). Needs the SQLCipher key.',
-    zip: 'rekordbox → File → Library → Backup. Everything in one file. Needs the SQLCipher key.',
-  };
+  const systemsEl  = m.querySelector('#imp-systems');
+  const formatRow  = m.querySelector('#imp-format-row');
+  const formatsEl  = m.querySelector('#imp-formats');
+
+  // Import sources grouped by DJ system. Each format's id (xml/nml/db/zip) is
+  // what the include-filter data-src and the request logic key off; a system
+  // with a single format skips the Format row and goes straight to the path.
+  const SYSTEMS = [
+    { id: 'rekordbox', label: 'Rekordbox', formats: [
+      { id: 'xml', label: 'XML',            needsKey: false, placeholder: '/path/to/rekordbox.xml',
+        hint: 'rekordbox → File → Export Collection in XML. Metadata + playlists, no key needed.' },
+      { id: 'db',  label: 'master.db',      needsKey: true,  placeholder: '/path/to/master.db',
+        hint: 'The master.db inside your rekordbox library folder (also pulls in waveforms, artwork, and settings). Needs the SQLCipher key.' },
+      { id: 'zip', label: 'backup .zip',    needsKey: true,  placeholder: '/path/to/rekordbox_bak_YYYYMMDD.zip',
+        hint: 'rekordbox → File → Library → Backup. Everything in one file. Needs the SQLCipher key.' },
+    ]},
+    { id: 'traktor', label: 'Traktor', formats: [
+      { id: 'nml', label: 'collection.nml', needsKey: false, placeholder: '/path/to/collection.nml',
+        hint: "Traktor's collection.nml — tracks, playlists, and cues. No key needed." },
+    ]},
+  ];
+  let curFormat = SYSTEMS[0].formats[0]; // the selected format object
 
   const incTracksCb = m.querySelector('#inc-tracks');
   // Derived options (everything that needs the track import) are disabled when
@@ -10846,40 +10860,44 @@ function openImportRekordboxDialog() {
       lab.style.opacity = on ? '' : '0.4';
     });
   };
-  const syncSource = () => {
-    const src = m.querySelector('input[name="imp_src"]:checked').value;
-    if (src === 'db') {
-      keyRow.style.display = '';
-      pathInput.placeholder = '/path/to/master.db';
-    } else if (src === 'zip') {
-      keyRow.style.display = '';
-      pathInput.placeholder = '/path/to/rekordbox_bak_YYYYMMDD.zip';
-    } else if (src === 'nml') {
-      keyRow.style.display = 'none';
-      pathInput.placeholder = '/path/to/collection.nml';
-    } else {
-      keyRow.style.display = 'none';
-      pathInput.placeholder = '/path/to/rekordbox.xml';
-    }
-    srcHint.textContent = SRC_HINTS[src] || '';
-    // Show only the include options this source can actually provide.
+  // Apply the chosen format: key field, path placeholder, hint, and which
+  // Include options the format can provide.
+  const applyFormat = (fmt) => {
+    curFormat = fmt;
+    keyRow.style.display = fmt.needsKey ? '' : 'none';
+    pathInput.placeholder = fmt.placeholder;
+    srcHint.textContent = fmt.hint;
     m.querySelectorAll('#imp-include label[data-src]').forEach(lab => {
-      const ok = lab.getAttribute('data-src').split(',').includes(src);
-      lab.style.display = ok ? '' : 'none';
+      lab.style.display = lab.getAttribute('data-src').split(',').includes(fmt.id) ? '' : 'none';
     });
     syncIncludeDeps();
   };
+  // Select a system: highlight its tab, render its Format radios (only when it
+  // has more than one), and apply its first format.
+  const selectSystem = (sys) => {
+    systemsEl.querySelectorAll('button').forEach(b => b.classList.toggle('on', b.dataset.sys === sys.id));
+    const multi = sys.formats.length > 1;
+    formatRow.style.display = multi ? '' : 'none';
+    formatsEl.innerHTML = multi ? sys.formats.map((f, i) =>
+      `<label><input type="radio" name="imp_fmt" value="${f.id}"${i === 0 ? ' checked' : ''}> ${f.label}</label>`).join('') : '';
+    formatsEl.querySelectorAll('input').forEach(r => {
+      r.onchange = () => applyFormat(sys.formats.find(f => f.id === r.value));
+    });
+    applyFormat(sys.formats[0]);
+  };
+  systemsEl.innerHTML = SYSTEMS.map(s => `<button type="button" data-sys="${s.id}">${s.label}</button>`).join('');
+  systemsEl.querySelectorAll('button').forEach(b => {
+    b.onclick = () => selectSystem(SYSTEMS.find(s => s.id === b.dataset.sys));
+  });
   incTracksCb.onchange = syncIncludeDeps;
-  srcRadios.forEach(r => r.onchange = syncSource);
-  syncSource();
+  selectSystem(SYSTEMS[0]);
   pathInput.focus();
 
   goBtn.onclick = async () => {
-    const src  = m.querySelector('input[name="imp_src"]:checked').value;
     const path = pathInput.value.trim();
     if (!path) { statusEl.textContent = 'Path is required.'; return; }
     const body = { path };
-    if (src === 'db' || src === 'zip') {
+    if (curFormat.needsKey) {
       const k = keyInput.value.trim().toLowerCase().replace(/^0x/, '');
       if (!/^[0-9a-f]{64}$/.test(k)) {
         statusEl.textContent = 'A 64-hex SQLCipher key is required.';
