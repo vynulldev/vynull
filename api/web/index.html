@@ -1591,16 +1591,26 @@
   }
   .export-radios input[type="radio"] { accent-color: var(--orange); }
   /* Import-dialog source picker: stacked, selectable cards. */
-  /* Import: system + format pickers — horizontal rows of select buttons. */
-  .imp-systems, .imp-formats { display: flex; gap: 8px; }
-  .imp-systems button, .imp-formats button {
+  /* Import: system picker (top-level) — prominent full-width ecosystem tabs. */
+  .imp-systems { display: flex; gap: 8px; }
+  .imp-systems button {
     flex: 1; font: inherit; font-size: 12px; padding: 10px 12px;
     background: transparent; color: var(--text2);
     border: 1px solid var(--wire); border-radius: 6px; cursor: pointer;
     transition: border-color 0.12s, background 0.12s, color 0.12s;
   }
-  .imp-systems button:hover, .imp-formats button:hover { border-color: var(--orange); color: var(--text); }
-  .imp-systems button.on, .imp-formats button.on { border-color: var(--orange); background: rgba(255,119,20,0.10); color: var(--text); }
+  .imp-systems button:hover { border-color: var(--orange); color: var(--text); }
+  .imp-systems button.on { border-color: var(--orange); background: rgba(255,119,20,0.10); color: var(--text); }
+  /* Import: format picker (secondary) — lighter, content-sized pills. */
+  .imp-formats { display: flex; gap: 6px; flex-wrap: wrap; }
+  .imp-formats button {
+    font: inherit; font-size: 11px; padding: 6px 11px;
+    background: transparent; color: var(--text3);
+    border: 1px solid var(--wire); border-radius: 5px; cursor: pointer;
+    transition: border-color 0.12s, background 0.12s, color 0.12s;
+  }
+  .imp-formats button:hover { border-color: var(--orange); color: var(--text2); }
+  .imp-formats button.on { border-color: var(--orange); color: var(--text); background: rgba(255,119,20,0.06); }
   /* Add-from-folder browser */
   .fs-crumb { font-size: 11px; color: var(--text2); margin-bottom: 8px; word-break: break-all; }
   .fs-list { max-height: 340px; overflow-y: auto; border: 1px solid var(--wire); border-radius: 6px; }
@@ -1660,6 +1670,7 @@
     margin-left: auto;
   }
   .menu-modal .foot #export-go:disabled { opacity: 0.5; cursor: not-allowed; }
+  .menu-modal .foot #imp-go { margin-left: auto; }
   .menu-modal .body .hint, .menu-config .hint {
     color: var(--text3); font-size: 10px; letter-spacing: 0.06em;
     margin-bottom: 10px;
