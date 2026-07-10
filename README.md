@@ -6,7 +6,7 @@
 [![Go](https://img.shields.io/github/go-mod/go-version/vynulldev/vynull?color=ff7714)](go.mod)
 ![Platform](https://img.shields.io/badge/platform-linux%20x86--64%20%7C%20arm64-ff7714)
 
-Vynull is a virtual CDJ / rekordbox source and library manager for Linux. It serves music files to CDJs (DJM mixers are also seen on the link) over the Pro DJ Link protocol. Point it at your music collection and CDJs see it as a connected USB drive or rekordbox instance. Includes a browser-based library manager and one-click import from your existing rekordbox library.
+Vynull is a virtual CDJ / rekordbox source and library manager for Linux. It serves music files to CDJs (DJM mixers are also seen on the link) over the Pro DJ Link protocol. Point it at your music collection and CDJs see it as a connected USB drive or rekordbox instance. Includes a browser-based library manager and one-click import from your existing rekordbox or Traktor library.
 
 ## Before you start
 
@@ -21,7 +21,7 @@ Use it at your own risk, and back up your rekordbox library before importing any
 - **Virtual CDJ/Rekordbox** on the Pro DJ Link network (UDP ports 50000/50001/50002)
 - **Web UI** — browser-based library manager (`--web`): browse/search, edit metadata, manage cues/tags/playlists, view live players, zoom waveform with beat grid + beat-jump, and configure CDJ settings
 - **Browse tracks** on CDJs by artist, album, genre, BPM, key, label, year, remixer, folder
-- **Import from rekordbox** — `rekordbox.xml`, an encrypted `master.db`, or a full library-backup `.zip`: tracks, MyTags (with categories), track colors, (smart) playlists, cue points (hot + memory, with colors/loops), ANLZ analysis (waveforms/beat grids/phrases), and artwork
+- **Import your library** — from **rekordbox** (`rekordbox.xml`, an encrypted `master.db`, or a full library-backup `.zip`) or **Traktor** (`collection.nml`). A rekordbox import brings tracks, MyTags (with categories), track colors, (smart) playlists, cue points (hot + memory, with colors/loops), ANLZ analysis (waveforms/beat grids/phrases), and artwork; a Traktor import brings tracks, playlists, and cues
 - **Smart playlists** — rekordbox rule sets imported and evaluated live (BPM/key/genre/date/tag/… conditions)
 - **DJM mixer awareness** — surfaces DJM channel/master state on the link
 - **Native FLAC/WAV/AIFF playback** — CDJ decodes lossless formats directly over NFS
@@ -48,7 +48,7 @@ Use it at your own risk, and back up your rekordbox library before importing any
 - Linux (tested on x86_64)
 - Go 1.21+
 - `ffmpeg` in PATH (for audio decoding)
-- Python 3 with the `sqlcipher3` package — **only** to import an encrypted `master.db` or a library-backup `.zip` (it shells out to `tools/rekordbox_dump.py`); XML import and everything else need no Python
+- Python 3 with the `sqlcipher3` package — **only** to import an encrypted `master.db` or a library-backup `.zip` (it shells out to `tools/rekordbox_dump.py`); XML, Traktor NML, and everything else need no Python
 - Network interface on the same subnet as CDJs (typically 169.254.x.x link-local)
 - Permission to bind the RPC portmapper on **UDP 111** — see below (rekordbox mode does not need it)
 
@@ -136,13 +136,14 @@ beat-jump), a live PLAYERS view of connected CDJs/mixers, playlist + tag
 management, USB export, and a SETTINGS panel that pushes CDJ display settings
 live.
 
-### Import from rekordbox
+### Import your library
 
-Import an existing rekordbox library — a `rekordbox.xml` export, an encrypted
-`master.db`, or a full library-backup `.zip`:
+Import an existing library — from **rekordbox** (a `rekordbox.xml` export, an
+encrypted `master.db`, or a full library-backup `.zip`) or **Traktor** (a
+`collection.nml`):
 
 ```bash
-# XML export
+# rekordbox XML export, or a Traktor collection.nml — no key needed
 curl -X POST http://localhost:9443/api/import/rekordbox \
   -F 'file=@/path/to/rekordbox.xml'
 
@@ -152,12 +153,14 @@ curl -X POST http://localhost:9443/api/import/rekordbox \
   -F 'file=@/path/to/backup.zip' -F 'key=<64-hex sqlcipher key>'
 ```
 
-A `.zip`/`.db` import brings in tracks, MyTags (with their categories), track
-colors, (smart) playlists, cue points (hot + memory), ANLZ
-analysis (waveforms + beat grids + phrases), and artwork. The web UI's LIBRARY
-tab has an import button for the same flow.
+A rekordbox `.zip`/`.db` import brings in tracks, MyTags (with their
+categories), track colors, (smart) playlists, cue points (hot + memory), ANLZ
+analysis (waveforms + beat grids + phrases), and artwork; a Traktor
+`collection.nml` brings tracks, playlists, and cues. The web UI's LIBRARY tab
+has an import button for the same flow.
 Reading an encrypted `master.db` requires Python 3 with the `sqlcipher3`
-package (it shells out to `tools/rekordbox_dump.py`).
+package (it shells out to `tools/rekordbox_dump.py`); XML, NML, and everything
+else need no Python.
 
 ### Directory Mode
 
