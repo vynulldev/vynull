@@ -59,14 +59,7 @@ func ParseCueBlob(blob []byte, trackID uint32) (*CuePoint, error) {
 		Status: binary.LittleEndian.Uint32(blob[0x18:]),
 		LoopMs: int32(binary.LittleEndian.Uint32(blob[0x20:])),
 	}
-	// 124-byte blobs put the picker palette index at byte 0x4e (with RGB
-	// at 0x4f-0x51), and reserve 0x34 as a fixed 0x42 marker. 76-byte
-	// blobs put the raw palette index directly at 0x34.
-	if len(blob) >= 124 && blob[0x34] == 0x42 {
-		cue.ColorID = uint32(blob[0x4e])
-	} else {
-		cue.ColorID = binary.LittleEndian.Uint32(blob[0x34:])
-	}
+	cue.ColorID = cueColorFromBlob(blob)
 
 	log.Printf("cuestore: parsed cue #%d type=%d time=%dms loop=%d color_id=%d (0x%x) track=%d",
 		cue.Number, cue.Type, cue.TimeMs, cue.LoopMs, cue.ColorID, cue.ColorID, trackID)
@@ -157,6 +150,43 @@ func cueColorRGB(idx uint32) (r, g, b byte) {
 	}
 	// Default "no colour set" — Pioneer orange.
 	return 0xff, 0x6a, 0x00
+}
+
+// cueColorFromBlob extracts the palette color_id from a cue blob. 124-byte NXS2
+// blobs carry the picker index at 0x4e; when that index is 0 the real colour is
+// in the RGB bytes (0x4f-0x51) — the CDJ encodes its default hot-cue green that
+// way, and taking idx 0 alone would paint it Pioneer orange (palette 0x00) — so
+// recover the nearest palette id from the RGB. 76-byte blobs store the raw index
+// directly at 0x34. Callers must ensure len(blob) >= 76.
+func cueColorFromBlob(blob []byte) uint32 {
+	if len(blob) >= 124 && blob[0x34] == 0x42 {
+		if idx := uint32(blob[0x4e]); idx != 0 {
+			return idx
+		}
+		if r, g, b := blob[0x4f], blob[0x50], blob[0x51]; r|g|b != 0 {
+			return nearestCueColorID(r, g, b)
+		}
+		return 0
+	}
+	return binary.LittleEndian.Uint32(blob[0x34:])
+}
+
+// nearestCueColorID returns the palette color_id whose RGB is closest to the
+// given triplet (squared-Euclidean distance; ties resolve to the lower id so
+// the result is deterministic). Used when the CDJ hands us a cue with a zero
+// palette index but a real colour in the RGB bytes, so the stored color_id —
+// and the web UI swatch — reflect the colour the deck paints.
+func nearestCueColorID(r, g, b byte) uint32 {
+	best := uint32(0)
+	bestDist := -1
+	for idx, c := range cueColorPalette {
+		dr, dg, db := int(c[0])-int(r), int(c[1])-int(g), int(c[2])-int(b)
+		d := dr*dr + dg*dg + db*db
+		if bestDist < 0 || d < bestDist || (d == bestDist && idx < best) {
+			bestDist, best = d, idx
+		}
+	}
+	return best
 }
 
 var cueColorPalette = map[uint32][3]byte{
@@ -363,6 +393,20 @@ func (cs *CueStore) loadAll() {
 				cs.rawBlobs[bTrackID] = make(map[uint16][]byte)
 			}
 			cs.rawBlobs[bTrackID][bCueNum] = data
+		}
+	}
+
+	// Re-derive the colour of CDJ-saved cues from their raw blob. Cues stored
+	// before the RGB-colour recovery kept whatever color_id was persisted (a
+	// default green came through as 0 → orange); re-reading the blob now applies
+	// the fix on load. Web-UI/synthesized cues have no blob (or a stub), so they
+	// keep their stored colour.
+	for trackID, cues := range cs.data {
+		blobs := cs.rawBlobs[trackID]
+		for i := range cues {
+			if raw := blobs[cues[i].Number]; len(raw) >= 76 {
+				cues[i].ColorID = cueColorFromBlob(raw)
+			}
 		}
 	}
 }
