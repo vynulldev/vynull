@@ -423,69 +423,55 @@ func iterRows(data []byte, pageSize, firstPage, lastPage int, fn func([]byte)) {
 			continue
 		}
 
-		// Row counts from bytes 0x18-0x1a (24 bits).
+		// Row counts from bytes 0x18-0x1a (24 bits): low 13 = number of row
+		// offset slots, next 11 = number of present rows.
 		rowBits := uint32(pageData[0x18]) | uint32(pageData[0x19])<<8 | uint32(pageData[0x1a])<<16
 		numRowOffsets := int(rowBits & 0x1FFF)
-		numRows := int((rowBits >> 13) & 0x7FF)
-		_ = numRows
 
-		// Row index is at the end of the page, building backward.
-		// Each group of 16 rows: 16 * 2-byte offsets + 2-byte rowpf + 2-byte tranrf
-		for i := 0; i < numRowOffsets; i++ {
-			groupIdx := i / 16
-			rowInGroup := i % 16
+		// Rows extend from their offset to the end of the used heap (parsers
+		// read fixed field offsets within the row, so an over-long slice is
+		// fine).
+		usedSize := int(le16(pageData, 0x1e))
+		rowEnd := 0x28 + usedSize
+		if rowEnd > pageSize {
+			rowEnd = pageSize
+		}
 
-			// Position of this group in the row index (from end of page).
-			groupSize := 0
-			rowsInThisGroup := min(16, numRowOffsets-groupIdx*16)
-			groupSize = rowsInThisGroup*2 + 2 + 2 // offsets + rowpf + tranrf
-
-			groupEnd := pageSize
-			for g := 0; g < groupIdx; g++ {
-				rig := min(16, numRowOffsets-g*16)
-				groupEnd -= rig*2 + 2 + 2
+		// The row index grows backward from the page end in groups of up to 16
+		// rows. Each group is rowsInGroup*2 + 4 bytes: the row offsets (row r at
+		// groupTop-6-2r), a 2-byte presence bitmask at groupTop-4 (bit r set =
+		// row r present), and a 2-byte txref at groupTop-2. This mirrors the
+		// writer (pdb/writer.go) and matches real rekordbox, including
+		// copy-on-write pages (a deck edit) where a deleted row's presence bit
+		// is cleared. The previous reader used fixed-size groups and forward
+		// offset indexing, which misaligned the presence bit for a partial last
+		// group and dropped live rows (e.g. a track that had cues added on a
+		// CDJ vanished from our parse).
+		groupTop := pageSize
+		for g := 0; g*16 < numRowOffsets; g++ {
+			rowsInGroup := numRowOffsets - g*16
+			if rowsInGroup > 16 {
+				rowsInGroup = 16
 			}
-			groupStart := groupEnd - groupSize
-
-			if groupStart < 0x28 || groupStart >= pageSize {
+			rpfPos := groupTop - 4
+			if rpfPos < 0x28 || rpfPos+2 > pageSize {
 				break
 			}
-
-			// Read row presence flags.
-			rowpfOff := groupStart + rowsInThisGroup*2
-			if rowpfOff+2 > pageSize {
-				break
+			rowpf := le16(pageData, rpfPos)
+			for r := 0; r < rowsInGroup; r++ {
+				if rowpf&(1<<uint(r)) == 0 {
+					continue // row deleted (copy-on-write)
+				}
+				offPos := groupTop - 6 - 2*r
+				if offPos < 0x28 || offPos+2 > pageSize {
+					continue
+				}
+				rowStart := 0x28 + int(le16(pageData, offPos))
+				if rowStart >= 0x28 && rowStart < rowEnd {
+					fn(pageData[rowStart:rowEnd])
+				}
 			}
-			rowpf := le16(pageData, rowpfOff)
-			if rowpf&(1<<uint(rowInGroup)) == 0 {
-				continue // Row not present.
-			}
-
-			// Read row offset.
-			offIdx := groupStart + rowInGroup*2
-			if offIdx+2 > pageSize {
-				break
-			}
-			rowOff := int(le16(pageData, offIdx))
-
-			// Row data starts at heap (offset 0x28) + rowOff.
-			rowStart := 0x28 + rowOff
-			if rowStart >= pageSize {
-				break
-			}
-
-			// Row extends to next row or end of heap.
-			rowEnd := pageSize - (pageSize - groupStart) // approximate
-			// Better: find next row offset or use page used_size.
-			usedSize := int(le16(pageData, 0x1e))
-			rowEnd = 0x28 + usedSize
-			if rowEnd > pageSize {
-				rowEnd = pageSize
-			}
-
-			if rowStart < rowEnd {
-				fn(pageData[rowStart:rowEnd])
-			}
+			groupTop -= rowsInGroup*2 + 4
 		}
 
 		nextPage := int(le32(pageData, 0x0c))
