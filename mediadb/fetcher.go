@@ -368,8 +368,22 @@ func (f *Fetcher) doFetchAnalysis(player uint8, export string, db *pdb.Database,
 	ext, _ := c.ReadFile(export, base+".EXT")
 	twoEX, _ := c.ReadFile(export, base+".2EX")
 
+	// Debug: dump the ANLZ files so cue/waveform layout can be inspected offline.
+	if dir := os.Getenv("VYNULL_DUMP_PDB"); dir != "" {
+		for name, b := range map[string][]byte{"DAT": dat, "EXT": ext, "2EX": twoEX} {
+			if len(b) > 0 {
+				_ = os.WriteFile(filepath.Join(dir, fmt.Sprintf("player%d-track%d.%s", player, trackID, name)), b, 0o644)
+			}
+		}
+		log.Printf("mediadb: dumped ANLZ for player %d track %d to %s", player, trackID, dir)
+	}
+
 	res := analysis.ParseANLZBytes(dat, ext, twoEX, float64(t.Tempo)/100, int(t.Duration))
 	cues := analysis.ParseANLZCuesBytes(ext, dat)
+	for _, cu := range cues {
+		log.Printf("mediadb: player %d track %d cue hot=%d time=%dms color_id=%#x loop=%v",
+			player, trackID, cu.HotCue, cu.TimeMs, cu.ColorID, cu.IsLoop)
+	}
 	if res == nil && len(cues) == 0 {
 		return nil
 	}
