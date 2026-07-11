@@ -21,7 +21,7 @@ Use it at your own risk, and back up your rekordbox library before importing any
 - **Virtual CDJ/Rekordbox** on the Pro DJ Link network (UDP ports 50000/50001/50002)
 - **Web UI** — browser-based library manager (`--web`): browse/search, edit metadata, manage cues/tags/playlists, view live players, zoom waveform with beat grid + beat-jump, and configure CDJ settings
 - **Browse tracks** on CDJs by artist, album, genre, BPM, key, label, year, remixer, folder
-- **Import your library** — from **rekordbox** (`rekordbox.xml`, an encrypted `master.db`, or a full library-backup `.zip`), **Traktor** (`collection.nml`), or **VirtualDJ** (`database.xml`). A rekordbox import brings tracks, MyTags (with categories), track colors, (smart) playlists, cue points (hot + memory, with colors/loops), ANLZ analysis (waveforms/beat grids/phrases), and artwork; Traktor brings tracks, playlists, and cues, and VirtualDJ brings tracks and cues
+- **Import your library** — from **rekordbox** (`rekordbox.xml`, an encrypted `master.db`, or a full library-backup `.zip`), **Traktor** (`collection.nml`), or **VirtualDJ** (`database.xml`). A rekordbox import brings tracks, MyTags (with categories), track colors, (smart) playlists, cue points (hot + memory, with colors/loops), ANLZ analysis (waveforms/beat grids/phrases), and artwork; Traktor and VirtualDJ bring tracks, playlists, and cues
 - **Smart playlists** — rekordbox rule sets imported and evaluated live (BPM/key/genre/date/tag/… conditions)
 - **DJM mixer awareness** — surfaces DJM channel/master state on the link
 - **Native FLAC/WAV/AIFF playback** — CDJ decodes lossless formats directly over NFS
@@ -163,8 +163,8 @@ A rekordbox `.zip`/`.db` import brings in tracks, MyTags (with their
 categories), track colors, (smart) playlists, cue points (hot + memory), ANLZ
 analysis (waveforms + beat grids + phrases), and artwork; a Traktor
 `collection.nml` brings tracks, playlists, and cues; a VirtualDJ `database.xml`
-brings tracks and cues. The web UI's LIBRARY tab has an import button for the
-same flow.
+brings tracks, cues, and playlists (from the sibling `Folders/` directory). The
+web UI's LIBRARY tab has an import button for the same flow.
 Reading an encrypted `master.db` requires Python 3 with the `sqlcipher3`
 package (it shells out to `tools/rekordbox_dump.py`); XML, NML, VirtualDJ, and everything
 else need no Python.

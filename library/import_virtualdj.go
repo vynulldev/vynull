@@ -14,10 +14,10 @@ import (
 
 // VirtualDJ keeps its library in a single database.xml (one per drive): a flat
 // list of <Song> elements with metadata, analysis, and POIs (cues/loops).
-// Playlists live in separate .vdjfolder files, so a database.xml import brings
-// tracks and cues only. database.xml shares the .xml extension with a rekordbox
-// export, so this importer is selected by sniffing the root element rather than
-// the extension (see Handles / xmlRootIs).
+// Playlists live in separate .vdjfolder files in a sibling Folders/ directory,
+// which this import also scans. database.xml shares the .xml extension with a
+// rekordbox export, so this importer is selected by sniffing the root element
+// rather than the extension (see Handles / xmlRootIs).
 
 type virtualDJDatabase struct {
 	XMLName xml.Name  `xml:"VirtualDJ_Database"`
@@ -69,8 +69,8 @@ type vdjPoi struct {
 	Size float64 `xml:"Size,attr"` // loop length in beats
 }
 
-// ImportVirtualDJ imports a VirtualDJ database.xml (tracks + cues). Playlists
-// live in separate .vdjfolder files and are not imported here.
+// ImportVirtualDJ imports a VirtualDJ database.xml (tracks + cues), plus any
+// playlists in a sibling Folders/ directory (.vdjfolder files).
 func ImportVirtualDJ(lib *Library, xmlPath string) (*ImportBundle, error) {
 	data, err := os.ReadFile(xmlPath)
 	if err != nil {
@@ -105,7 +105,72 @@ func ImportVirtualDJ(lib *Library, xmlPath string) (*ImportBundle, error) {
 		cues = append(cues, vdjCues(id, s.Pois, track.BPM)...)
 	}
 	lib.FinalizeBulk()
-	return &ImportBundle{Result: res, Cues: cues}, nil
+
+	// VirtualDJ keeps playlists as .vdjfolder files in a Folders/ directory next
+	// to database.xml. Walk it (when present) and resolve each song path to a
+	// track we just imported.
+	playlists := vdjPlaylistsFromDir(lib, filepath.Join(filepath.Dir(xmlPath), "Folders"))
+	res.PlaylistsTotal = countPlaylists2(playlists)
+	return &ImportBundle{Result: res, Playlists: playlists, Cues: cues}, nil
+}
+
+// vdjFolder is a VirtualDJ .vdjfolder playlist file: <VirtualFolder> with a list
+// of <song path="..."/> entries. Smart/virtual folders instead carry a <filter>
+// and no songs, so they come through empty and are dropped.
+type vdjFolder struct {
+	XMLName xml.Name `xml:"VirtualFolder"`
+	Songs   []struct {
+		Path string `xml:"path,attr"`
+	} `xml:"song"`
+}
+
+// vdjPlaylistsFromDir walks a VirtualDJ Folders/ directory into a PlaylistImport
+// tree: subdirectories become folders, .vdjfolder files become playlists with
+// their song paths resolved to library track IDs. Empty playlists and folders
+// (a smart folder, or one whose tracks weren't imported) are dropped.
+func vdjPlaylistsFromDir(lib *Library, dir string) []PlaylistImport {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil
+	}
+	var out []PlaylistImport
+	for _, e := range entries {
+		full := filepath.Join(dir, e.Name())
+		if e.IsDir() {
+			if children := vdjPlaylistsFromDir(lib, full); len(children) > 0 {
+				out = append(out, PlaylistImport{Name: e.Name(), IsFolder: true, Children: children})
+			}
+			continue
+		}
+		if !strings.EqualFold(filepath.Ext(e.Name()), ".vdjfolder") {
+			continue
+		}
+		if ids := vdjFolderTrackIDs(lib, full); len(ids) > 0 {
+			name := strings.TrimSuffix(e.Name(), filepath.Ext(e.Name()))
+			out = append(out, PlaylistImport{Name: name, TrackIDs: ids})
+		}
+	}
+	return out
+}
+
+// vdjFolderTrackIDs reads a .vdjfolder and resolves its song paths to library
+// track IDs, skipping any track not in the library.
+func vdjFolderTrackIDs(lib *Library, path string) []uint32 {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil
+	}
+	var vf vdjFolder
+	if xml.Unmarshal(data, &vf) != nil {
+		return nil
+	}
+	var ids []uint32
+	for _, s := range vf.Songs {
+		if t := lib.TrackByPath(s.Path); t != nil {
+			ids = append(ids, t.ID)
+		}
+	}
+	return ids
 }
 
 func vdjSongToLibrary(s *vdjSong) *Track {

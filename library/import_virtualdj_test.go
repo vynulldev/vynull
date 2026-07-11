@@ -85,6 +85,47 @@ func TestImportVirtualDJ(t *testing.T) {
 	}
 }
 
+func TestImportVirtualDJPlaylists(t *testing.T) {
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "database.xml"), []byte(sampleVDJ), 0o644)
+	// A Folders/ tree next to database.xml: a leaf playlist, a nested folder,
+	// and a smart/empty folder that should be dropped.
+	folders := filepath.Join(dir, "Folders")
+	os.MkdirAll(filepath.Join(folders, "Sets"), 0o755)
+	os.WriteFile(filepath.Join(folders, "Warmup.vdjfolder"),
+		[]byte(`<VirtualFolder><song path="/Users/me/Music/first.mp3"></song><song path="/Users/me/Music/second.flac"></song></VirtualFolder>`), 0o644)
+	os.WriteFile(filepath.Join(folders, "Sets", "Peak.vdjfolder"),
+		[]byte(`<VirtualFolder><song path="/Users/me/Music/first.mp3"></song></VirtualFolder>`), 0o644)
+	os.WriteFile(filepath.Join(folders, "Empty.vdjfolder"),
+		[]byte(`<VirtualFolder><filter>bpm&gt;120</filter></VirtualFolder>`), 0o644)
+
+	lib := NewLibrary(nil, nil)
+	bundle, err := ImportVirtualDJ(lib, filepath.Join(dir, "database.xml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bundle.Result.PlaylistsTotal != 2 { // Warmup + Sets/Peak; Empty dropped
+		t.Errorf("PlaylistsTotal=%d want 2", bundle.Result.PlaylistsTotal)
+	}
+	byName := map[string]PlaylistImport{}
+	for _, p := range bundle.Playlists {
+		byName[p.Name] = p
+	}
+	if w := byName["Warmup"]; w.IsFolder || len(w.TrackIDs) != 2 {
+		t.Errorf("Warmup: %+v", w)
+	}
+	sets, ok := byName["Sets"]
+	if !ok || !sets.IsFolder || len(sets.Children) != 1 {
+		t.Fatalf("Sets: %+v", sets)
+	}
+	if peak := sets.Children[0]; peak.Name != "Peak" || len(peak.TrackIDs) != 1 {
+		t.Errorf("Peak: %+v", peak)
+	}
+	if _, present := byName["Empty"]; present {
+		t.Error("Empty smart folder (no resolved songs) should have been dropped")
+	}
+}
+
 // TestImporterForXMLDispatch checks that .xml files route to the right importer
 // by root element — VirtualDJ and rekordbox both use the .xml extension.
 func TestImporterForXMLDispatch(t *testing.T) {

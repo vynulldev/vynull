@@ -10965,7 +10965,7 @@ function openImportRekordboxDialog() {
             <label class="export-label">Include</label>
             <div id="imp-include" style="display:flex; flex-wrap:wrap; gap:6px 16px;">
               <label data-src="xml,nml,db,zip,vdj"><input type="checkbox" id="inc-tracks" checked> Tracks</label>
-              <label data-src="xml,nml,db,zip" data-dep="tracks"><input type="checkbox" id="inc-playlists" checked> Playlists</label>
+              <label data-src="xml,nml,db,zip,vdj" data-dep="tracks"><input type="checkbox" id="inc-playlists" checked> Playlists</label>
               <label data-src="xml,db,zip" data-dep="tracks"><input type="checkbox" id="inc-tags" checked> Tags</label>
               <label data-src="nml,db,zip,vdj" data-dep="tracks"><input type="checkbox" id="inc-cues" checked> Cues</label>
               <label data-src="db,zip" data-dep="tracks"><input type="checkbox" id="inc-analysis" checked> Waveforms &amp; beat grids</label>
@@ -11030,7 +11030,7 @@ function openImportRekordboxDialog() {
     ]},
     { id: 'virtualdj', label: 'VirtualDJ', formats: [
       { id: 'vdj', label: 'database.xml', needsKey: false, placeholder: '/path/to/database.xml',
-        hint: "VirtualDJ's database.xml — tracks and cues. (Playlists live in separate files.)" },
+        hint: "VirtualDJ's database.xml — tracks, cues, and playlists (from the sibling Folders/ directory). No key needed." },
     ]},
   ];
   let curFormat = SYSTEMS[0].formats[0]; // the selected format object
