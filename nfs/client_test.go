@@ -94,6 +94,28 @@ func TestClientFetchExportPDB(t *testing.T) {
 	}
 }
 
+func TestUTF16LEPathEncoding(t *testing.T) {
+	// The exact "/C/" export bytes a real CDJ returned (UTF-16LE).
+	cdj := []byte{0x2f, 0x00, 0x43, 0x00, 0x2f, 0x00}
+	if got := encodeUTF16LE("/C/"); !bytes.Equal(got, cdj) {
+		t.Fatalf("encodeUTF16LE(/C/) = % x, want % x", got, cdj)
+	}
+	// cleanExportName turns the CDJ's UTF-16LE name back into a plain string,
+	// and leaves a plain name (our own server's form) untouched.
+	if got := cleanExportName(string(cdj)); got != "/C/" {
+		t.Fatalf("cleanExportName = %q, want /C/", got)
+	}
+	if got := cleanExportName("/C/"); got != "/C/" {
+		t.Fatalf("cleanExportName(plain) = %q, want /C/", got)
+	}
+	// LOOKUP names round-trip through the UTF-16LE codec.
+	for _, name := range []string{"PIONEER", "rekordbox", "export.pdb"} {
+		if got := decodeUTF16LE(encodeUTF16LE(name)); got != name {
+			t.Fatalf("round-trip %q -> %q", name, got)
+		}
+	}
+}
+
 func TestClientReadFileMissing(t *testing.T) {
 	root := t.TempDir()
 	srv := NewServer(root)

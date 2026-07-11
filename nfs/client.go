@@ -3,6 +3,7 @@
 package nfs
 
 import (
+	"encoding/binary"
 	"encoding/hex"
 	"fmt"
 	"log"
@@ -10,9 +11,44 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf16"
 
 	"github.com/vynulldev/vynull/internal/dlog"
 )
+
+// A CDJ encodes every path string on the wire (export names, LOOKUP filenames)
+// in UTF-16LE, exactly as it does when it is the client reading from us (see the
+// server's LOOKUP name decode). We keep clean UTF-8 strings internally and
+// convert at the wire.
+
+func encodeUTF16LE(s string) []byte {
+	u := utf16.Encode([]rune(s))
+	b := make([]byte, len(u)*2)
+	for i, c := range u {
+		binary.LittleEndian.PutUint16(b[i*2:], c)
+	}
+	return b
+}
+
+func decodeUTF16LE(b []byte) string {
+	if len(b)%2 != 0 {
+		return string(b)
+	}
+	u := make([]uint16, len(b)/2)
+	for i := range u {
+		u[i] = binary.LittleEndian.Uint16(b[i*2:])
+	}
+	return string(utf16.Decode(u))
+}
+
+// cleanExportName turns a possibly-UTF-16LE export name (the CDJ's form) into a
+// plain string; an already-plain name (our own server's form) is unchanged.
+func cleanExportName(s string) string {
+	if strings.IndexByte(s, 0) >= 0 {
+		return decodeUTF16LE([]byte(s))
+	}
+	return s
+}
 
 // traceReply hex-dumps a low-volume control reply (EXPORT/MNT/LOOKUP) when trace
 // logging is on, to diagnose a real CDJ's wire format. Never used for READ.
@@ -320,7 +356,7 @@ func (c *Client) Exports() ([]string, error) {
 		if err != nil {
 			return out, err
 		}
-		out = append(out, dir)
+		out = append(out, cleanExportName(dir))
 		// Skip the access-group list for this export.
 		for {
 			g, err := r.u32()
@@ -342,7 +378,7 @@ func (c *Client) Exports() ([]string, error) {
 func (c *Client) mount(path string) ([fhSize]byte, error) {
 	var fh [fhSize]byte
 	a := newXDRWriter(64)
-	a.putString(path)
+	a.putBytes(encodeUTF16LE(path)) // CDJ expects the export path in UTF-16LE
 	r, err := c.call(kindMount, progMount, versMount, mountMnt, a.bytes())
 	if err != nil {
 		return fh, err
@@ -364,7 +400,7 @@ func (c *Client) lookup(dir [fhSize]byte, name string) ([fhSize]byte, fattr, err
 	var at fattr
 	a := newXDRWriter(fhSize + 32)
 	a.putFH(dir)
-	a.putString(name)
+	a.putBytes(encodeUTF16LE(name)) // CDJ expects LOOKUP filenames in UTF-16LE
 	r, err := c.call(kindNFS, progNFS, versNFS, nfsLookup, a.bytes())
 	if err != nil {
 		return fh, at, err
