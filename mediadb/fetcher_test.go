@@ -57,6 +57,29 @@ func TestGetCacheHit(t *testing.T) {
 	}
 }
 
+func TestAnalysisCache(t *testing.T) {
+	f := NewFetcher(nil)
+	a := &Analysis{DurationMs: 180000, BPM: 128, WaveDetail: []byte{1, 2, 3, 4}}
+
+	// A positive cache entry is returned as-is.
+	f.anz[artKey(1, 3, 5)] = a
+	if got := f.Analysis(1, 3, 5); got != a {
+		t.Fatalf("Analysis = %+v, want cached entry", got)
+	}
+
+	// A negative cache entry returns nil and starts no fetch.
+	f.anz[artKey(1, 3, 6)] = nil
+	if got := f.Analysis(1, 3, 6); got != nil {
+		t.Fatalf("expected nil for negative-cached analysis, got %+v", got)
+	}
+	f.mu.Lock()
+	inflight := f.anzInflight[artKey(1, 3, 6)]
+	f.mu.Unlock()
+	if inflight {
+		t.Fatal("negative-cached analysis should not trigger a fetch")
+	}
+}
+
 func TestGetFailureCooldown(t *testing.T) {
 	f := NewFetcher(nil) // ResolveIP nil -> any fetch fails
 	// A recent failure is remembered: Get returns nil without spawning a fetch.

@@ -17,9 +17,11 @@ import (
 	"fmt"
 	"log"
 	"net"
+	"strings"
 	"sync"
 	"time"
 
+	"github.com/vynulldev/vynull/analysis"
 	"github.com/vynulldev/vynull/nfs"
 	"github.com/vynulldev/vynull/pdb"
 )
@@ -56,6 +58,18 @@ type Fetcher struct {
 	inflight    map[string]bool
 	art         map[string][]byte // (player:slot:trackID) -> JPEG (nil = none/failed)
 	artInflight map[string]bool
+	anz         map[string]*Analysis // (player:slot:trackID) -> parsed ANLZ (nil = none/failed)
+	anzInflight map[string]bool
+}
+
+// Analysis is the ANLZ-derived data the PLAYERS view needs for an external
+// track: its colour detail waveform (raw PWV5 bytes) and cue points, plus the
+// duration and tempo from the database.
+type Analysis struct {
+	DurationMs uint32
+	BPM        float64
+	WaveDetail []byte                 // raw PWV5 colour-detail waveform (may be nil)
+	Cues       []analysis.ImportedCue // hot + memory cues
 }
 
 type entry struct {
@@ -72,6 +86,8 @@ func NewFetcher(resolveIP func(uint8) net.IP) *Fetcher {
 		inflight:    map[string]bool{},
 		art:         map[string][]byte{},
 		artInflight: map[string]bool{},
+		anz:         map[string]*Analysis{},
+		anzInflight: map[string]bool{},
 	}
 }
 
@@ -241,4 +257,87 @@ func (f *Fetcher) doFetchArt(player uint8, export string, db *pdb.Database, trac
 
 func artKey(player, slot uint8, trackID uint32) string {
 	return fmt.Sprintf("%d:%d:%d", player, slot, trackID)
+}
+
+// Analysis returns the ANLZ-derived waveform and cues for a track on the given
+// player's media, or nil when the media isn't downloaded yet, the track has no
+// analysis, or the fetch is still in flight. Non-blocking, like Get/Artwork: a
+// miss starts a background download and returns nil.
+func (f *Fetcher) Analysis(player, slot uint8, trackID uint32) *Analysis {
+	k := artKey(player, slot, trackID)
+
+	f.mu.Lock()
+	if a, ok := f.anz[k]; ok {
+		f.mu.Unlock()
+		return a // cached (nil = known-none or failed)
+	}
+	e, ok := f.cache[key(player, slot)]
+	if !ok || e.db == nil {
+		f.mu.Unlock()
+		f.Get(player, slot, trackID) // prime the database download
+		return nil
+	}
+	if f.anzInflight[k] {
+		f.mu.Unlock()
+		return nil
+	}
+	f.anzInflight[k] = true
+	db, export := e.db, e.export
+	f.mu.Unlock()
+
+	go func() {
+		a := f.doFetchAnalysis(player, export, db, trackID)
+		f.mu.Lock()
+		f.anz[k] = a
+		delete(f.anzInflight, k)
+		f.mu.Unlock()
+	}()
+	return nil
+}
+
+func (f *Fetcher) doFetchAnalysis(player uint8, export string, db *pdb.Database, trackID uint32) *Analysis {
+	if f.ResolveIP == nil {
+		return nil
+	}
+	t := db.TrackByID(trackID)
+	if t == nil || t.AnalyzePath == "" {
+		return nil
+	}
+	ip := f.ResolveIP(player)
+	if ip == nil {
+		return nil
+	}
+	c, err := nfs.Dial(ip, f.Timeout)
+	if err != nil {
+		log.Printf("mediadb: anlz dial player %d (%s): %v", player, ip, err)
+		return nil
+	}
+	defer c.Close()
+
+	// The .DAT holds the beat grid and legacy cues; the .EXT holds the colour
+	// waveforms and NXS2 cues. Either may be absent on older media.
+	base := strings.TrimSuffix(t.AnalyzePath, ".DAT")
+	dat, err := c.ReadFile(export, t.AnalyzePath)
+	if err != nil {
+		log.Printf("mediadb: player %d anlz %s: %v", player, t.AnalyzePath, err)
+	}
+	ext, _ := c.ReadFile(export, base+".EXT")
+	twoEX, _ := c.ReadFile(export, base+".2EX")
+
+	res := analysis.ParseANLZBytes(dat, ext, twoEX, float64(t.Tempo)/100, int(t.Duration))
+	cues := analysis.ParseANLZCuesBytes(ext, dat)
+	if res == nil && len(cues) == 0 {
+		return nil
+	}
+	a := &Analysis{
+		DurationMs: uint32(t.Duration) * 1000,
+		BPM:        float64(t.Tempo) / 100,
+		Cues:       cues,
+	}
+	if res != nil {
+		a.WaveDetail = res.WaveDetail
+	}
+	log.Printf("mediadb: player %d track %d analysis: waveform=%dB cues=%d",
+		player, trackID, len(a.WaveDetail), len(a.Cues))
+	return a
 }
