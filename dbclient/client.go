@@ -17,6 +17,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
+	"log"
 	"net"
 	"time"
 
@@ -58,10 +59,21 @@ func Dial(ip net.IP, port int, playerNum uint8) (*Client, error) {
 	}
 
 	// Setup: tell the server our player number; it replies [0, serverPlayer].
-	if _, err := c.request(proto.DBSetupTxID, proto.DBMsgSetup, proto.ArgI32(uint32(playerNum))); err != nil {
+	setup := &proto.DBMessage{TxID: proto.DBSetupTxID, Type: proto.DBMsgSetup, Args: []proto.DBArg{proto.ArgI32(uint32(playerNum))}}
+	setup.OverrideTags = padTags12(setup.Args)
+	setupBytes := proto.MarshalDBMessage(setup)
+	log.Printf("dbclient: %s:%d handshake echo=[% x] setup send=[% x]", ip, port, echo, setupBytes)
+	c.conn.SetDeadline(time.Now().Add(c.timeout))
+	if _, err := c.conn.Write(setupBytes); err != nil {
 		conn.Close()
-		return nil, fmt.Errorf("setup: %w", err)
+		return nil, fmt.Errorf("setup write: %w", err)
 	}
+	resp, err := c.recv()
+	if err != nil {
+		conn.Close()
+		return nil, fmt.Errorf("setup response: %w", err)
+	}
+	log.Printf("dbclient: %s setup ok, response type=0x%04x args=%d", ip, resp.Type, len(resp.Args))
 	return c, nil
 }
 
@@ -70,11 +82,40 @@ func (c *Client) Close() error { return c.conn.Close() }
 
 func (c *Client) nextTx() uint32 { c.txID++; return c.txID }
 
-// send writes one message.
+// send writes one message. Real dbservers expect a fixed 12-byte
+// argument-type-tag array (our own server is lenient about its length, a CDJ's
+// dbserver is not), so pad the tags to 12 bytes.
 func (c *Client) send(msg *proto.DBMessage) error {
+	if msg.OverrideTags == nil {
+		msg.OverrideTags = padTags12(msg.Args)
+	}
 	c.conn.SetDeadline(time.Now().Add(c.timeout))
 	_, err := c.conn.Write(proto.MarshalDBMessage(msg))
 	return err
+}
+
+// padTags12 builds the 12-byte argument-type-tag array (render codes:
+// int32=0x06, int16=0x05, int8=0x04, string=0x02, binary=0x03), zero-padded.
+func padTags12(args []proto.DBArg) []byte {
+	tags := make([]byte, 12)
+	for i, a := range args {
+		if i >= 12 {
+			break
+		}
+		switch a.Tag {
+		case proto.ArgInt32:
+			tags[i] = 0x06
+		case proto.ArgInt16:
+			tags[i] = 0x05
+		case proto.ArgInt8:
+			tags[i] = 0x04
+		case proto.ArgString, proto.ArgStringWrapped:
+			tags[i] = 0x02
+		case proto.ArgBinary:
+			tags[i] = 0x03
+		}
+	}
+	return tags
 }
 
 // request sends a message and reads a single response.

@@ -7,7 +7,13 @@ import (
 	"log"
 	"net"
 	"sync"
+	"time"
 )
+
+// failCooldown is how long a failed fetch is remembered before we try that
+// track again — so an unreachable/incompatible dbserver isn't re-dialled on
+// every status packet.
+const failCooldown = 30 * time.Second
 
 // Fetcher fetches metadata for externally-sourced tracks and caches it. Get is
 // non-blocking — it returns the cached result or nil, kicking off a background
@@ -20,8 +26,13 @@ type Fetcher struct {
 	OurPlayer func() uint8
 
 	mu       sync.Mutex
-	cache    map[string]*Metadata
+	cache    map[string]cacheEntry
 	inflight map[string]bool
+}
+
+type cacheEntry struct {
+	meta *Metadata // nil = fetch failed
+	at   time.Time
 }
 
 // NewFetcher builds a Fetcher. resolveIP maps a device number to its IP;
@@ -30,7 +41,7 @@ func NewFetcher(resolveIP func(uint8) net.IP, ourPlayer func() uint8) *Fetcher {
 	return &Fetcher{
 		ResolveIP: resolveIP,
 		OurPlayer: ourPlayer,
-		cache:     map[string]*Metadata{},
+		cache:     map[string]cacheEntry{},
 		inflight:  map[string]bool{},
 	}
 }
@@ -44,9 +55,12 @@ func cacheKey(player, slot uint8, trackID uint32) string {
 func (f *Fetcher) Get(player, slot uint8, trackID uint32) *Metadata {
 	k := cacheKey(player, slot, trackID)
 	f.mu.Lock()
-	if m, ok := f.cache[k]; ok {
-		f.mu.Unlock()
-		return m
+	if e, ok := f.cache[k]; ok {
+		// Return a success permanently, and a failure until its cooldown lapses.
+		if e.meta != nil || time.Since(e.at) < failCooldown {
+			f.mu.Unlock()
+			return e.meta
+		}
 	}
 	if f.inflight[k] {
 		f.mu.Unlock()
@@ -61,9 +75,7 @@ func (f *Fetcher) Get(player, slot uint8, trackID uint32) *Metadata {
 func (f *Fetcher) fetch(k string, player, slot uint8, trackID uint32) {
 	m := f.doFetch(player, slot, trackID)
 	f.mu.Lock()
-	if m != nil {
-		f.cache[k] = m
-	}
+	f.cache[k] = cacheEntry{meta: m, at: time.Now()} // cache failures too (with cooldown)
 	delete(f.inflight, k)
 	f.mu.Unlock()
 }
@@ -78,7 +90,10 @@ func (f *Fetcher) doFetch(player, slot uint8, trackID uint32) *Metadata {
 	}
 	port, err := DBServerPort(ip)
 	if err != nil {
-		port = DefaultDBPort // lookup unavailable — try the common default
+		log.Printf("dbclient: db-port lookup %s failed (%v) — trying default %d", ip, err, DefaultDBPort)
+		port = DefaultDBPort
+	} else {
+		log.Printf("dbclient: db-port lookup %s -> %d", ip, port)
 	}
 	c, err := Dial(ip, port, f.OurPlayer())
 	if err != nil {
