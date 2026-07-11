@@ -591,6 +591,7 @@ func main() {
 		Web:          cfg.Web,
 		CacheDir:     cfg.DataDir, // for rendered waveform PNGs etc.
 		ExtArtwork:   extMeta.Artwork,
+		ExtAnalysis:  extMeta.Analysis,
 	}
 	if cfg.Web {
 		log.Printf("web UI enabled: http://%s/", displayAddr(cfg.Listen))
