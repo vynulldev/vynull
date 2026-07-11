@@ -1,6 +1,8 @@
 # Metadata for externally-sourced tracks (Level 2)
 
-- **Status:** Proposed
+- **Status:** Phases A–B implemented (package `dbclient`, wired to the monitor);
+  the codec is unit-tested, the live handshake / port lookup / menu-descriptor
+  packing need hardware confirmation. Phases C–D (artwork, analysis) pending.
 - **Scope:** live monitor / now-playing — fetch metadata for tracks a deck plays
   from a source other than us
 - **Prereq:** Level 1 (shipped) — the monitor detects external tracks
@@ -47,14 +49,27 @@ framing is familiar — but the client handshake and menu-render flow are new.
 
 ## Phases
 
-- **A — spike the client (the risk).** db-port lookup + handshake + a single
-  `0x2002` request, parse title/artist/BPM/key for one external track. This is
-  the uncertain part; validate on hardware before building further.
-- **B — fetch/cache + wire to the monitor.** External `PlayerState` fills in;
-  the PLAYERS view / TUI / overlay show the real track.
-- **C — artwork.** Fetch + serve cover art for external tracks.
-- **D — (optional) analysis.** Beat grid / cues / waveform for external tracks
-  (reuses ANLZ requests) so the player card shows the real waveform + cues.
+- **A — the client** *(done)*. db-port lookup + handshake + `0x2002`/`0x3000`
+  render + parse the `0x4101` detail rows into title/artist/album/genre/key.
+  Codec unit-tested against `proto`'s own marshaling; live handshake needs a
+  deck.
+- **B — fetch/cache + wire to the monitor** *(done)*. `dbclient.Fetcher` (async,
+  cached) filled via the peer tracker; the PLAYERS view and TUI show the
+  metadata once resolved.
+- **C — artwork** *(pending)*. Fetch (`0x2003`) + serve cover art for external
+  tracks; also lets the now-playing overlay show the real art instead of a
+  colliding local ID.
+- **D — (optional) analysis** *(pending)*. Beat grid / cues / waveform for
+  external tracks (reuses ANLZ requests) so the player card shows the real
+  waveform + cues.
+
+## Not yet validated (needs a deck)
+
+The handshake byte string, the `0x00`-prefixed length framing (currently errors
+with a "capture the hex" message), the db-port query format, the menu-descriptor
+packing, and the exact `0x4101` item-type codes are built to the documented
+protocol but only exercised against our own server in tests. The first hardware
+run's verbose logs will confirm or correct them.
 
 ## Risks / notes
 
