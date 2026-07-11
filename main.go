@@ -491,6 +491,10 @@ func main() {
 		Monitor:      monitor,
 		Settings:     cdjSettings,
 	}
+	// Let the monitor tell our own tracks apart from ones a deck loaded off a
+	// USB/SD or another player (device number is negotiated during the claim,
+	// so read it live rather than capturing cfg.DeviceNumber).
+	monitor.SelfDevice = func() uint8 { return dev.DeviceNumber }
 
 	// Now that dev exists, wire the dbserver teardown callback to drop
 	// peers from the tracker the moment they send 0x0100.

@@ -381,11 +381,17 @@ func (m tuiModel) renderPlayers() string {
 
 		if s.TrackID > 0 {
 			title := p.TrackName
-			if title == "" {
+			if p.External {
+				// Loaded off a USB/SD or another player — we don't have its
+				// metadata, so show the source rather than a wrong Track #ID.
+				title = p.Source
+			} else if title == "" {
 				title = fmt.Sprintf("Track #%d", s.TrackID)
 			}
 			b.WriteString("    " + titleStyle.Render(title) + "\n")
-			if p.Artist != "" {
+			if p.External {
+				b.WriteString("    " + dimStyle.Render("external source") + "\n")
+			} else if p.Artist != "" {
 				b.WriteString("    " + dimStyle.Render(p.Artist) + "\n")
 			}
 			bpm := float64(s.BPM) / 100.0

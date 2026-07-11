@@ -236,6 +236,8 @@ type PlayerInfo struct {
 	BPM           float64 `json:"bpm"`
 	PitchPct      float64 `json:"pitch_pct"` // pitch as percent (-100..+100); 0 = nominal
 	Key           string  `json:"key"`
+	External      bool    `json:"external,omitempty"` // track loaded from a source other than us
+	Source        string  `json:"source,omitempty"`   // that source, e.g. "USB · player 2"
 	IsPlaying     bool    `json:"is_playing"`
 	IsMaster      bool    `json:"is_master"`
 	IsSync        bool    `json:"is_sync,omitempty"`
@@ -518,6 +520,8 @@ func (s *Server) getPlayers() []PlayerInfo {
 			BPM:           float64(ps.Status.BPM) / 100.0,
 			PitchPct:      pitchPct,
 			Key:           ps.Key,
+			External:      ps.External,
+			Source:        ps.Source,
 			IsPlaying:     ps.Status.IsPlaying,
 			IsMaster:      ps.Status.IsMaster,
 			IsSync:        ps.Status.IsSync,

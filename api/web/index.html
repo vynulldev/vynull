@@ -5175,14 +5175,20 @@ function renderPlayers(players) {
     const ledClass = isPlaying ? 'green pulse' : isPaused ? 'amber' : '';
     const pitch = (typeof p.pitch_pct === 'number') ? p.pitch_pct : 0;
     const pitchStr = (pitch > 0 ? '+' : '') + pitch.toFixed(2) + '%';
-    const trackBody = p.track_id > 0 ? `
-      <div class="track-header">
-        <div class="track-title" data-open-detail="${p.track_id}" title="Click to view track details">${escape(p.track_title || ('TRACK #' + p.track_id))}</div>
-        <div class="actions">
-          <button type="button" class="action-btn" data-find-track="${p.track_id}" title="Jump to this track in the library">FIND</button>
+    const trackHeader = p.external
+      ? `<div class="track-header">
+          <div class="track-title" title="Loaded from another source — Vynull doesn't have its metadata">${escape(p.source || 'External source')}</div>
         </div>
-      </div>
-      <div class="track-meta-line">${escape(p.artist || '—')}</div>
+        <div class="track-meta-line">external source · not from Vynull</div>`
+      : `<div class="track-header">
+          <div class="track-title" data-open-detail="${p.track_id}" title="Click to view track details">${escape(p.track_title || ('TRACK #' + p.track_id))}</div>
+          <div class="actions">
+            <button type="button" class="action-btn" data-find-track="${p.track_id}" title="Jump to this track in the library">FIND</button>
+          </div>
+        </div>
+        <div class="track-meta-line">${escape(p.artist || '—')}</div>`;
+    const trackBody = p.track_id > 0 ? `
+      ${trackHeader}
       <div class="readouts">
         <div class="bpm-display">
           <div class="label">BPM</div>
@@ -5194,11 +5200,11 @@ function renderPlayers(players) {
           <dt>BEAT</dt><dd>${p.beat_in_bar || '—'} / 4</dd>
         </dl>
       </div>
-      <div class="wave-wrap">
+      ${p.external ? `<div class="wave-wrap" style="display:flex;align-items:center;justify-content:center;color:var(--text3);font-size:10px;letter-spacing:0.14em">WAVEFORM UNAVAILABLE · EXTERNAL SOURCE</div>` : `<div class="wave-wrap">
         <canvas data-track="${p.track_id}" width="1200" height="58"></canvas>
         ${initialPlayheadMarkup(p)}
       </div>
-      <div class="player-phrases" data-phrases-track="${p.track_id}"></div>
+      <div class="player-phrases" data-phrases-track="${p.track_id}"></div>`}
       <div class="player-time" data-dev="${p.device_number}">
         <span class="elapsed">${initialTimeText(p, 'elapsed')}</span>
         <span class="sep">/</span>
