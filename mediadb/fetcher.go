@@ -17,6 +17,7 @@ import (
 	"fmt"
 	"log"
 	"net"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -60,6 +61,7 @@ type Fetcher struct {
 	artInflight map[string]bool
 	anz         map[string]*Analysis // (player:slot:trackID) -> parsed ANLZ (nil = none/failed)
 	anzInflight map[string]bool
+	missLogged  map[string]bool // tracks a "not in pdb" miss has already been logged
 }
 
 // Analysis is the ANLZ-derived data the PLAYERS view needs for an external
@@ -119,7 +121,28 @@ func (f *Fetcher) Get(player, slot uint8, trackID uint32) *Metadata {
 	if db == nil {
 		return nil
 	}
-	return metaFromDB(db, trackID)
+	m := metaFromDB(db, trackID)
+	if m == nil {
+		f.logMissOnce(player, slot, trackID, len(db.Tracks))
+	}
+	return m
+}
+
+// logMissOnce logs (once per track) that a loaded track wasn't found in the
+// downloaded database — the signature of a track whose reported ID isn't in the
+// player's export.pdb (e.g. edited on the deck).
+func (f *Fetcher) logMissOnce(player, slot uint8, trackID uint32, nTracks int) {
+	k := artKey(player, slot, trackID)
+	f.mu.Lock()
+	if f.missLogged == nil {
+		f.missLogged = map[string]bool{}
+	}
+	seen := f.missLogged[k]
+	f.missLogged[k] = true
+	f.mu.Unlock()
+	if !seen {
+		log.Printf("mediadb: player %d slot %d track %d NOT in downloaded pdb (%d tracks)", player, slot, trackID, nTracks)
+	}
 }
 
 func metaFromDB(db *pdb.Database, trackID uint32) *Metadata {
@@ -179,8 +202,17 @@ func (f *Fetcher) doFetch(player, slot uint8) (*pdb.Database, string) {
 		log.Printf("mediadb: player %d parse export.pdb: %v", player, err)
 		return nil, ""
 	}
-	log.Printf("mediadb: player %d slot %d: %d tracks from %s%s", player, slot, len(db.Tracks), ip, export)
+	log.Printf("mediadb: player %d slot %d: %d tracks from %s%s ids=%v", player, slot, len(db.Tracks), ip, export, sortedTrackIDs(db))
 	return db, export
+}
+
+func sortedTrackIDs(db *pdb.Database) []uint32 {
+	ids := make([]uint32, 0, len(db.Tracks))
+	for _, t := range db.Tracks {
+		ids = append(ids, t.ID)
+	}
+	sort.Slice(ids, func(i, j int) bool { return ids[i] < ids[j] })
+	return ids
 }
 
 // Artwork returns the cover-art JPEG for a track on the given player's media, or
