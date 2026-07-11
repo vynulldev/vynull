@@ -505,6 +505,14 @@
     text-overflow: ellipsis;
   }
 
+  .track-lead { display: flex; gap: 11px; align-items: center; }
+  .track-lead-text { min-width: 0; flex: 1 1 auto; }
+  .deck-art {
+    width: 46px; height: 46px; flex-shrink: 0;
+    border-radius: 4px; object-fit: cover;
+    background: #0c0c0e; border: 1px solid #17171b;
+  }
+
   .readouts {
     display: grid;
     grid-template-columns: auto 1fr;
@@ -5187,8 +5195,15 @@ function renderPlayers(players) {
           </div>
         </div>
         <div class="track-meta-line">${escape(p.artist || '—')}</div>`;
+    // Cover art: local tracks resolve via the library, external tracks via the
+    // source player's media over NFS (may 404 until fetched, so hide on error —
+    // the next 1s poll re-creates the img and retries).
+    const artImg = p.artwork_url
+      ? `<img class="deck-art" src="${escape(p.artwork_url)}" alt="" loading="lazy" onerror="this.style.display='none'">`
+      : '';
+    const trackLead = `<div class="track-lead">${artImg}<div class="track-lead-text">${trackHeader}</div></div>`;
     const trackBody = p.track_id > 0 ? `
-      ${trackHeader}
+      ${trackLead}
       <div class="readouts">
         <div class="bpm-display">
           <div class="label">BPM</div>

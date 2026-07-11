@@ -97,6 +97,7 @@ type Database struct {
 	Genres  map[uint32]string
 	Keys    map[uint32]string
 	Labels  map[uint32]string
+	Artwork map[uint32]string // ArtworkID -> USB-relative JPEG path
 
 	// PlaylistTree is the playlist hierarchy, flattened to a list. Each
 	// node carries its own ID + ParentID + Name; reconstruct the tree
@@ -170,6 +171,7 @@ func OpenBytes(data []byte, exportRoot string) (*Database, error) {
 		Genres:     make(map[uint32]string),
 		Keys:       make(map[uint32]string),
 		Labels:     make(map[uint32]string),
+		Artwork:    make(map[uint32]string),
 		trackByID:  make(map[uint32]*Track),
 		ExportRoot: exportRoot,
 	}
@@ -196,6 +198,11 @@ func OpenBytes(data []byte, exportRoot string) (*Database, error) {
 			db.parseNamedTable(data, pageSize, firstPage, lastPage, db.Genres, "genres")
 		case TableLabels:
 			db.parseNamedTable(data, pageSize, firstPage, lastPage, db.Labels, "labels")
+		case TableArtwork:
+			// Artwork rows are the simple id+string form (id, then the
+			// USB-relative JPEG path) — the CDJ's real on-disk path, which we
+			// need to download cover art from another player's media.
+			db.parseNamedTable(data, pageSize, firstPage, lastPage, db.Artwork, "artwork")
 		case TableKeys:
 			db.parseKeysTable(data, pageSize, firstPage, lastPage)
 		case TableTracks:
@@ -233,8 +240,8 @@ func OpenBytes(data []byte, exportRoot string) (*Database, error) {
 		}
 	}
 
-	log.Printf("pdb: loaded %d tracks, %d artists, %d albums, %d genres, %d keys",
-		len(db.Tracks), len(db.Artists), len(db.Albums), len(db.Genres), len(db.Keys))
+	log.Printf("pdb: loaded %d tracks, %d artists, %d albums, %d genres, %d keys, %d artwork",
+		len(db.Tracks), len(db.Artists), len(db.Albums), len(db.Genres), len(db.Keys), len(db.Artwork))
 
 	return db, nil
 }

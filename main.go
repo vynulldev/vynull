@@ -590,6 +590,7 @@ func main() {
 		Port:         9443, // legacy fallback if Listen is empty (it isn't, given flag default)
 		Web:          cfg.Web,
 		CacheDir:     cfg.DataDir, // for rendered waveform PNGs etc.
+		ExtArtwork:   extMeta.Artwork,
 	}
 	if cfg.Web {
 		log.Printf("web UI enabled: http://%s/", displayAddr(cfg.Listen))

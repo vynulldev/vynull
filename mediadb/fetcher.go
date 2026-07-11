@@ -51,22 +51,27 @@ type Fetcher struct {
 	// Timeout bounds each NFS RPC; zero uses the client default.
 	Timeout time.Duration
 
-	mu       sync.Mutex
-	cache    map[string]*entry
-	inflight map[string]bool
+	mu          sync.Mutex
+	cache       map[string]*entry
+	inflight    map[string]bool
+	art         map[string][]byte // (player:slot:trackID) -> JPEG (nil = none/failed)
+	artInflight map[string]bool
 }
 
 type entry struct {
-	db *pdb.Database // nil = the last download failed
-	at time.Time
+	db     *pdb.Database // nil = the last download failed
+	export string        // the export root the db came from (e.g. "/C/")
+	at     time.Time
 }
 
 // NewFetcher builds a Fetcher. resolveIP maps a device number to its IP.
 func NewFetcher(resolveIP func(uint8) net.IP) *Fetcher {
 	return &Fetcher{
-		ResolveIP: resolveIP,
-		cache:     map[string]*entry{},
-		inflight:  map[string]bool{},
+		ResolveIP:   resolveIP,
+		cache:       map[string]*entry{},
+		inflight:    map[string]bool{},
+		art:         map[string][]byte{},
+		artInflight: map[string]bool{},
 	}
 }
 
@@ -117,7 +122,7 @@ func metaFromDB(db *pdb.Database, trackID uint32) *Metadata {
 }
 
 func (f *Fetcher) fetch(k string, player, slot uint8) {
-	db := f.doFetch(player, slot)
+	db, export := f.doFetch(player, slot)
 	f.mu.Lock()
 	// Keep an earlier successful copy if this refresh failed.
 	if db == nil {
@@ -127,15 +132,92 @@ func (f *Fetcher) fetch(k string, player, slot uint8) {
 			f.cache[k] = &entry{db: nil, at: time.Now()}
 		}
 	} else {
-		f.cache[k] = &entry{db: db, at: time.Now()}
+		f.cache[k] = &entry{db: db, export: export, at: time.Now()}
 	}
 	delete(f.inflight, k)
 	f.mu.Unlock()
 }
 
-func (f *Fetcher) doFetch(player, slot uint8) *pdb.Database {
+func (f *Fetcher) doFetch(player, slot uint8) (*pdb.Database, string) {
+	if f.ResolveIP == nil {
+		return nil, ""
+	}
+	ip := f.ResolveIP(player)
+	if ip == nil {
+		return nil, ""
+	}
+	c, err := nfs.Dial(ip, f.Timeout)
+	if err != nil {
+		log.Printf("mediadb: dial player %d (%s): %v", player, ip, err)
+		return nil, ""
+	}
+	defer c.Close()
+
+	data, export, err := c.FetchExportPDB()
+	if err != nil {
+		log.Printf("mediadb: player %d (%s) export.pdb: %v", player, ip, err)
+		return nil, ""
+	}
+	db, err := pdb.OpenBytes(data, "")
+	if err != nil {
+		log.Printf("mediadb: player %d parse export.pdb: %v", player, err)
+		return nil, ""
+	}
+	log.Printf("mediadb: player %d slot %d: %d tracks from %s%s", player, slot, len(db.Tracks), ip, export)
+	return db, export
+}
+
+// Artwork returns the cover-art JPEG for a track on the given player's media, or
+// nil when the media isn't downloaded yet, the track has no art, or the fetch is
+// still in flight. Like Get, it never blocks: a miss starts a background
+// download and returns nil, and the art appears on a later call.
+func (f *Fetcher) Artwork(player, slot uint8, trackID uint32) []byte {
+	ak := artKey(player, slot, trackID)
+
+	f.mu.Lock()
+	if b, ok := f.art[ak]; ok {
+		f.mu.Unlock()
+		return b // cached (nil = known-none or failed; positive = the JPEG)
+	}
+	e, ok := f.cache[key(player, slot)]
+	if !ok || e.db == nil {
+		// Need the database first (for the ArtworkID and export root); kicking a
+		// metadata fetch also primes the art fetch for a later call.
+		f.mu.Unlock()
+		f.Get(player, slot, trackID)
+		return nil
+	}
+	if f.artInflight[ak] {
+		f.mu.Unlock()
+		return nil
+	}
+	f.artInflight[ak] = true
+	db, export := e.db, e.export
+	f.mu.Unlock()
+
+	go func() {
+		data := f.doFetchArt(player, export, db, trackID)
+		f.mu.Lock()
+		f.art[ak] = data // may be nil (no art / failed) — negative-cached so we don't refetch
+		delete(f.artInflight, ak)
+		f.mu.Unlock()
+	}()
+	return nil
+}
+
+func (f *Fetcher) doFetchArt(player uint8, export string, db *pdb.Database, trackID uint32) []byte {
 	if f.ResolveIP == nil {
 		return nil
+	}
+	t := db.TrackByID(trackID)
+	if t == nil || t.ArtworkID == 0 {
+		return nil
+	}
+	// Prefer the real path from the media's artwork table; fall back to the
+	// standard rekordbox scheme if that table wasn't present.
+	path := db.Artwork[t.ArtworkID]
+	if path == "" {
+		path = pdb.ArtworkPath(t.ArtworkID)
 	}
 	ip := f.ResolveIP(player)
 	if ip == nil {
@@ -143,21 +225,20 @@ func (f *Fetcher) doFetch(player, slot uint8) *pdb.Database {
 	}
 	c, err := nfs.Dial(ip, f.Timeout)
 	if err != nil {
-		log.Printf("mediadb: dial player %d (%s): %v", player, ip, err)
+		log.Printf("mediadb: art dial player %d (%s): %v", player, ip, err)
 		return nil
 	}
 	defer c.Close()
 
-	data, export, err := c.FetchExportPDB()
+	data, err := c.ReadFile(export, path)
 	if err != nil {
-		log.Printf("mediadb: player %d (%s) export.pdb: %v", player, ip, err)
+		log.Printf("mediadb: player %d art %s: %v", player, path, err)
 		return nil
 	}
-	db, err := pdb.OpenBytes(data, "")
-	if err != nil {
-		log.Printf("mediadb: player %d parse export.pdb: %v", player, err)
-		return nil
-	}
-	log.Printf("mediadb: player %d slot %d: %d tracks from %s%s", player, slot, len(db.Tracks), ip, export)
-	return db
+	log.Printf("mediadb: player %d track %d art %s (%d bytes)", player, trackID, path, len(data))
+	return data
+}
+
+func artKey(player, slot uint8, trackID uint32) string {
+	return fmt.Sprintf("%d:%d:%d", player, slot, trackID)
 }

@@ -15,6 +15,30 @@ func testDB() *pdb.Database {
 	return db
 }
 
+func TestArtworkCache(t *testing.T) {
+	f := NewFetcher(nil)
+	jpeg := []byte{0xff, 0xd8, 0xff, 0xe0, 0x00}
+
+	// A positive cache entry is returned as-is.
+	f.art[artKey(1, 3, 5)] = jpeg
+	if got := f.Artwork(1, 3, 5); string(got) != string(jpeg) {
+		t.Fatalf("Artwork = % x, want % x", got, jpeg)
+	}
+
+	// A negative cache entry (track has no art / prior fetch failed) returns nil
+	// and does not start another fetch.
+	f.art[artKey(1, 3, 6)] = nil
+	if got := f.Artwork(1, 3, 6); got != nil {
+		t.Fatalf("expected nil for negative-cached art, got % x", got)
+	}
+	f.mu.Lock()
+	inflight := f.artInflight[artKey(1, 3, 6)]
+	f.mu.Unlock()
+	if inflight {
+		t.Fatal("negative-cached art should not trigger a fetch")
+	}
+}
+
 func TestGetCacheHit(t *testing.T) {
 	f := NewFetcher(nil)
 	f.cache[key(1, 3)] = &entry{db: testDB(), at: time.Now()}

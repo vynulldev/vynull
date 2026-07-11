@@ -76,9 +76,14 @@ framing is familiar — but the client handshake and menu-render flow are new.
   parsed `*pdb.Database`, and answers `TrackByID` for the monitor's
   `ExternalMeta`. Async, non-blocking, serves a stale copy while refreshing;
   failures cool down 30s.
-- **N3 — artwork** *(pending)*. Download `/PIONEER/Artwork/...` over the same NFS
-  client and serve it, so the player card and now-playing overlay show the real
-  cover instead of a colliding local ID.
+- **N3 — artwork** *(done)*. The PDB reader now parses the artwork table
+  (`Database.Artwork`: ArtworkID -> real on-USB JPEG path). `mediadb.Fetcher.Artwork`
+  downloads that JPEG over the same NFS client and negative-caches misses; the
+  API serves it at `/api/artwork/ext/{player}/{slot}/{trackID}` (wired via
+  `Server.ExtArtwork`), and the PLAYERS card shows a cover thumbnail
+  (`PlayerInfo.ArtworkURL`; local art keeps using `/api/artwork/{id}`). Needs a
+  deck to confirm the artwork path resolves on real media. The now-playing
+  overlay reuse is cross-branch (lands when now-playing-overlay merges).
 - **N4 — (optional) analysis** *(pending)*. Fetch the track's ANLZ `.DAT`/`.EXT`
   for beat grid / cues / waveform on external tracks.
 
