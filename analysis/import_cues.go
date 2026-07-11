@@ -35,16 +35,28 @@ func ParseANLZCues(extPath, datPath string) []ImportedCue {
 	return ParseANLZCuesBytes(readFileOrNil(extPath), readFileOrNil(datPath))
 }
 
+// defaultCueColorID is the palette id (lime green #28e214) rekordbox and the CDJ
+// paint for a cue with no colour set. A cue set on a CDJ often carries palette
+// index 0 and no RGB at all, and taking index 0 literally would paint it
+// Pioneer orange (palette 0x00), so unset cues default to this instead.
+const defaultCueColorID = 0x16
+
 // ParseANLZCuesBytes is ParseANLZCues over the raw bytes of the .EXT/.DAT files,
 // for callers that fetch ANLZ over the network rather than from disk.
 func ParseANLZCuesBytes(ext, dat []byte) []ImportedCue {
-	if cues := parsePCO2(ext); len(cues) > 0 {
-		return cues
+	cues := parsePCO2(ext)
+	if len(cues) == 0 {
+		cues = parsePCOB(ext)
 	}
-	if cues := parsePCOB(ext); len(cues) > 0 {
-		return cues
+	if len(cues) == 0 {
+		cues = parsePCOB(dat)
 	}
-	return parsePCOB(dat)
+	for i := range cues {
+		if cues[i].ColorID == 0 {
+			cues[i].ColorID = defaultCueColorID
+		}
+	}
+	return cues
 }
 
 // walkANLZSections calls fn for every section (in the given ANLZ file bytes)
@@ -83,11 +95,10 @@ func parsePCO2(data []byte) []ImportedCue {
 				HotCue: int(binary.BigEndian.Uint32(e[12:16])),
 				TimeMs: binary.BigEndian.Uint32(e[20:24]),
 			}
-			if loop := binary.BigEndian.Uint32(e[24:28]); e[16] == 2 || loop != 0xffffffff {
+			// A loop has a valid loop end; a plain cue stores 0 or 0xffffffff.
+			if loop := binary.BigEndian.Uint32(e[24:28]); loop != 0 && loop != 0xffffffff {
 				c.IsLoop = true
-				if loop != 0xffffffff {
-					c.LoopMs = loop
-				}
+				c.LoopMs = loop
 			}
 			lenComment := int(binary.BigEndian.Uint32(e[40:44]))
 			coff := 44
@@ -132,11 +143,9 @@ func parsePCOB(data []byte) []ImportedCue {
 				HotCue: int(binary.BigEndian.Uint32(e[12:16])),
 				TimeMs: binary.BigEndian.Uint32(e[32:36]),
 			}
-			if loop := binary.BigEndian.Uint32(e[36:40]); e[28] == 2 || loop != 0xffffffff {
+			if loop := binary.BigEndian.Uint32(e[36:40]); loop != 0 && loop != 0xffffffff {
 				c.IsLoop = true
-				if loop != 0xffffffff {
-					c.LoopMs = loop
-				}
+				c.LoopMs = loop
 			}
 			out = append(out, c)
 			p += el

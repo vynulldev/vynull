@@ -86,3 +86,20 @@ func TestParseANLZCuesColorFromRGB(t *testing.T) {
 		t.Fatalf("ColorID = %#x, want 0x16 (green recovered from RGB)", cues[0].ColorID)
 	}
 }
+
+// The CDJ-2000NXS2 writes a plain hot cue with no colour section and
+// loop_time 0: it must come out green (the unset default, not palette-0 orange)
+// and NOT be treated as a loop.
+func TestParseANLZCuesUnsetDefaultsGreen(t *testing.T) {
+	ext := anlzBytes(buildPCO2(1, buildPCP2(1, 1, 16044, 0, "", 0)))
+	cues := ParseANLZCuesBytes(ext, nil)
+	if len(cues) != 1 {
+		t.Fatalf("got %d cues, want 1", len(cues))
+	}
+	if cues[0].ColorID != 0x16 {
+		t.Errorf("ColorID = %#x, want 0x16 (unset -> green)", cues[0].ColorID)
+	}
+	if cues[0].IsLoop {
+		t.Errorf("loop_time 0 should not be a loop: %+v", cues[0])
+	}
+}
