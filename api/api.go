@@ -56,6 +56,12 @@ type Server struct {
 	Web          bool                // if true, serve the HTML UI at /
 	CacheDir     string              // disk cache root for rendered waveform PNGs etc.
 
+	// ExtArtwork, if set, returns cover-art JPEG bytes for a track a deck plays
+	// from another player's media (downloaded over NFS by package mediadb).
+	// Returns nil when not yet cached; the /api/artwork/ext endpoint 404s and
+	// the UI retries on its next poll.
+	ExtArtwork func(player, slot uint8, trackID uint32) []byte
+
 	// Set on first Start(); used by the diagnostic endpoints.
 	started time.Time
 	logs    *logRing
@@ -236,6 +242,9 @@ type PlayerInfo struct {
 	BPM           float64 `json:"bpm"`
 	PitchPct      float64 `json:"pitch_pct"` // pitch as percent (-100..+100); 0 = nominal
 	Key           string  `json:"key"`
+	External      bool    `json:"external,omitempty"`    // track loaded from a source other than us
+	Source        string  `json:"source,omitempty"`      // that source, e.g. "USB · player 2"
+	ArtworkURL    string  `json:"artwork_url,omitempty"` // cover-art endpoint for the loaded track
 	IsPlaying     bool    `json:"is_playing"`
 	IsMaster      bool    `json:"is_master"`
 	IsSync        bool    `json:"is_sync,omitempty"`
@@ -299,6 +308,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/analysis/beatgrid/adjust", s.handleBeatGridAdjust)
 	mux.HandleFunc("/api/analysis/waveform/", s.handleWaveform)
 	mux.HandleFunc("/api/analysis/waveform-png/", s.handleWaveformPNG)
+	mux.HandleFunc("/api/artwork/ext/", s.handleExtArtwork)
 	mux.HandleFunc("/api/artwork/", s.handleArtwork)
 	mux.HandleFunc("/api/export", s.handleExport)
 
@@ -509,15 +519,28 @@ func (s *Server) getPlayers() []PlayerInfo {
 				durationMs = uint32(t.Duration.Duration().Milliseconds())
 			}
 		}
+		// Cover-art endpoint: external tracks resolve via the source player's
+		// media (over NFS), local tracks via the library by track ID.
+		artURL := ""
+		if ps.Status.TrackID > 0 {
+			if ps.External {
+				artURL = fmt.Sprintf("/api/artwork/ext/%d/%d/%d", ps.Status.TrackDevice, ps.Status.TrackSlot, ps.Status.TrackID)
+			} else {
+				artURL = fmt.Sprintf("/api/artwork/%d", ps.Status.TrackID)
+			}
+		}
 		out = append(out, PlayerInfo{
 			DeviceNumber:  ps.Status.DeviceNumber,
 			Name:          ps.Status.Name,
 			TrackID:       ps.Status.TrackID,
 			TrackTitle:    ps.TrackName,
 			Artist:        ps.Artist,
+			ArtworkURL:    artURL,
 			BPM:           float64(ps.Status.BPM) / 100.0,
 			PitchPct:      pitchPct,
 			Key:           ps.Key,
+			External:      ps.External,
+			Source:        ps.Source,
 			IsPlaying:     ps.Status.IsPlaying,
 			IsMaster:      ps.Status.IsMaster,
 			IsSync:        ps.Status.IsSync,
@@ -2326,6 +2349,38 @@ func (s *Server) handleArtwork(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", contentType)
 	w.Header().Set("Cache-Control", "public, max-age=86400")
 	w.Write(art.Data)
+}
+
+// GET /api/artwork/ext/{player}/{slot}/{trackID} — cover art for a track a deck
+// plays from another player's media (downloaded over NFS by package mediadb).
+// 404 until the image is cached; the PLAYERS view retries on its next poll.
+func (s *Server) handleExtArtwork(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	if s.ExtArtwork == nil {
+		http.NotFound(w, r)
+		return
+	}
+	rest := strings.TrimPrefix(r.URL.Path, "/api/artwork/ext/")
+	parts := strings.Split(rest, "/")
+	if len(parts) != 3 {
+		http.Error(w, "expected /api/artwork/ext/{player}/{slot}/{trackID}", http.StatusBadRequest)
+		return
+	}
+	player, err1 := strconv.ParseUint(parts[0], 10, 8)
+	slot, err2 := strconv.ParseUint(parts[1], 10, 8)
+	trackID, err3 := strconv.ParseUint(parts[2], 10, 32)
+	if err1 != nil || err2 != nil || err3 != nil || trackID == 0 {
+		http.Error(w, "invalid player/slot/trackID", http.StatusBadRequest)
+		return
+	}
+	data := s.ExtArtwork(uint8(player), uint8(slot), uint32(trackID))
+	if len(data) == 0 {
+		http.NotFound(w, r) // not fetched yet, or the track has no art
+		return
+	}
+	w.Header().Set("Content-Type", "image/jpeg")
+	w.Header().Set("Cache-Control", "public, max-age=86400")
+	w.Write(data)
 }
 
 // GET /api/analysis/waveform-png/{trackID}?type=detail|color_preview&w=280&h=56

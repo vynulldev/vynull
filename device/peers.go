@@ -122,6 +122,17 @@ func (pt *PeerTracker) Peers() []Peer {
 	return result
 }
 
+// ByNumber returns the active peer with the given device number, or nil.
+func (pt *PeerTracker) ByNumber(n uint8) *Peer {
+	pt.mu.RLock()
+	defer pt.mu.RUnlock()
+	if p, ok := pt.peers[n]; ok && time.Since(p.LastSeen) < peerTimeout {
+		cp := *p
+		return &cp
+	}
+	return nil
+}
+
 // Count returns the number of active peers.
 func (pt *PeerTracker) Count() uint8 {
 	peers := pt.Peers()

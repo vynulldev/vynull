@@ -380,13 +380,30 @@ func (m tuiModel) renderPlayers() string {
 		b.WriteString("    " + stateStyled + extras + "\n")
 
 		if s.TrackID > 0 {
+			// External tracks (USB/SD/another player): show the metadata we
+			// fetched from that player's dbserver if we have it, else just the
+			// source — never a wrong, ID-colliding Track #.
 			title := p.TrackName
 			if title == "" {
-				title = fmt.Sprintf("Track #%d", s.TrackID)
+				if p.External {
+					title = p.Source
+				} else {
+					title = fmt.Sprintf("Track #%d", s.TrackID)
+				}
 			}
 			b.WriteString("    " + titleStyle.Render(title) + "\n")
-			if p.Artist != "" {
-				b.WriteString("    " + dimStyle.Render(p.Artist) + "\n")
+			sub := ""
+			switch {
+			case p.External && p.TrackName != "":
+				sub = p.Source
+				if p.Artist != "" {
+					sub = p.Artist + " · " + p.Source
+				}
+			case !p.External && p.Artist != "":
+				sub = p.Artist
+			}
+			if sub != "" {
+				b.WriteString("    " + dimStyle.Render(sub) + "\n")
 			}
 			bpm := float64(s.BPM) / 100.0
 			pitch := float64(s.Pitch-0x100000) / float64(0x100000) * 100.0

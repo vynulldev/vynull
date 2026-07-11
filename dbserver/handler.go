@@ -392,9 +392,14 @@ func (h *Handler) Handle(msg *proto.DBMessage) []*proto.DBMessage {
 }
 
 func (h *Handler) handleSetup(msg *proto.DBMessage) []*proto.DBMessage {
-	if len(msg.Args) > 0 {
-		log.Printf("dbserver setup: client player number = %d", msg.Args[0].Int())
+	// Diagnostic: dump the exact setup a real CDJ sends us, to compare against
+	// what package dbclient sends when querying another player's dbserver.
+	args := ""
+	for i, a := range msg.Args {
+		args += fmt.Sprintf(" arg[%d]=tag0x%02x/%d", i, a.Tag, a.Int())
 	}
+	log.Printf("dbserver setup RECV: txid=0x%08x argc=%d%s remarshal=[% x]",
+		msg.TxID, len(msg.Args), args, proto.MarshalDBMessage(msg))
 	// Response must have TWO int32 args: [0, server_player_number]
 	return []*proto.DBMessage{{
 		TxID: msg.TxID,

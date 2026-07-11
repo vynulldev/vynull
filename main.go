@@ -28,6 +28,7 @@ import (
 	"github.com/vynulldev/vynull/internal/netutil"
 	"github.com/vynulldev/vynull/library"
 	"github.com/vynulldev/vynull/link/prolink"
+	"github.com/vynulldev/vynull/mediadb"
 	"github.com/vynulldev/vynull/nfs"
 	"github.com/vynulldev/vynull/pdb"
 )
@@ -491,6 +492,35 @@ func main() {
 		Monitor:      monitor,
 		Settings:     cdjSettings,
 	}
+	// Let the monitor tell our own tracks apart from ones a deck loaded off a
+	// USB/SD or another player (device number is negotiated during the claim,
+	// so read it live rather than capturing cfg.DeviceNumber).
+	monitor.SelfDevice = func() uint8 { return dev.DeviceNumber }
+
+	// Fetch metadata for tracks a deck plays from its own media (a USB/SD) by
+	// downloading that player's rekordbox export.pdb over NFS and reading it
+	// locally — asynchronously and cached, so the status hot path never blocks.
+	// A CDJ refuses our dbserver metadata requests because we use a
+	// rekordbox-range player number (see docs/design/external-metadata.md), so
+	// this NFS/PDB route (what beat-link's CrateDigger and prolink-connect use)
+	// is the working path. Resolves the source device number to its IP via the
+	// peer tracker.
+	extMeta := mediadb.NewFetcher(
+		func(player uint8) net.IP {
+			if dev.Peers != nil {
+				if p := dev.Peers.ByNumber(player); p != nil {
+					return p.IP
+				}
+			}
+			return nil
+		},
+	)
+	monitor.ExternalMeta = func(player, slot uint8, trackID uint32) (string, string, string, bool) {
+		if md := extMeta.Get(player, slot, trackID); md != nil {
+			return md.Title, md.Artist, md.Key, md.Title != ""
+		}
+		return "", "", "", false
+	}
 
 	// Now that dev exists, wire the dbserver teardown callback to drop
 	// peers from the tracker the moment they send 0x0100.
@@ -560,6 +590,7 @@ func main() {
 		Port:         9443, // legacy fallback if Listen is empty (it isn't, given flag default)
 		Web:          cfg.Web,
 		CacheDir:     cfg.DataDir, // for rendered waveform PNGs etc.
+		ExtArtwork:   extMeta.Artwork,
 	}
 	if cfg.Web {
 		log.Printf("web UI enabled: http://%s/", displayAddr(cfg.Listen))

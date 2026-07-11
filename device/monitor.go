@@ -28,6 +28,33 @@ type PlayerState struct {
 	TrackName string
 	Artist    string
 	Key       string
+	External  bool   // track is loaded from a source other than us (USB/SD/another player)
+	Source    string // human label for that source, e.g. "USB · player 2" (empty when it's ours)
+}
+
+// externalSource reports whether a loaded track came from a source other than
+// us (selfDevice), so its rekordbox ID must not be resolved against our own
+// database — the IDs collide since every database numbers tracks from 1. A zero
+// selfDevice (not yet claimed) or zero TrackDevice (no source info) is treated
+// as non-external so normal resolution isn't disrupted.
+func externalSource(status *proto.CDJStatus, selfDevice uint8) bool {
+	return selfDevice != 0 && status.TrackID > 0 && status.TrackDevice != 0 && status.TrackDevice != selfDevice
+}
+
+// sourceLabel describes where an externally-loaded track came from.
+func sourceLabel(status *proto.CDJStatus) string {
+	slot := "external"
+	switch status.TrackSlot {
+	case proto.SlotUSB:
+		slot = "USB"
+	case proto.SlotSD:
+		slot = "SD"
+	case proto.SlotCD:
+		slot = "CD"
+	case proto.SlotRekordbox:
+		slot = "rekordbox"
+	}
+	return fmt.Sprintf("%s · player %d", slot, status.TrackDevice)
 }
 
 // HistoryEntry records a track that was played.
@@ -49,6 +76,17 @@ type PlayerMonitor struct {
 	players map[uint8]*PlayerState
 	pdb     *pdb.Database
 	lib     *library.Library
+
+	// SelfDevice returns our own device number, used to tell tracks loaded from
+	// us apart from ones a deck loaded off a USB/SD or another player. Nil or 0
+	// falls back to resolving every track against our database.
+	SelfDevice func() uint8
+
+	// ExternalMeta, when set, returns metadata for a track loaded from another
+	// player/source (fetched from that player's dbserver), or ok=false while
+	// it's still unknown (the fetch is asynchronous). Wired to a dbclient
+	// fetcher in main; nil leaves external tracks showing just their source.
+	ExternalMeta func(player, slot uint8, trackID uint32) (title, artist, key string, ok bool)
 
 	// Display info.
 	AnalysisStatus func() string
@@ -334,25 +372,36 @@ func renderEntryJSON(h HistoryEntry) []byte {
 
 // Update processes a CDJ status packet.
 func (m *PlayerMonitor) Update(status *proto.CDJStatus) {
-	var trackName, artist, key string
+	var trackName, artist, key, source string
 	var bpm float64
-	if m.pdb != nil && status.TrackID > 0 {
-		t := m.pdb.TrackByID(status.TrackID)
-		if t != nil {
-			trackName = t.Title
-			artist = t.Artist
-			key = t.Key
-			bpm = float64(t.Tempo) / 100.0
-		}
+	self := uint8(0)
+	if m.SelfDevice != nil {
+		self = m.SelfDevice()
 	}
-	// Fall back to library tracks (used in lazy-analysis mode without PDB).
-	if trackName == "" && m.lib != nil && status.TrackID > 0 {
-		t := m.lib.Track(status.TrackID)
-		if t != nil {
-			trackName = t.Title
-			artist = t.Artist
-			key = t.Key
-			bpm = t.BPM
+	external := externalSource(status, self)
+	if external {
+		// The track is on a USB/SD/another player, not us. Its ID means nothing
+		// in our database, so don't resolve a (wrong, colliding) title — surface
+		// the source, and (if wired) fetch the real metadata from that player's
+		// dbserver. The status packet still carries BPM directly.
+		source = sourceLabel(status)
+		if m.ExternalMeta != nil {
+			if t, a, k, ok := m.ExternalMeta(status.TrackDevice, status.TrackSlot, status.TrackID); ok {
+				trackName, artist, key = t, a, k
+			}
+		}
+	} else if status.TrackID > 0 {
+		if m.pdb != nil {
+			if t := m.pdb.TrackByID(status.TrackID); t != nil {
+				trackName, artist, key = t.Title, t.Artist, t.Key
+				bpm = float64(t.Tempo) / 100.0
+			}
+		}
+		// Fall back to library tracks (used in lazy-analysis mode without PDB).
+		if trackName == "" && m.lib != nil {
+			if t := m.lib.Track(status.TrackID); t != nil {
+				trackName, artist, key, bpm = t.Title, t.Artist, t.Key, t.BPM
+			}
 		}
 	}
 
@@ -372,6 +421,8 @@ func (m *PlayerMonitor) Update(status *proto.CDJStatus) {
 		TrackName: trackName,
 		Artist:    artist,
 		Key:       key,
+		External:  external,
+		Source:    source,
 	}
 	m.mu.Unlock()
 

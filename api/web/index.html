@@ -505,6 +505,15 @@
     text-overflow: ellipsis;
   }
 
+  .track-lead { display: flex; gap: 11px; align-items: center; }
+  .track-lead-text { min-width: 0; flex: 1 1 auto; }
+  .deck-art-slot { width: 46px; height: 46px; flex-shrink: 0; }
+  .deck-art {
+    width: 46px; height: 46px; flex-shrink: 0;
+    border-radius: 4px; object-fit: cover;
+    background: #0c0c0e; border: 1px solid #17171b;
+  }
+
   .readouts {
     display: grid;
     grid-template-columns: auto 1fr;
@@ -5100,6 +5109,11 @@ function updateLinkStatus(peers) {
   }
 }
 
+// Persistent cover-art <img> per deck (device_number -> HTMLImageElement). The
+// PLAYERS grid is rebuilt every 1s poll; reusing these nodes (rather than
+// recreating the <img> in the template) is what stops the art from blinking.
+const deckArtImgs = new Map();
+
 function renderPlayers(players) {
   const prev = currentPlayers;
   currentPlayers = players;
@@ -5175,14 +5189,27 @@ function renderPlayers(players) {
     const ledClass = isPlaying ? 'green pulse' : isPaused ? 'amber' : '';
     const pitch = (typeof p.pitch_pct === 'number') ? p.pitch_pct : 0;
     const pitchStr = (pitch > 0 ? '+' : '') + pitch.toFixed(2) + '%';
-    const trackBody = p.track_id > 0 ? `
-      <div class="track-header">
-        <div class="track-title" data-open-detail="${p.track_id}" title="Click to view track details">${escape(p.track_title || ('TRACK #' + p.track_id))}</div>
-        <div class="actions">
-          <button type="button" class="action-btn" data-find-track="${p.track_id}" title="Jump to this track in the library">FIND</button>
+    const trackHeader = p.external
+      ? `<div class="track-header">
+          <div class="track-title" title="Playing from ${escape(p.source || 'another source')}">${escape(p.track_title || p.source || 'External source')}</div>
         </div>
-      </div>
-      <div class="track-meta-line">${escape(p.artist || '—')}</div>
+        <div class="track-meta-line">${p.track_title ? escape(p.artist || '—') + ' · ' : ''}<span style="color:var(--text3)">${escape(p.source || 'external source')}</span></div>`
+      : `<div class="track-header">
+          <div class="track-title" data-open-detail="${p.track_id}" title="Click to view track details">${escape(p.track_title || ('TRACK #' + p.track_id))}</div>
+          <div class="actions">
+            <button type="button" class="action-btn" data-find-track="${p.track_id}" title="Jump to this track in the library">FIND</button>
+          </div>
+        </div>
+        <div class="track-meta-line">${escape(p.artist || '—')}</div>`;
+    // Cover art: render an empty slot here; a persistent <img> (kept in
+    // deckArtImgs, keyed by deck) is moved into it after render so the 1Hz grid
+    // rebuild doesn't recreate — and blink — the image. See the post-render pass.
+    const artSlot = p.artwork_url
+      ? `<div class="deck-art-slot" data-art-dev="${p.device_number}" data-art-url="${escape(p.artwork_url)}"></div>`
+      : '';
+    const trackLead = `<div class="track-lead">${artSlot}<div class="track-lead-text">${trackHeader}</div></div>`;
+    const trackBody = p.track_id > 0 ? `
+      ${trackLead}
       <div class="readouts">
         <div class="bpm-display">
           <div class="label">BPM</div>
@@ -5194,11 +5221,11 @@ function renderPlayers(players) {
           <dt>BEAT</dt><dd>${p.beat_in_bar || '—'} / 4</dd>
         </dl>
       </div>
-      <div class="wave-wrap">
+      ${p.external ? `<div class="wave-wrap" style="display:flex;align-items:center;justify-content:center;color:var(--text3);font-size:10px;letter-spacing:0.14em">WAVEFORM UNAVAILABLE · EXTERNAL SOURCE</div>` : `<div class="wave-wrap">
         <canvas data-track="${p.track_id}" width="1200" height="58"></canvas>
         ${initialPlayheadMarkup(p)}
       </div>
-      <div class="player-phrases" data-phrases-track="${p.track_id}"></div>
+      <div class="player-phrases" data-phrases-track="${p.track_id}"></div>`}
       <div class="player-time" data-dev="${p.device_number}">
         <span class="elapsed">${initialTimeText(p, 'elapsed')}</span>
         <span class="sep">/</span>
@@ -5264,6 +5291,35 @@ function renderPlayers(players) {
       });
     }
   });
+  // Cover art: reuse one persistent <img> per deck, moving it into the freshly
+  // rendered slot (re-parenting a loaded <img> doesn't reload or blink it). Only
+  // change src when the track changes. External art may 404 until its NFS
+  // download lands, so retry those (and only those) on error each tick.
+  el.querySelectorAll('.deck-art-slot').forEach(slot => {
+    const dev = slot.getAttribute('data-art-dev');
+    const url = slot.getAttribute('data-art-url');
+    let img = deckArtImgs.get(dev);
+    if (!img) {
+      img = new Image();
+      img.className = 'deck-art';
+      img.alt = '';
+      img.onload = () => { img.dataset.state = 'ok'; img.style.display = ''; };
+      img.onerror = () => { img.dataset.state = 'error'; img.style.display = 'none'; };
+      deckArtImgs.set(dev, img);
+    }
+    if (img.dataset.url !== url) {
+      img.dataset.url = url;
+      img.dataset.state = 'loading';
+      img.src = url;
+    } else if (img.dataset.state === 'error' && url.indexOf('/artwork/ext/') >= 0) {
+      img.dataset.state = 'loading';
+      img.src = url + (url.indexOf('?') >= 0 ? '&' : '?') + '_r=' + Date.now();
+    }
+    slot.appendChild(img);
+  });
+  for (const dev of Array.from(deckArtImgs.keys())) {
+    if (!players.find(p => String(p.device_number) === String(dev))) deckArtImgs.delete(dev);
+  }
   // Snapshot each player's position from the poll and (re)start the
   // playhead-interpolation loop. Sampling at poll time + rAF interpolation
   // between samples keeps the playhead visually smooth despite 1Hz polling.

@@ -42,6 +42,7 @@ Use it at your own risk, and back up your rekordbox library before importing any
 - **Remote track loading** via API (auto-adds tracks not in library)
 - **USB export** — write a rekordbox-compatible USB structure (PDB + ANLZ + settings) from the library
 - **Live monitor** TUI showing connected CDJs, playback state, track history, and analysis status
+- **External-source metadata** — when a deck plays a track from its own USB/SD (not from us), the monitor and web PLAYERS view show its real title, artist, key, and cover art, read from that player's rekordbox export over NFS, instead of a wrong local ID match
 
 ## Requirements
 
@@ -360,6 +361,13 @@ Returns a pre-rendered PNG (disk-cached) — used by the web UI's row thumbnails
 
 Returns the track's cover art (JPEG), extracted lazily from the file on first
 request and cached.
+
+#### `GET /api/artwork/ext/{player}/{slot}/{trackID}`
+
+Returns the cover art (JPEG) for a track a deck plays from another player's
+media, downloaded from that player's rekordbox export over NFS and cached. 404
+until the download lands (the PLAYERS view retries on its next poll) or when the
+track has no art.
 
 #### `POST /api/analysis/beatgrid/adjust`
 
@@ -721,6 +729,7 @@ This wouldn't exist without the people who reverse-engineered Pioneer's Pro DJ L
 - **[Deep Symmetry](https://deepsymmetry.org/)** (James Elliott and contributors) — by far the biggest source. The [dysentery](https://github.com/Deep-Symmetry/dysentery) research and its [protocol writeup](https://djl-analysis.deepsymmetry.org/), the [beat-link](https://github.com/Deep-Symmetry/beat-link) library, [crate-digger](https://github.com/Deep-Symmetry/crate-digger), and the Kaitai specs (`rekordbox_pdb.ksy`, `rekordbox_anlz.ksy`) are behind most of the protocol, PDB, and ANLZ code here.
 - **[rekordcrate](https://github.com/Holzhaus/rekordcrate)** (Jan Holthuis) — Rust parsers and reference exports I leaned on to get the `export.pdb` writer byte-for-byte right.
 - **[python-prodj-link](https://github.com/flesniak/python-prodj-link)** (Florian Sniak) — a working Python implementation that helped me understand the dbserver menu and metadata flow.
+- **[prolink-connect](https://github.com/EvanPurkhiser/prolink-connect)** and **[prolink-tools](https://github.com/EvanPurkhiser/prolink-tools)** (Evan Purkhiser) — a TypeScript Pro DJ Link stack and streaming overlay; alongside crate-digger they confirmed the route for reading metadata off tracks a deck plays from its own USB (download the player's `export.pdb` over NFS rather than asking its dbserver).
 - **[pyrekordbox](https://github.com/dylanljones/pyrekordbox)** (Dylan Jones) — format docs and the starting point for decrypting `master.db`.
 - The Kaitai Struct community for the format definitions, and everyone who posted issues and helped along the way.
 - **Audio-analysis algorithms** — the beat tracker is an independent implementation of D. Ellis's dynamic-programming method (*"Beat Tracking by Dynamic Programming"*, J. New Music Research, 2007); key detection uses the Krumhansl-Kessler probe-tone profiles (1982). These are published academic methods — the same DP beat-tracking approach is also implemented by [QM-DSP](https://github.com/c4dm/qm-dsp) and [Mixxx](https://github.com/mixxxdj/mixxx), which are worth a look, though the code here derives from the papers rather than those projects.
