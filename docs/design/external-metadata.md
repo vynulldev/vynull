@@ -1,13 +1,15 @@
 # Metadata for externally-sourced tracks (Level 2)
 
-- **Status:** the metadata source is now the **NFS/PDB download** (packages
-  `nfs` client + `mediadb`, wired to the monitor). The earlier dbserver client
-  (package `dbclient`) is retained but unwired: hardware showed CDJs refuse it
-  because we use a rekordbox player number (17), not 1–4 — see "Hardware
-  finding" below. The NFS path sidesteps that entirely and is what beat-link's
-  CrateDigger and prolink-connect use. Needs a deck to confirm the CDJ's export
-  layout (port lookup, export name, mount/read chain), but the whole client is
-  unit-tested against our own `nfs.Server`.
+- **Status:** **working on hardware (2026-07-11).** The metadata source is the
+  **NFS/PDB download** (packages `nfs` client + `mediadb`, wired to the monitor):
+  a CDJ playing from its own USB now shows real title/artist/key. The earlier
+  dbserver client (package `dbclient`) is retained but unwired: hardware showed
+  CDJs refuse it because we use a rekordbox player number (17), not 1–4 — see
+  "Hardware finding" below. The NFS path sidesteps that entirely and is what
+  beat-link's CrateDigger and prolink-connect use.
+- **Key wire detail:** a CDJ encodes every NFS/MOUNT path string (export names,
+  LOOKUP filenames) in **UTF-16LE** — ASCII gets ACCES/STALE. This mirrors our
+  own server, which already decodes the UTF-16LE names a CDJ sends it.
 - **Scope:** live monitor / now-playing — fetch metadata for tracks a deck plays
   from a source other than us
 - **Prereq:** Level 1 (shipped) — the monitor detects external tracks
@@ -63,16 +65,17 @@ framing is familiar — but the client handshake and menu-render flow are new.
 
 ### NFS/PDB download (the working path)
 
-- **N1 — NFS client** *(done)*. `nfs.Client` (same package as our server, reusing
-  its XDR codec + constants): portmap GETPORT -> MOUNT MNT -> NFS LOOKUP -> chunked
-  READ, plus MOUNT EXPORT discovery. `pdb.OpenBytes` parses the downloaded
-  database in memory. The whole chain is unit-tested against our own `nfs.Server`
-  handlers (no sockets). Needs a deck to confirm the CDJ's portmap port and
-  export name.
-- **N2 — fetch/cache + wire to the monitor** *(done)*. `mediadb.Fetcher` downloads
-  `export.pdb` once per (player, slot), caches the parsed `*pdb.Database`, and
-  answers `TrackByID` for the monitor's `ExternalMeta`. Async, non-blocking,
-  serves a stale copy while refreshing; failures cool down 30s.
+- **N1 — NFS client** *(done, hardware-confirmed)*. `nfs.Client` (same package as
+  our server, reusing its XDR codec + constants): portmap GETPORT -> MOUNT MNT ->
+  NFS LOOKUP -> chunked READ, plus MOUNT EXPORT discovery, all path strings in
+  UTF-16LE. `pdb.OpenBytes` parses the downloaded database in memory. The chain
+  is unit-tested against our own `nfs.Server` handlers (no sockets) and verified
+  on a real deck (portmap :111 -> mount/nfs, export `/C/`, 233 KB export.pdb).
+- **N2 — fetch/cache + wire to the monitor** *(done, hardware-confirmed)*.
+  `mediadb.Fetcher` downloads `export.pdb` once per (player, slot), caches the
+  parsed `*pdb.Database`, and answers `TrackByID` for the monitor's
+  `ExternalMeta`. Async, non-blocking, serves a stale copy while refreshing;
+  failures cool down 30s.
 - **N3 — artwork** *(pending)*. Download `/PIONEER/Artwork/...` over the same NFS
   client and serve it, so the player card and now-playing overlay show the real
   cover instead of a colliding local ID.
