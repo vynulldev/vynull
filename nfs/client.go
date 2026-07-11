@@ -3,13 +3,28 @@
 package nfs
 
 import (
+	"encoding/hex"
 	"fmt"
 	"log"
 	"net"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/vynulldev/vynull/internal/dlog"
 )
+
+// traceReply hex-dumps a low-volume control reply (EXPORT/MNT/LOOKUP) when trace
+// logging is on, to diagnose a real CDJ's wire format. Never used for READ.
+func traceReply(label string, data []byte) {
+	if dlog.Enabled(dlog.Trace) {
+		n := len(data)
+		if n > 128 {
+			n = 128
+		}
+		dlog.Tracef("nfs client: %s reply (%d bytes):\n%s", label, len(data), hex.Dump(data[:n]))
+	}
+}
 
 // This file implements the client side of the same protocols the rest of the
 // package serves: a minimal, read-only ONC-RPC / MOUNT / NFSv2 client used to
@@ -294,6 +309,7 @@ func (c *Client) Exports() ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
+	traceReply("EXPORT", r.data)
 	var out []string
 	for {
 		more, err := r.u32()
@@ -331,6 +347,7 @@ func (c *Client) mount(path string) ([fhSize]byte, error) {
 	if err != nil {
 		return fh, err
 	}
+	traceReply("MNT "+path, r.data)
 	status, err := r.u32()
 	if err != nil {
 		return fh, err
@@ -352,6 +369,7 @@ func (c *Client) lookup(dir [fhSize]byte, name string) ([fhSize]byte, fattr, err
 	if err != nil {
 		return fh, at, err
 	}
+	traceReply("LOOKUP "+name, r.data)
 	status, err := r.u32()
 	if err != nil {
 		return fh, at, err
