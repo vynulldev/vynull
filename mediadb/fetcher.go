@@ -17,6 +17,8 @@ import (
 	"fmt"
 	"log"
 	"net"
+	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
@@ -196,6 +198,16 @@ func (f *Fetcher) doFetch(player, slot uint8) (*pdb.Database, string) {
 	if err != nil {
 		log.Printf("mediadb: player %d (%s) export.pdb: %v", player, ip, err)
 		return nil, ""
+	}
+	// Debug: dump the exact bytes we parsed so a rewritten (copy-on-write) pdb
+	// can be inspected offline. Set VYNULL_DUMP_PDB=<dir>.
+	if dir := os.Getenv("VYNULL_DUMP_PDB"); dir != "" {
+		p := filepath.Join(dir, fmt.Sprintf("player%d-slot%d-export.pdb", player, slot))
+		if werr := os.WriteFile(p, data, 0o644); werr == nil {
+			log.Printf("mediadb: wrote downloaded pdb to %s (%d bytes)", p, len(data))
+		} else {
+			log.Printf("mediadb: dump pdb to %s: %v", p, werr)
+		}
 	}
 	db, err := pdb.OpenBytes(data, "")
 	if err != nil {
