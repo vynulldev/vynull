@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<!-- SPDX-License-Identifier: GPL-3.0-or-later -->
+<!--
+  Vynull now-playing overlay. Add as an OBS "Browser" source pointing at
+  http://<host>:<port>/overlay with a transparent background. Polls
+  /api/nowplaying and shows the audible deck's track as a spinning-vinyl
+  lower-third card.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Vynull — Now Playing</title>
+<style>
+  :root { --orange: #ff7714; }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body {
+    background: transparent;
+    overflow: hidden;
+    font-family: ui-monospace, "SF Mono", "Cascadia Code", Menlo, Consolas, monospace;
+  }
+
+  #np {
+    position: fixed; left: 40px; bottom: 40px;
+    display: flex; align-items: center; gap: 20px;
+    padding: 16px 28px 16px 16px;
+    background: linear-gradient(180deg, rgba(20, 20, 24, 0.90), rgba(8, 8, 10, 0.93));
+    border: 1px solid rgba(255, 119, 20, 0.28);
+    border-radius: 14px;
+    box-shadow: 0 12px 42px rgba(0, 0, 0, 0.6), 0 0 44px rgba(255, 119, 20, 0.14);
+    max-width: 680px;
+    opacity: 0; transform: translateY(16px);
+    transition: opacity 0.45s ease, transform 0.45s ease;
+  }
+  #np.show { opacity: 1; transform: none; }
+
+  /* --- spinning vinyl --- */
+  .deck { position: relative; width: 108px; height: 108px; flex: 0 0 auto; }
+  .vinyl {
+    width: 100%; height: 100%; border-radius: 50%;
+    background:
+      repeating-radial-gradient(circle at center, #121212 0 2px, #0a0a0a 2px 3px),
+      radial-gradient(circle at center, #1a1a1a 0%, #000 72%);
+    box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.05), 0 6px 22px rgba(0, 0, 0, 0.65),
+                0 0 26px rgba(255, 119, 20, 0.22);
+    animation: spin 1.8s linear infinite;
+  }
+  .label {
+    position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+    width: 50px; height: 50px; border-radius: 50%; object-fit: cover;
+    box-shadow: 0 0 0 2px #000, 0 0 0 3px rgba(255, 255, 255, 0.14);
+  }
+  .label.hidden { display: none; }
+  .hole {
+    position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+    width: 8px; height: 8px; border-radius: 50%;
+    background: #000; box-shadow: 0 0 0 2px #2a2a2a; z-index: 2;
+  }
+  /* fixed light reflection — does not rotate with the record */
+  .sheen {
+    position: absolute; inset: 0; border-radius: 50%; pointer-events: none;
+    background: radial-gradient(circle at 32% 26%, rgba(255, 255, 255, 0.20), transparent 46%);
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* --- text --- */
+  .meta { min-width: 0; }
+  .np-label {
+    display: flex; align-items: center; gap: 8px;
+    font-size: 10px; letter-spacing: 0.26em; text-transform: uppercase;
+    color: var(--orange); margin-bottom: 6px;
+  }
+  #title {
+    font-size: 23px; font-weight: 700; color: #fff; letter-spacing: 0.01em;
+    text-shadow: 0 0 18px rgba(255, 119, 20, 0.25);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 500px;
+  }
+  #artist {
+    font-size: 15px; color: #d4d4d4; margin-top: 3px;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 500px;
+  }
+  #sub { font-size: 12px; color: #8a8a8a; margin-top: 8px; letter-spacing: 0.05em; }
+  #sub b { color: var(--orange); font-weight: 700; }
+
+  /* --- animated EQ bars --- */
+  .eq { display: inline-flex; align-items: flex-end; gap: 2px; height: 11px; }
+  .eq i { width: 2px; height: 100%; background: var(--orange); transform-origin: bottom; border-radius: 1px; }
+  .eq i:nth-child(1) { animation: eq 0.9s ease-in-out infinite; }
+  .eq i:nth-child(2) { animation: eq 0.7s ease-in-out infinite 0.15s; }
+  .eq i:nth-child(3) { animation: eq 1.1s ease-in-out infinite 0.05s; }
+  .eq i:nth-child(4) { animation: eq 0.8s ease-in-out infinite 0.25s; }
+  @keyframes eq { 0%, 100% { transform: scaleY(0.3); } 50% { transform: scaleY(1); } }
+</style>
+</head>
+<body>
+  <div id="np">
+    <div class="deck">
+      <div class="vinyl" id="vinyl">
+        <img id="art" class="label hidden" alt="">
+        <div class="hole"></div>
+      </div>
+      <div class="sheen"></div>
+    </div>
+    <div class="meta">
+      <div class="np-label"><span class="eq"><i></i><i></i><i></i><i></i></span> Now Playing</div>
+      <div id="title"></div>
+      <div id="artist"></div>
+      <div id="sub"></div>
+    </div>
+  </div>
+<script>
+  const el = {
+    np: document.getElementById('np'),
+    vinyl: document.getElementById('vinyl'),
+    art: document.getElementById('art'),
+    title: document.getElementById('title'),
+    artist: document.getElementById('artist'),
+    sub: document.getElementById('sub'),
+  };
+  let curKey = null;
+
+  function apply(np) {
+    el.title.textContent = np.title;
+    el.artist.textContent = np.artist || '';
+    const bits = [];
+    if (np.bpm) bits.push(`<b>${np.bpm.toFixed(1)}</b> BPM`);
+    if (np.key) bits.push(`<b>${np.key}</b>`);
+    el.sub.innerHTML = bits.join(' &nbsp;&middot;&nbsp; ');
+
+    // Spin like a turntable — one rotation per bar (4 beats) at the track's BPM,
+    // so faster tracks visibly spin faster. Default to ~33 RPM when BPM unknown.
+    el.vinyl.style.animationDuration = np.bpm ? (240 / np.bpm).toFixed(3) + 's' : '1.8s';
+
+    if (np.track_id) {
+      el.art.onerror = () => el.art.classList.add('hidden');
+      el.art.classList.remove('hidden');
+      el.art.src = '/api/artwork/' + np.track_id;
+    } else {
+      el.art.classList.add('hidden');
+    }
+    el.np.classList.add('show');
+  }
+
+  function render(np) {
+    if (!np.playing || !np.title) {
+      el.np.classList.remove('show');
+      curKey = null;
+      return;
+    }
+    const key = (np.track_id || 0) + '|' + np.title + '|' + np.artist;
+    if (key === curKey) return; // unchanged — leave the card as-is
+    const wasShowing = el.np.classList.contains('show');
+    curKey = key;
+    if (wasShowing) {
+      el.np.classList.remove('show'); // crossfade: out, swap, in
+      setTimeout(() => apply(np), 400);
+    } else {
+      apply(np);
+    }
+  }
+
+  async function poll() {
+    try {
+      const r = await fetch('/api/nowplaying', { cache: 'no-store' });
+      if (r.ok) render(await r.json());
+    } catch (e) { /* keep polling */ }
+  }
+  poll();
+  setInterval(poll, 1000);
+</script>
+</body>
+</html>

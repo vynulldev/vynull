@@ -290,6 +290,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/status", s.handleStatus)
 	mux.HandleFunc("/api/peers", s.handlePeers)
 	mux.HandleFunc("/api/players", s.handlePlayers)
+	mux.HandleFunc("/api/nowplaying", s.handleNowPlaying)
 	mux.HandleFunc("/api/history", s.handleHistory)
 	mux.HandleFunc("/api/tracks", s.handleTracks)
 	mux.HandleFunc("/api/tracks/rev", s.handleTracksRev)
@@ -572,6 +573,73 @@ func (s *Server) getPlayers() []PlayerInfo {
 		return out[i].DeviceNumber < out[j].DeviceNumber
 	})
 	return out
+}
+
+// NowPlaying is the currently-audible track, for the streaming overlay: the
+// on-air playing deck (preferring the tempo master during a transition), or the
+// playing deck when no mixer reports on-air. Playing is false when nothing is.
+type NowPlaying struct {
+	Playing      bool    `json:"playing"`
+	DeviceNumber uint8   `json:"device_number,omitempty"`
+	TrackID      uint32  `json:"track_id,omitempty"`
+	Title        string  `json:"title"`
+	Artist       string  `json:"artist"`
+	BPM          float64 `json:"bpm,omitempty"`
+	Key          string  `json:"key,omitempty"`
+	DurationMs   uint32  `json:"duration_ms,omitempty"`
+	BeatInTrack  uint32  `json:"beat_in_track,omitempty"`
+}
+
+func (s *Server) handleNowPlaying(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	writeJSON(w, nowPlayingFrom(s.getPlayers()))
+}
+
+// nowPlayingFrom projects the selected player into a NowPlaying.
+func nowPlayingFrom(players []PlayerInfo) NowPlaying {
+	p := selectNowPlaying(players)
+	if p == nil {
+		return NowPlaying{}
+	}
+	return NowPlaying{
+		Playing:      true,
+		DeviceNumber: p.DeviceNumber,
+		TrackID:      p.TrackID,
+		Title:        p.TrackTitle,
+		Artist:       p.Artist,
+		BPM:          p.BPM,
+		Key:          p.Key,
+		DurationMs:   p.DurationMs,
+		BeatInTrack:  p.BeatInTrack,
+	}
+}
+
+// selectNowPlaying picks the audible deck from the live states: among decks that
+// are playing with a loaded track, on-air beats off-air, then the tempo master
+// beats the rest, then the lowest device number breaks ties. Returns nil when no
+// deck is playing.
+func selectNowPlaying(players []PlayerInfo) *PlayerInfo {
+	var best *PlayerInfo
+	for i := range players {
+		p := &players[i]
+		if !p.IsPlaying || p.TrackTitle == "" {
+			continue
+		}
+		if best == nil || betterNowPlaying(p, best) {
+			best = p
+		}
+	}
+	return best
+}
+
+func betterNowPlaying(a, b *PlayerInfo) bool {
+	if a.OnAir != b.OnAir {
+		return a.OnAir
+	}
+	if a.IsMaster != b.IsMaster {
+		return a.IsMaster
+	}
+	return a.DeviceNumber < b.DeviceNumber
 }
 
 // TrackInfo is the API representation of a library track. Used by

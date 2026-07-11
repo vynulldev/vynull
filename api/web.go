@@ -12,6 +12,9 @@ import (
 //go:embed web/index.html
 var webIndexHTML []byte
 
+//go:embed web/overlay.html
+var webOverlayHTML []byte
+
 //go:embed web/favicon.svg
 var webFaviconSVG []byte
 
@@ -34,6 +37,12 @@ func RegisterWebUI(mux *http.ServeMux) {
 		}
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		w.Write(webIndexHTML)
+	})
+
+	// Now-playing overlay for streaming (OBS browser source, transparent bg).
+	mux.HandleFunc("/overlay", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.Write(webOverlayHTML)
 	})
 
 	// App icon (vinyl + the null ∅), used as the browser-tab favicon.
