@@ -21,6 +21,7 @@ import (
 
 	"github.com/vynulldev/vynull/analysis"
 	"github.com/vynulldev/vynull/api"
+	"github.com/vynulldev/vynull/dbclient"
 	"github.com/vynulldev/vynull/dbserver"
 	"github.com/vynulldev/vynull/device"
 	"github.com/vynulldev/vynull/export"
@@ -495,6 +496,28 @@ func main() {
 	// USB/SD or another player (device number is negotiated during the claim,
 	// so read it live rather than capturing cfg.DeviceNumber).
 	monitor.SelfDevice = func() uint8 { return dev.DeviceNumber }
+
+	// Fetch metadata for tracks a deck plays from another source (a USB/SD or a
+	// linked player) from that player's own dbserver — asynchronously, cached,
+	// so the status hot path never blocks. Resolves the source device number to
+	// its IP via the peer tracker.
+	extMeta := dbclient.NewFetcher(
+		func(player uint8) net.IP {
+			if dev.Peers != nil {
+				if p := dev.Peers.ByNumber(player); p != nil {
+					return p.IP
+				}
+			}
+			return nil
+		},
+		func() uint8 { return dev.DeviceNumber },
+	)
+	monitor.ExternalMeta = func(player, slot uint8, trackID uint32) (string, string, string, bool) {
+		if md := extMeta.Get(player, slot, trackID); md != nil {
+			return md.Title, md.Artist, md.Key, md.Title != ""
+		}
+		return "", "", "", false
+	}
 
 	// Now that dev exists, wire the dbserver teardown callback to drop
 	// peers from the tracker the moment they send 0x0100.

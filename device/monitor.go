@@ -82,6 +82,12 @@ type PlayerMonitor struct {
 	// falls back to resolving every track against our database.
 	SelfDevice func() uint8
 
+	// ExternalMeta, when set, returns metadata for a track loaded from another
+	// player/source (fetched from that player's dbserver), or ok=false while
+	// it's still unknown (the fetch is asynchronous). Wired to a dbclient
+	// fetcher in main; nil leaves external tracks showing just their source.
+	ExternalMeta func(player, slot uint8, trackID uint32) (title, artist, key string, ok bool)
+
 	// Display info.
 	AnalysisStatus func() string
 	// ExportStatus returns a one-line description of any in-flight USB
@@ -376,8 +382,14 @@ func (m *PlayerMonitor) Update(status *proto.CDJStatus) {
 	if external {
 		// The track is on a USB/SD/another player, not us. Its ID means nothing
 		// in our database, so don't resolve a (wrong, colliding) title — surface
-		// the source instead. The status packet still carries BPM directly.
+		// the source, and (if wired) fetch the real metadata from that player's
+		// dbserver. The status packet still carries BPM directly.
 		source = sourceLabel(status)
+		if m.ExternalMeta != nil {
+			if t, a, k, ok := m.ExternalMeta(status.TrackDevice, status.TrackSlot, status.TrackID); ok {
+				trackName, artist, key = t, a, k
+			}
+		}
 	} else if status.TrackID > 0 {
 		if m.pdb != nil {
 			if t := m.pdb.TrackByID(status.TrackID); t != nil {

@@ -5177,9 +5177,9 @@ function renderPlayers(players) {
     const pitchStr = (pitch > 0 ? '+' : '') + pitch.toFixed(2) + '%';
     const trackHeader = p.external
       ? `<div class="track-header">
-          <div class="track-title" title="Loaded from another source — Vynull doesn't have its metadata">${escape(p.source || 'External source')}</div>
+          <div class="track-title" title="Playing from ${escape(p.source || 'another source')}">${escape(p.track_title || p.source || 'External source')}</div>
         </div>
-        <div class="track-meta-line">external source · not from Vynull</div>`
+        <div class="track-meta-line">${p.track_title ? escape(p.artist || '—') + ' · ' : ''}<span style="color:var(--text3)">${escape(p.source || 'external source')}</span></div>`
       : `<div class="track-header">
           <div class="track-title" data-open-detail="${p.track_id}" title="Click to view track details">${escape(p.track_title || ('TRACK #' + p.track_id))}</div>
           <div class="actions">
