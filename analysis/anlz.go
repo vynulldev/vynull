@@ -445,7 +445,16 @@ func makeColorScrollSection(data []byte) []byte {
 // Returns the section including fourcc + header + data, prefixed with LE length.
 func ReadANLZSection(filePath string, tag string) []byte {
 	data, err := os.ReadFile(filePath)
-	if err != nil || len(data) < 28 {
+	if err != nil {
+		return nil
+	}
+	return readANLZSection(data, tag)
+}
+
+// readANLZSection is ReadANLZSection over already-read file bytes (used when an
+// ANLZ file is downloaded into memory rather than read from disk).
+func readANLZSection(data []byte, tag string) []byte {
+	if len(data) < 28 {
 		return nil
 	}
 	// Skip PMAI header

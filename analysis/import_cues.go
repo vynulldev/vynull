@@ -4,7 +4,6 @@ package analysis
 
 import (
 	"encoding/binary"
-	"os"
 	"strings"
 	"unicode/utf16"
 )
@@ -33,19 +32,25 @@ type ImportedCue struct {
 //	PCO2 entry (PCP2): hot_cue@12 u4, type@16 u1, time@20 u4, loop_time@24 u4,
 //	    len_comment@40 u4, comment@44 (UTF-16BE), then color_code/R/G/B.
 func ParseANLZCues(extPath, datPath string) []ImportedCue {
-	if cues := parsePCO2(extPath); len(cues) > 0 {
-		return cues
-	}
-	if cues := parsePCOB(extPath); len(cues) > 0 {
-		return cues
-	}
-	return parsePCOB(datPath)
+	return ParseANLZCuesBytes(readFileOrNil(extPath), readFileOrNil(datPath))
 }
 
-// walkANLZSections calls fn for every section whose FourCC equals tag.
-func walkANLZSections(path, tag string, fn func(section []byte)) {
-	data, err := os.ReadFile(path)
-	if err != nil || len(data) < 28 {
+// ParseANLZCuesBytes is ParseANLZCues over the raw bytes of the .EXT/.DAT files,
+// for callers that fetch ANLZ over the network rather than from disk.
+func ParseANLZCuesBytes(ext, dat []byte) []ImportedCue {
+	if cues := parsePCO2(ext); len(cues) > 0 {
+		return cues
+	}
+	if cues := parsePCOB(ext); len(cues) > 0 {
+		return cues
+	}
+	return parsePCOB(dat)
+}
+
+// walkANLZSections calls fn for every section (in the given ANLZ file bytes)
+// whose FourCC equals tag.
+func walkANLZSections(data []byte, tag string, fn func(section []byte)) {
+	if len(data) < 28 {
 		return
 	}
 	pos := int(binary.BigEndian.Uint32(data[4:8])) // skip PMAI header
@@ -61,9 +66,9 @@ func walkANLZSections(path, tag string, fn func(section []byte)) {
 	}
 }
 
-func parsePCO2(path string) []ImportedCue {
+func parsePCO2(data []byte) []ImportedCue {
 	var out []ImportedCue
-	walkANLZSections(path, "PCO2", func(s []byte) {
+	walkANLZSections(data, "PCO2", func(s []byte) {
 		lenHeader := int(binary.BigEndian.Uint32(s[4:8]))
 		for p := lenHeader; p+12 <= len(s); {
 			if string(s[p:p+4]) != "PCP2" {
@@ -99,9 +104,9 @@ func parsePCO2(path string) []ImportedCue {
 	return out
 }
 
-func parsePCOB(path string) []ImportedCue {
+func parsePCOB(data []byte) []ImportedCue {
 	var out []ImportedCue
-	walkANLZSections(path, "PCOB", func(s []byte) {
+	walkANLZSections(data, "PCOB", func(s []byte) {
 		lenHeader := int(binary.BigEndian.Uint32(s[4:8]))
 		for p := lenHeader; p+12 <= len(s); {
 			if string(s[p:p+4]) != "PCPT" {
