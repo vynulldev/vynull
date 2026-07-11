@@ -21,7 +21,6 @@ import (
 
 	"github.com/vynulldev/vynull/analysis"
 	"github.com/vynulldev/vynull/api"
-	"github.com/vynulldev/vynull/dbclient"
 	"github.com/vynulldev/vynull/dbserver"
 	"github.com/vynulldev/vynull/device"
 	"github.com/vynulldev/vynull/export"
@@ -29,6 +28,7 @@ import (
 	"github.com/vynulldev/vynull/internal/netutil"
 	"github.com/vynulldev/vynull/library"
 	"github.com/vynulldev/vynull/link/prolink"
+	"github.com/vynulldev/vynull/mediadb"
 	"github.com/vynulldev/vynull/nfs"
 	"github.com/vynulldev/vynull/pdb"
 )
@@ -497,11 +497,15 @@ func main() {
 	// so read it live rather than capturing cfg.DeviceNumber).
 	monitor.SelfDevice = func() uint8 { return dev.DeviceNumber }
 
-	// Fetch metadata for tracks a deck plays from another source (a USB/SD or a
-	// linked player) from that player's own dbserver — asynchronously, cached,
-	// so the status hot path never blocks. Resolves the source device number to
-	// its IP via the peer tracker.
-	extMeta := dbclient.NewFetcher(
+	// Fetch metadata for tracks a deck plays from its own media (a USB/SD) by
+	// downloading that player's rekordbox export.pdb over NFS and reading it
+	// locally — asynchronously and cached, so the status hot path never blocks.
+	// A CDJ refuses our dbserver metadata requests because we use a
+	// rekordbox-range player number (see docs/design/external-metadata.md), so
+	// this NFS/PDB route (what beat-link's CrateDigger and prolink-connect use)
+	// is the working path. Resolves the source device number to its IP via the
+	// peer tracker.
+	extMeta := mediadb.NewFetcher(
 		func(player uint8) net.IP {
 			if dev.Peers != nil {
 				if p := dev.Peers.ByNumber(player); p != nil {
@@ -510,7 +514,6 @@ func main() {
 			}
 			return nil
 		},
-		func() uint8 { return dev.DeviceNumber },
 	)
 	monitor.ExternalMeta = func(player, slot uint8, trackID uint32) (string, string, string, bool) {
 		if md := extMeta.Get(player, slot, trackID); md != nil {

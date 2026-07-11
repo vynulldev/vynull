@@ -130,13 +130,27 @@ func (db *Database) AddTrack(t *Track) {
 	db.trackByID[t.ID] = t
 }
 
-// Open parses a PDB file and returns the database.
+// Open parses a PDB file from disk and returns the database.
 func Open(path string) (*Database, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("read pdb: %w", err)
 	}
 
+	// Derive export root: /path/to/USB/PIONEER/rekordbox/export.pdb → /path/to/USB
+	absPath, _ := filepath.Abs(path)
+	exportRoot := ""
+	if idx := strings.Index(strings.ToUpper(absPath), "/PIONEER/"); idx >= 0 {
+		exportRoot = absPath[:idx]
+	}
+	return OpenBytes(data, exportRoot)
+}
+
+// OpenBytes parses a PDB from an in-memory byte slice (e.g. one downloaded from
+// a player's NFS export, which never touches the local disk). exportRoot is the
+// media root the track file paths are relative to, or "" when unknown (metadata
+// lookups by ID don't need it).
+func OpenBytes(data []byte, exportRoot string) (*Database, error) {
 	if len(data) < 0x1c {
 		return nil, fmt.Errorf("pdb too short: %d bytes", len(data))
 	}
@@ -149,13 +163,6 @@ func Open(path string) (*Database, error) {
 	}
 
 	log.Printf("pdb: page_size=%d num_tables=%d file_size=%d", pageSize, numTables, len(data))
-
-	// Derive export root: /path/to/USB/PIONEER/rekordbox/export.pdb → /path/to/USB
-	absPath, _ := filepath.Abs(path)
-	exportRoot := ""
-	if idx := strings.Index(strings.ToUpper(absPath), "/PIONEER/"); idx >= 0 {
-		exportRoot = absPath[:idx]
-	}
 
 	db := &Database{
 		Artists:    make(map[uint32]string),

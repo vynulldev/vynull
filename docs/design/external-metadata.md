@@ -1,10 +1,13 @@
 # Metadata for externally-sourced tracks (Level 2)
 
-- **Status:** Phases A–B implemented (package `dbclient`, wired to the monitor)
-  and the codec is unit-tested, but hardware shows the dbserver-client path is
-  **refused by CDJs because we use a rekordbox player number (17), not 1–4** —
-  see "Hardware finding" below. The client stays as a clean-degrading fallback;
-  the next real metadata source is the NFS/PDB download.
+- **Status:** the metadata source is now the **NFS/PDB download** (packages
+  `nfs` client + `mediadb`, wired to the monitor). The earlier dbserver client
+  (package `dbclient`) is retained but unwired: hardware showed CDJs refuse it
+  because we use a rekordbox player number (17), not 1–4 — see "Hardware
+  finding" below. The NFS path sidesteps that entirely and is what beat-link's
+  CrateDigger and prolink-connect use. Needs a deck to confirm the CDJ's export
+  layout (port lookup, export name, mount/read chain), but the whole client is
+  unit-tested against our own `nfs.Server`.
 - **Scope:** live monitor / now-playing — fetch metadata for tracks a deck plays
   from a source other than us
 - **Prereq:** Level 1 (shipped) — the monitor detects external tracks
@@ -51,19 +54,37 @@ framing is familiar — but the client handshake and menu-render flow are new.
 
 ## Phases
 
-- **A — the client** *(done)*. db-port lookup + handshake + `0x2002`/`0x3000`
-  render + parse the `0x4101` detail rows into title/artist/album/genre/key.
-  Codec unit-tested against `proto`'s own marshaling; live handshake needs a
-  deck.
-- **B — fetch/cache + wire to the monitor** *(done)*. `dbclient.Fetcher` (async,
-  cached) filled via the peer tracker; the PLAYERS view and TUI show the
-  metadata once resolved.
-- **C — artwork** *(pending)*. Fetch (`0x2003`) + serve cover art for external
-  tracks; also lets the now-playing overlay show the real art instead of a
-  colliding local ID.
-- **D — (optional) analysis** *(pending)*. Beat grid / cues / waveform for
-  external tracks (reuses ANLZ requests) so the player card shows the real
-  waveform + cues.
+### dbserver client (parked — refused by CDJs, see Hardware finding)
+
+- **A — the client** *(done, unwired)*. db-port lookup + handshake +
+  `0x2002`/`0x3000` render + parse the `0x4101` detail rows. Codec unit-tested;
+  live setup is refused on hardware.
+- **B — fetch/cache + wire to the monitor** *(done, unwired)*. `dbclient.Fetcher`.
+
+### NFS/PDB download (the working path)
+
+- **N1 — NFS client** *(done)*. `nfs.Client` (same package as our server, reusing
+  its XDR codec + constants): portmap GETPORT -> MOUNT MNT -> NFS LOOKUP -> chunked
+  READ, plus MOUNT EXPORT discovery. `pdb.OpenBytes` parses the downloaded
+  database in memory. The whole chain is unit-tested against our own `nfs.Server`
+  handlers (no sockets). Needs a deck to confirm the CDJ's portmap port and
+  export name.
+- **N2 — fetch/cache + wire to the monitor** *(done)*. `mediadb.Fetcher` downloads
+  `export.pdb` once per (player, slot), caches the parsed `*pdb.Database`, and
+  answers `TrackByID` for the monitor's `ExternalMeta`. Async, non-blocking,
+  serves a stale copy while refreshing; failures cool down 30s.
+- **N3 — artwork** *(pending)*. Download `/PIONEER/Artwork/...` over the same NFS
+  client and serve it, so the player card and now-playing overlay show the real
+  cover instead of a colliding local ID.
+- **N4 — (optional) analysis** *(pending)*. Fetch the track's ANLZ `.DAT`/`.EXT`
+  for beat grid / cues / waveform on external tracks.
+
+### Known limitations (need a deck)
+
+- The export-name -> slot mapping is best-effort: `FetchExportPDB` tries the
+  advertised MOUNT EXPORT list, then `/C/`, `/B/`, `/`. If a deck has both a USB
+  and an SD with databases, both slot keys currently resolve to the first export
+  found. Fixable once we see a real deck's export list per slot.
 
 ## Hardware finding: the dbserver-client path is blocked by our player number
 
