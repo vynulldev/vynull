@@ -5232,7 +5232,7 @@ function renderPlayers(players) {
           <dt>BEAT</dt><dd>${p.beat_in_bar || '—'} / 4</dd>
         </dl>
       </div>
-      ${p.external ? (p.analysis_url ? `<div class="wave-wrap"><canvas data-ext-wave="${escape(p.analysis_url)}" width="1200" height="58"></canvas></div>` : `<div class="wave-wrap" style="display:flex;align-items:center;justify-content:center;color:var(--text3);font-size:10px;letter-spacing:0.14em">WAVEFORM UNAVAILABLE · EXTERNAL SOURCE</div>`) : `<div class="wave-wrap">
+      ${p.external ? (p.analysis_url ? `<div class="wave-wrap"><canvas data-ext-wave="${escape(p.analysis_url)}" width="1200" height="58"></canvas>${initialPlayheadMarkup(p)}</div>` : `<div class="wave-wrap" style="display:flex;align-items:center;justify-content:center;color:var(--text3);font-size:10px;letter-spacing:0.14em">WAVEFORM UNAVAILABLE · EXTERNAL SOURCE</div>`) : `<div class="wave-wrap">
         <canvas data-track="${p.track_id}" width="1200" height="58"></canvas>
         ${initialPlayheadMarkup(p)}
       </div>
@@ -5448,11 +5448,18 @@ function samplePlayerPosition(p) {
   if (p.beat_in_track > 0 && p.bpm > 0) {
     posMs = (p.beat_in_track - 1) * 60000 / p.bpm;
   }
+  // External tracks carry no library duration; use the one from their ANLZ
+  // (fetched for the waveform) so the playhead + time row can position.
+  let durationMs = p.duration_ms || 0;
+  if (!durationMs && p.external && p.analysis_url) {
+    const d = extAnalysisCache.get(p.analysis_url);
+    if (d && d.duration_ms) durationMs = d.duration_ms;
+  }
   // Pitch_pct is what % above/below nominal speed the deck is set to.
   const rate = 1 + ((p.pitch_pct || 0) / 100);
   playerPosState.set(p.device_number, {
     posMs,
-    durationMs: p.duration_ms || 0,
+    durationMs,
     isPlaying: !!p.is_playing,
     rate,
     sampledAt: performance.now(),
