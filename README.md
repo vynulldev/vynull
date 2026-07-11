@@ -42,6 +42,7 @@ Use it at your own risk, and back up your rekordbox library before importing any
 - **Remote track loading** via API (auto-adds tracks not in library)
 - **USB export** — write a rekordbox-compatible USB structure (PDB + ANLZ + settings) from the library
 - **Live monitor** TUI showing connected CDJs, playback state, track history, and analysis status
+- **External-source metadata** — when a deck plays a track from its own USB/SD (not from us), the monitor and web PLAYERS view show its real title, artist, key, and cover art, read from that player's rekordbox export over NFS, instead of a wrong local ID match
 
 ## Requirements
 
@@ -360,6 +361,13 @@ Returns a pre-rendered PNG (disk-cached) — used by the web UI's row thumbnails
 
 Returns the track's cover art (JPEG), extracted lazily from the file on first
 request and cached.
+
+#### `GET /api/artwork/ext/{player}/{slot}/{trackID}`
+
+Returns the cover art (JPEG) for a track a deck plays from another player's
+media, downloaded from that player's rekordbox export over NFS and cached. 404
+until the download lands (the PLAYERS view retries on its next poll) or when the
+track has no art.
 
 #### `POST /api/analysis/beatgrid/adjust`
 
