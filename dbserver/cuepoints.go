@@ -149,8 +149,8 @@ func cueColorRGB(idx uint32) (r, g, b byte) {
 	if c, ok := analysis.CueColorPalette[idx]; ok {
 		return c[0], c[1], c[2]
 	}
-	// Default "no colour set" — Pioneer orange.
-	return 0xff, 0x6a, 0x00
+	// Unknown index — fall back to the unset colour (green, matching index 0).
+	return 0x28, 0xe2, 0x14
 }
 
 // cueColorFromBlob extracts the palette color_id from a cue blob. 124-byte NXS2

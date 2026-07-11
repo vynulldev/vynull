@@ -5,10 +5,12 @@ package analysis
 // CueColorPalette maps a rekordbox hot-cue palette index to its RGB triplet,
 // mirroring the CUE_COLORS palette in the web UI (api/web/index.html). A deck
 // renders whatever RGB it is handed, so the only requirement is that the web
-// swatch and the on-deck colour stay consistent. Index 0x00 is Pioneer's
-// "no colour set" orange.
+// swatch and the on-deck colour stay consistent. Index 0x00 is "no colour set";
+// rekordbox renders that as its default green (not the Pioneer orange the picker
+// shows for the empty slot), so 0x00 is green here. NearestCueColorID skips it
+// so an explicitly-coloured cue never resolves back to the unset slot.
 var CueColorPalette = map[uint32][3]byte{
-	0x00: {0xff, 0x6a, 0x00},
+	0x00: {0x28, 0xe2, 0x14},
 	0x01: {0x30, 0x5a, 0xff}, 0x02: {0x50, 0x73, 0xff}, 0x03: {0x50, 0x8c, 0xff}, 0x04: {0x50, 0xa0, 0xff},
 	0x05: {0x50, 0xb4, 0xff}, 0x06: {0x50, 0xb0, 0xf2}, 0x07: {0x50, 0xae, 0xe8}, 0x08: {0x45, 0xac, 0xdb},
 	0x09: {0x00, 0xe0, 0xff}, 0x0a: {0x19, 0xda, 0xf0}, 0x0b: {0x32, 0xd2, 0xe6}, 0x0c: {0x21, 0xb4, 0xb9},
@@ -36,6 +38,9 @@ func NearestCueColorID(r, g, b byte) uint32 {
 	best := uint32(0)
 	bestDist := -1
 	for idx, c := range CueColorPalette {
+		if idx == 0 {
+			continue // 0 is the unset slot, not a pickable colour
+		}
 		dr, dg, db := int(c[0])-int(r), int(c[1])-int(g), int(c[2])-int(b)
 		d := dr*dr + dg*dg + db*db
 		if bestDist < 0 || d < bestDist || (d == bestDist && idx < best) {

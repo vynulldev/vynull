@@ -7261,7 +7261,7 @@ let selectedTrackID = null;
 // 0x30 + palette_index (e.g. user-set GREEN comes through as 0x42 → 0x12).
 const CUE_COLORS = (() => {
   const p = {
-    0x00: '#ff6a00', // default (no colour set)
+    0x00: '#28e214', // unset — rekordbox renders a cue with no colour as green, not orange
     0x01: '#305aff', 0x02: '#5073ff', 0x03: '#508cff', 0x04: '#50a0ff',
     0x05: '#50b4ff', 0x06: '#50b0f2', 0x07: '#50aee8', 0x08: '#45acdb',
     0x09: '#00e0ff', 0x0a: '#19daf0', 0x0b: '#32d2e6', 0x0c: '#21b4b9',

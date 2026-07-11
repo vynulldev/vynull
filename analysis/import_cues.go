@@ -35,14 +35,10 @@ func ParseANLZCues(extPath, datPath string) []ImportedCue {
 	return ParseANLZCuesBytes(readFileOrNil(extPath), readFileOrNil(datPath))
 }
 
-// defaultCueColorID is the palette id (lime green #28e214) rekordbox and the CDJ
-// paint for a cue with no colour set. A cue set on a CDJ often carries palette
-// index 0 and no RGB at all, and taking index 0 literally would paint it
-// Pioneer orange (palette 0x00), so unset cues default to this instead.
-const defaultCueColorID = 0x16
-
 // ParseANLZCuesBytes is ParseANLZCues over the raw bytes of the .EXT/.DAT files,
-// for callers that fetch ANLZ over the network rather than from disk.
+// for callers that fetch ANLZ over the network rather than from disk. A cue set
+// on a CDJ often carries palette index 0 (no colour); that is rendered as green
+// via CueColorPalette[0], so no per-cue default is needed here.
 func ParseANLZCuesBytes(ext, dat []byte) []ImportedCue {
 	cues := parsePCO2(ext)
 	if len(cues) == 0 {
@@ -50,11 +46,6 @@ func ParseANLZCuesBytes(ext, dat []byte) []ImportedCue {
 	}
 	if len(cues) == 0 {
 		cues = parsePCOB(dat)
-	}
-	for i := range cues {
-		if cues[i].ColorID == 0 {
-			cues[i].ColorID = defaultCueColorID
-		}
 	}
 	return cues
 }
