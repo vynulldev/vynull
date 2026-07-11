@@ -33,6 +33,7 @@ import (
 	"github.com/vynulldev/vynull/export"
 	"github.com/vynulldev/vynull/library"
 	"github.com/vynulldev/vynull/link/prolink"
+	"github.com/vynulldev/vynull/mediadb"
 	"github.com/vynulldev/vynull/pdb"
 )
 
@@ -61,6 +62,11 @@ type Server struct {
 	// Returns nil when not yet cached; the /api/artwork/ext endpoint 404s and
 	// the UI retries on its next poll.
 	ExtArtwork func(player, slot uint8, trackID uint32) []byte
+
+	// ExtAnalysis, if set, returns the ANLZ-derived waveform + cues for a track a
+	// deck plays from another player's media (from package mediadb). nil until
+	// cached; the /api/analysis/ext endpoint 404s and the UI retries.
+	ExtAnalysis func(player, slot uint8, trackID uint32) *mediadb.Analysis
 
 	// Set on first Start(); used by the diagnostic endpoints.
 	started time.Time
@@ -242,9 +248,10 @@ type PlayerInfo struct {
 	BPM           float64 `json:"bpm"`
 	PitchPct      float64 `json:"pitch_pct"` // pitch as percent (-100..+100); 0 = nominal
 	Key           string  `json:"key"`
-	External      bool    `json:"external,omitempty"`    // track loaded from a source other than us
-	Source        string  `json:"source,omitempty"`      // that source, e.g. "USB · player 2"
-	ArtworkURL    string  `json:"artwork_url,omitempty"` // cover-art endpoint for the loaded track
+	External      bool    `json:"external,omitempty"`     // track loaded from a source other than us
+	Source        string  `json:"source,omitempty"`       // that source, e.g. "USB · player 2"
+	ArtworkURL    string  `json:"artwork_url,omitempty"`  // cover-art endpoint for the loaded track
+	AnalysisURL   string  `json:"analysis_url,omitempty"` // waveform+cues endpoint (external tracks only)
 	IsPlaying     bool    `json:"is_playing"`
 	IsMaster      bool    `json:"is_master"`
 	IsSync        bool    `json:"is_sync,omitempty"`
@@ -304,6 +311,7 @@ func (s *Server) Handler() http.Handler {
 
 	// Analysis endpoints
 	mux.HandleFunc("/api/analysis/", s.handleAnalysis)
+	mux.HandleFunc("/api/analysis/ext/", s.handleExtAnalysis)
 	mux.HandleFunc("/api/analysis/reanalyze/", s.handleReanalyze)
 	mux.HandleFunc("/api/analysis/beatgrid/adjust", s.handleBeatGridAdjust)
 	mux.HandleFunc("/api/analysis/waveform/", s.handleWaveform)
@@ -522,9 +530,13 @@ func (s *Server) getPlayers() []PlayerInfo {
 		// Cover-art endpoint: external tracks resolve via the source player's
 		// media (over NFS), local tracks via the library by track ID.
 		artURL := ""
+		analysisURL := ""
 		if ps.Status.TrackID > 0 {
 			if ps.External {
 				artURL = fmt.Sprintf("/api/artwork/ext/%d/%d/%d", ps.Status.TrackDevice, ps.Status.TrackSlot, ps.Status.TrackID)
+				// Waveform + cues come from the source player's ANLZ over NFS;
+				// local tracks use the existing track-ID waveform/cue endpoints.
+				analysisURL = fmt.Sprintf("/api/analysis/ext/%d/%d/%d", ps.Status.TrackDevice, ps.Status.TrackSlot, ps.Status.TrackID)
 			} else {
 				artURL = fmt.Sprintf("/api/artwork/%d", ps.Status.TrackID)
 			}
@@ -536,6 +548,7 @@ func (s *Server) getPlayers() []PlayerInfo {
 			TrackTitle:    ps.TrackName,
 			Artist:        ps.Artist,
 			ArtworkURL:    artURL,
+			AnalysisURL:   analysisURL,
 			BPM:           float64(ps.Status.BPM) / 100.0,
 			PitchPct:      pitchPct,
 			Key:           ps.Key,
@@ -1171,20 +1184,7 @@ func (s *Server) applyImportBundle(w http.ResponseWriter, bundle *library.Import
 			// keep their pad number (A=1..H=8); memory cues are numbered 9.. in
 			// order, matching the app's cue-number convention.
 			if incCues && s.Cues != nil {
-				mem := 8
-				for _, c := range analysis.ParseANLZCues(extPath, dat) {
-					num := uint16(c.HotCue)
-					if c.HotCue == 0 {
-						mem++
-						num = uint16(mem)
-					}
-					ci := CueInfo{Number: num, Type: "cue", TimeMs: c.TimeMs, LoopMs: -1, ColorID: c.ColorID, Label: c.Comment}
-					if c.IsLoop {
-						ci.Type = "loop"
-						if c.LoopMs > 0 {
-							ci.LoopMs = int32(c.LoopMs)
-						}
-					}
+				for _, ci := range importedCuesToInfo(analysis.ParseANLZCues(extPath, dat)) {
 					s.Cues.SaveCue(a.TrackID, ci)
 					cueN++
 				}
@@ -2231,31 +2231,13 @@ func (s *Server) handleWaveform(w http.ResponseWriter, r *http.Request) {
 		}
 
 		// Default "spectral" style — PWV5: 2 bytes per entry → JSON {r,g,b,h}.
-		data := result.WaveDetail
-		n := len(data) / 2
-		type Entry struct {
-			R int `json:"r"` // 0-7
-			G int `json:"g"` // 0-7
-			B int `json:"b"` // 0-7
-			H int `json:"h"` // 0-31
-		}
-		entries := make([]Entry, n)
-		for i := 0; i < n; i++ {
-			word := uint16(data[i*2])<<8 | uint16(data[i*2+1])
-			entries[i] = Entry{
-				R: int((word >> 13) & 7),
-				G: int((word >> 10) & 7),
-				B: int((word >> 7) & 7),
-				H: int((word >> 2) & 0x1f),
-			}
-		}
 		writeJSON(w, struct {
-			TrackID    uint32  `json:"track_id"`
-			Type       string  `json:"type"`
-			Style      string  `json:"style"`
-			SampleRate int     `json:"sample_rate"` // entries per second
-			Entries    []Entry `json:"entries"`
-		}{trackID, "detail", "spectral", 150, entries})
+			TrackID    uint32              `json:"track_id"`
+			Type       string              `json:"type"`
+			Style      string              `json:"style"`
+			SampleRate int                 `json:"sample_rate"` // entries per second
+			Entries    []WaveEntrySpectral `json:"entries"`
+		}{trackID, "detail", "spectral", 150, decodePWV5(result.WaveDetail)})
 
 	case "preview":
 		// Raw PWAV blob (900 bytes for network, 400 for ANLZ).
@@ -2381,6 +2363,100 @@ func (s *Server) handleExtArtwork(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "image/jpeg")
 	w.Header().Set("Cache-Control", "public, max-age=86400")
 	w.Write(data)
+}
+
+// WaveEntrySpectral is one PWV5 colour-detail waveform entry (r/g/b 0-7, h 0-31).
+type WaveEntrySpectral struct {
+	R int `json:"r"`
+	G int `json:"g"`
+	B int `json:"b"`
+	H int `json:"h"`
+}
+
+// decodePWV5 decodes a raw PWV5 colour-detail waveform (2 bytes/entry, 16-bit
+// big-endian RRRGGGBBBHHHHH00) into per-entry r/g/b/height values.
+func decodePWV5(data []byte) []WaveEntrySpectral {
+	n := len(data) / 2
+	out := make([]WaveEntrySpectral, n)
+	for i := 0; i < n; i++ {
+		word := uint16(data[i*2])<<8 | uint16(data[i*2+1])
+		out[i] = WaveEntrySpectral{
+			R: int((word >> 13) & 7),
+			G: int((word >> 10) & 7),
+			B: int((word >> 7) & 7),
+			H: int((word >> 2) & 0x1f),
+		}
+	}
+	return out
+}
+
+// importedCuesToInfo maps ANLZ-parsed cues to CueInfo. Hot cues keep their pad
+// number (A=1..H=8); memory cues are numbered 9.. in order.
+func importedCuesToInfo(cues []analysis.ImportedCue) []CueInfo {
+	out := make([]CueInfo, 0, len(cues))
+	mem := 8
+	for _, c := range cues {
+		num := uint16(c.HotCue)
+		if c.HotCue == 0 {
+			mem++
+			num = uint16(mem)
+		}
+		ci := CueInfo{Number: num, Type: "cue", TimeMs: c.TimeMs, LoopMs: -1, ColorID: c.ColorID, Label: c.Comment}
+		if c.IsLoop {
+			ci.Type = "loop"
+			if c.LoopMs > 0 {
+				ci.LoopMs = int32(c.LoopMs)
+			}
+		}
+		out = append(out, ci)
+	}
+	return out
+}
+
+// GET /api/analysis/ext/{player}/{slot}/{trackID} — waveform + cues for a track
+// a deck plays from another player's media (ANLZ downloaded over NFS). 404 until
+// the download lands or when the track has no analysis.
+func (s *Server) handleExtAnalysis(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	if s.ExtAnalysis == nil {
+		http.NotFound(w, r)
+		return
+	}
+	rest := strings.TrimPrefix(r.URL.Path, "/api/analysis/ext/")
+	parts := strings.Split(rest, "/")
+	if len(parts) != 3 {
+		http.Error(w, "expected /api/analysis/ext/{player}/{slot}/{trackID}", http.StatusBadRequest)
+		return
+	}
+	player, err1 := strconv.ParseUint(parts[0], 10, 8)
+	slot, err2 := strconv.ParseUint(parts[1], 10, 8)
+	trackID, err3 := strconv.ParseUint(parts[2], 10, 32)
+	if err1 != nil || err2 != nil || err3 != nil || trackID == 0 {
+		http.Error(w, "invalid player/slot/trackID", http.StatusBadRequest)
+		return
+	}
+	a := s.ExtAnalysis(uint8(player), uint8(slot), uint32(trackID))
+	if a == nil {
+		http.NotFound(w, r)
+		return
+	}
+	writeJSON(w, struct {
+		TrackID    uint32              `json:"track_id"`
+		DurationMs uint32              `json:"duration_ms"`
+		BPM        float64             `json:"bpm"`
+		SampleRate int                 `json:"sample_rate"`
+		Waveform   []WaveEntrySpectral `json:"waveform"`
+		Cues       []CueInfo           `json:"cues"`
+		Beats      []float64           `json:"beats,omitempty"` // beat grid ms, for the playhead
+	}{
+		TrackID:    uint32(trackID),
+		DurationMs: a.DurationMs,
+		BPM:        a.BPM,
+		SampleRate: 150,
+		Waveform:   decodePWV5(a.WaveDetail),
+		Cues:       importedCuesToInfo(a.Cues),
+		Beats:      a.Beats,
+	})
 }
 
 // GET /api/analysis/waveform-png/{trackID}?type=detail|color_preview&w=280&h=56

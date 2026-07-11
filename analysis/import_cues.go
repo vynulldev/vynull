@@ -4,7 +4,6 @@ package analysis
 
 import (
 	"encoding/binary"
-	"os"
 	"strings"
 	"unicode/utf16"
 )
@@ -33,19 +32,28 @@ type ImportedCue struct {
 //	PCO2 entry (PCP2): hot_cue@12 u4, type@16 u1, time@20 u4, loop_time@24 u4,
 //	    len_comment@40 u4, comment@44 (UTF-16BE), then color_code/R/G/B.
 func ParseANLZCues(extPath, datPath string) []ImportedCue {
-	if cues := parsePCO2(extPath); len(cues) > 0 {
-		return cues
-	}
-	if cues := parsePCOB(extPath); len(cues) > 0 {
-		return cues
-	}
-	return parsePCOB(datPath)
+	return ParseANLZCuesBytes(readFileOrNil(extPath), readFileOrNil(datPath))
 }
 
-// walkANLZSections calls fn for every section whose FourCC equals tag.
-func walkANLZSections(path, tag string, fn func(section []byte)) {
-	data, err := os.ReadFile(path)
-	if err != nil || len(data) < 28 {
+// ParseANLZCuesBytes is ParseANLZCues over the raw bytes of the .EXT/.DAT files,
+// for callers that fetch ANLZ over the network rather than from disk. A cue set
+// on a CDJ often carries palette index 0 (no colour); that is rendered as green
+// via CueColorPalette[0], so no per-cue default is needed here.
+func ParseANLZCuesBytes(ext, dat []byte) []ImportedCue {
+	cues := parsePCO2(ext)
+	if len(cues) == 0 {
+		cues = parsePCOB(ext)
+	}
+	if len(cues) == 0 {
+		cues = parsePCOB(dat)
+	}
+	return cues
+}
+
+// walkANLZSections calls fn for every section (in the given ANLZ file bytes)
+// whose FourCC equals tag.
+func walkANLZSections(data []byte, tag string, fn func(section []byte)) {
+	if len(data) < 28 {
 		return
 	}
 	pos := int(binary.BigEndian.Uint32(data[4:8])) // skip PMAI header
@@ -61,9 +69,9 @@ func walkANLZSections(path, tag string, fn func(section []byte)) {
 	}
 }
 
-func parsePCO2(path string) []ImportedCue {
+func parsePCO2(data []byte) []ImportedCue {
 	var out []ImportedCue
-	walkANLZSections(path, "PCO2", func(s []byte) {
+	walkANLZSections(data, "PCO2", func(s []byte) {
 		lenHeader := int(binary.BigEndian.Uint32(s[4:8]))
 		for p := lenHeader; p+12 <= len(s); {
 			if string(s[p:p+4]) != "PCP2" {
@@ -78,19 +86,29 @@ func parsePCO2(path string) []ImportedCue {
 				HotCue: int(binary.BigEndian.Uint32(e[12:16])),
 				TimeMs: binary.BigEndian.Uint32(e[20:24]),
 			}
-			if loop := binary.BigEndian.Uint32(e[24:28]); e[16] == 2 || loop != 0xffffffff {
+			// A loop has a valid loop end; a plain cue stores 0 or 0xffffffff.
+			if loop := binary.BigEndian.Uint32(e[24:28]); loop != 0 && loop != 0xffffffff {
 				c.IsLoop = true
-				if loop != 0xffffffff {
-					c.LoopMs = loop
-				}
+				c.LoopMs = loop
 			}
 			lenComment := int(binary.BigEndian.Uint32(e[40:44]))
 			coff := 44
 			if lenComment > 0 && coff+lenComment <= len(e) {
 				c.Comment = decodeUTF16BE(e[coff : coff+lenComment])
 			}
+			// Colour: a palette index (color_code) followed by R/G/B. A cue set
+			// on a CDJ carries index 0 with the real colour only in the RGB (its
+			// default hot-cue green is 0x00ff30) — using the index alone would
+			// paint Pioneer orange, so recover the nearest palette id from the
+			// RGB in that case.
 			if colOff := coff + lenComment; colOff < len(e) {
-				c.ColorID = uint32(e[colOff]) // color_code byte
+				code := e[colOff]
+				switch {
+				case code != 0:
+					c.ColorID = uint32(code)
+				case colOff+3 < len(e) && (e[colOff+1]|e[colOff+2]|e[colOff+3]) != 0:
+					c.ColorID = NearestCueColorID(e[colOff+1], e[colOff+2], e[colOff+3])
+				}
 			}
 			out = append(out, c)
 			p += el
@@ -99,9 +117,9 @@ func parsePCO2(path string) []ImportedCue {
 	return out
 }
 
-func parsePCOB(path string) []ImportedCue {
+func parsePCOB(data []byte) []ImportedCue {
 	var out []ImportedCue
-	walkANLZSections(path, "PCOB", func(s []byte) {
+	walkANLZSections(data, "PCOB", func(s []byte) {
 		lenHeader := int(binary.BigEndian.Uint32(s[4:8]))
 		for p := lenHeader; p+12 <= len(s); {
 			if string(s[p:p+4]) != "PCPT" {
@@ -116,11 +134,9 @@ func parsePCOB(path string) []ImportedCue {
 				HotCue: int(binary.BigEndian.Uint32(e[12:16])),
 				TimeMs: binary.BigEndian.Uint32(e[32:36]),
 			}
-			if loop := binary.BigEndian.Uint32(e[36:40]); e[28] == 2 || loop != 0xffffffff {
+			if loop := binary.BigEndian.Uint32(e[36:40]); loop != 0 && loop != 0xffffffff {
 				c.IsLoop = true
-				if loop != 0xffffffff {
-					c.LoopMs = loop
-				}
+				c.LoopMs = loop
 			}
 			out = append(out, c)
 			p += el

@@ -84,8 +84,15 @@ framing is familiar — but the client handshake and menu-render flow are new.
   (`PlayerInfo.ArtworkURL`; local art keeps using `/api/artwork/{id}`). Needs a
   deck to confirm the artwork path resolves on real media. The now-playing
   overlay reuse is cross-branch (lands when now-playing-overlay merges).
-- **N4 — (optional) analysis** *(pending)*. Fetch the track's ANLZ `.DAT`/`.EXT`
-  for beat grid / cues / waveform on external tracks.
+- **N4 — analysis** *(done)*. `analysis.ParseANLZBytes` / `ParseANLZCuesBytes`
+  parse ANLZ from memory; `mediadb.Fetcher.Analysis` downloads a track's
+  `.DAT`/`.EXT`/`.2EX` (via the PDB `AnalyzePath`) over the same NFS client and
+  parses the colour detail waveform + cues, cached per (player, slot, trackID).
+  Served at `/api/analysis/ext/{player}/{slot}/{trackID}` (via `Server.ExtAnalysis`);
+  the PLAYERS card renders the real waveform and cue markers instead of
+  "WAVEFORM UNAVAILABLE" (`PlayerInfo.AnalysisURL`). Needs a deck to confirm the
+  ANLZ path resolves on real media. Beat grid overlay in the detail drawer and
+  the overlay's reuse are possible follow-ups.
 
 ### Known limitations (need a deck)
 

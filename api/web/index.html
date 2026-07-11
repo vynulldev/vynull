@@ -5114,6 +5114,17 @@ function updateLinkStatus(peers) {
 // recreating the <img> in the template) is what stops the art from blinking.
 const deckArtImgs = new Map();
 
+// External-track waveform + cues (from /api/analysis/ext), cached by URL so the
+// 1s grid rebuild doesn't refetch. The URL is unique per (player, slot, track),
+// so a new track naturally misses and refetches.
+const extAnalysisCache = new Map();
+const extAnalysisInflight = new Set();
+function drawExtWave(canvas, d) {
+  const durMs = d.duration_ms || 0;
+  drawWaveformPWV5(canvas, { entries: d.waveform || [] }, durMs);
+  drawCueMarkersCanvas(canvas, d.cues || [], durMs);
+}
+
 function renderPlayers(players) {
   const prev = currentPlayers;
   currentPlayers = players;
@@ -5221,7 +5232,7 @@ function renderPlayers(players) {
           <dt>BEAT</dt><dd>${p.beat_in_bar || '—'} / 4</dd>
         </dl>
       </div>
-      ${p.external ? `<div class="wave-wrap" style="display:flex;align-items:center;justify-content:center;color:var(--text3);font-size:10px;letter-spacing:0.14em">WAVEFORM UNAVAILABLE · EXTERNAL SOURCE</div>` : `<div class="wave-wrap">
+      ${p.external ? (p.analysis_url ? `<div class="wave-wrap"><canvas data-ext-wave="${escape(p.analysis_url)}" width="1200" height="58"></canvas>${initialPlayheadMarkup(p)}</div>` : `<div class="wave-wrap" style="display:flex;align-items:center;justify-content:center;color:var(--text3);font-size:10px;letter-spacing:0.14em">WAVEFORM UNAVAILABLE · EXTERNAL SOURCE</div>`) : `<div class="wave-wrap">
         <canvas data-track="${p.track_id}" width="1200" height="58"></canvas>
         ${initialPlayheadMarkup(p)}
       </div>
@@ -5268,6 +5279,22 @@ function renderPlayers(players) {
     const cached = getDetailWaveCached(tid);
     if (cached) drawAll(cached);
     else ensureDetailWave(tid).then(d => d && drawAll(d));
+  });
+  // External tracks: waveform + cues from the source player's ANLZ over NFS.
+  // The endpoint 404s until the download lands, so a miss just retries next poll.
+  el.querySelectorAll('canvas[data-ext-wave]').forEach(canvas => {
+    const url = canvas.getAttribute('data-ext-wave');
+    if (!url) return;
+    if (extAnalysisCache.has(url)) { drawExtWave(canvas, extAnalysisCache.get(url)); return; }
+    if (extAnalysisInflight.has(url)) return;
+    extAnalysisInflight.add(url);
+    fetchJSON(url).then(d => {
+      extAnalysisInflight.delete(url);
+      if (!d) return; // not downloaded yet — retry on the next poll
+      extAnalysisCache.set(url, d);
+      const cur = document.querySelector(`canvas[data-ext-wave="${url}"]`);
+      if (cur) drawExtWave(cur, d);
+    });
   });
   // Phrase strip under each loaded deck's waveform. Phrases are fetched per
   // track and cached (the 1Hz poll re-creates these elements every second, so
@@ -5415,17 +5442,30 @@ function initialPlayheadMarkup(p) {
 }
 
 function samplePlayerPosition(p) {
-  // CDJ reports beats elapsed since track start; convert to ms via BPM.
-  // beat_in_track is 1-based on the wire, 0 = unknown.
+  // CDJ reports beats elapsed since track start (beat_in_track, 1-based).
+  // External tracks carry no library duration and the status BPM is the pitched
+  // playback tempo, so prefer the ANLZ we fetched for the waveform: it gives the
+  // real beat grid (exact beat times) plus the nominal tempo and duration.
+  let bpm = p.bpm, durationMs = p.duration_ms || 0, beats = null;
+  if (p.external && p.analysis_url) {
+    const d = extAnalysisCache.get(p.analysis_url);
+    if (d) {
+      if (d.bpm > 0) bpm = d.bpm;
+      if (d.duration_ms) durationMs = d.duration_ms;
+      if (d.beats && d.beats.length) beats = d.beats;
+    }
+  }
   let posMs = 0;
-  if (p.beat_in_track > 0 && p.bpm > 0) {
-    posMs = (p.beat_in_track - 1) * 60000 / p.bpm;
+  if (beats && p.beat_in_track > 0 && p.beat_in_track <= beats.length) {
+    posMs = beats[p.beat_in_track - 1]; // exact beat time from the grid
+  } else if (p.beat_in_track > 0 && bpm > 0) {
+    posMs = (p.beat_in_track - 1) * 60000 / bpm;
   }
   // Pitch_pct is what % above/below nominal speed the deck is set to.
   const rate = 1 + ((p.pitch_pct || 0) / 100);
   playerPosState.set(p.device_number, {
     posMs,
-    durationMs: p.duration_ms || 0,
+    durationMs,
     isPlaying: !!p.is_playing,
     rate,
     sampledAt: performance.now(),
@@ -7221,7 +7261,7 @@ let selectedTrackID = null;
 // 0x30 + palette_index (e.g. user-set GREEN comes through as 0x42 → 0x12).
 const CUE_COLORS = (() => {
   const p = {
-    0x00: '#ff6a00', // default (no colour set)
+    0x00: '#28e214', // unset — rekordbox renders a cue with no colour as green, not orange
     0x01: '#305aff', 0x02: '#5073ff', 0x03: '#508cff', 0x04: '#50a0ff',
     0x05: '#50b4ff', 0x06: '#50b0f2', 0x07: '#50aee8', 0x08: '#45acdb',
     0x09: '#00e0ff', 0x0a: '#19daf0', 0x0b: '#32d2e6', 0x0c: '#21b4b9',
