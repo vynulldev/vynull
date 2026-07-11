@@ -5114,6 +5114,17 @@ function updateLinkStatus(peers) {
 // recreating the <img> in the template) is what stops the art from blinking.
 const deckArtImgs = new Map();
 
+// External-track waveform + cues (from /api/analysis/ext), cached by URL so the
+// 1s grid rebuild doesn't refetch. The URL is unique per (player, slot, track),
+// so a new track naturally misses and refetches.
+const extAnalysisCache = new Map();
+const extAnalysisInflight = new Set();
+function drawExtWave(canvas, d) {
+  const durMs = d.duration_ms || 0;
+  drawWaveformPWV5(canvas, { entries: d.waveform || [] }, durMs);
+  drawCueMarkersCanvas(canvas, d.cues || [], durMs);
+}
+
 function renderPlayers(players) {
   const prev = currentPlayers;
   currentPlayers = players;
@@ -5221,7 +5232,7 @@ function renderPlayers(players) {
           <dt>BEAT</dt><dd>${p.beat_in_bar || '—'} / 4</dd>
         </dl>
       </div>
-      ${p.external ? `<div class="wave-wrap" style="display:flex;align-items:center;justify-content:center;color:var(--text3);font-size:10px;letter-spacing:0.14em">WAVEFORM UNAVAILABLE · EXTERNAL SOURCE</div>` : `<div class="wave-wrap">
+      ${p.external ? (p.analysis_url ? `<div class="wave-wrap"><canvas data-ext-wave="${escape(p.analysis_url)}" width="1200" height="58"></canvas></div>` : `<div class="wave-wrap" style="display:flex;align-items:center;justify-content:center;color:var(--text3);font-size:10px;letter-spacing:0.14em">WAVEFORM UNAVAILABLE · EXTERNAL SOURCE</div>`) : `<div class="wave-wrap">
         <canvas data-track="${p.track_id}" width="1200" height="58"></canvas>
         ${initialPlayheadMarkup(p)}
       </div>
@@ -5268,6 +5279,22 @@ function renderPlayers(players) {
     const cached = getDetailWaveCached(tid);
     if (cached) drawAll(cached);
     else ensureDetailWave(tid).then(d => d && drawAll(d));
+  });
+  // External tracks: waveform + cues from the source player's ANLZ over NFS.
+  // The endpoint 404s until the download lands, so a miss just retries next poll.
+  el.querySelectorAll('canvas[data-ext-wave]').forEach(canvas => {
+    const url = canvas.getAttribute('data-ext-wave');
+    if (!url) return;
+    if (extAnalysisCache.has(url)) { drawExtWave(canvas, extAnalysisCache.get(url)); return; }
+    if (extAnalysisInflight.has(url)) return;
+    extAnalysisInflight.add(url);
+    fetchJSON(url).then(d => {
+      extAnalysisInflight.delete(url);
+      if (!d) return; // not downloaded yet — retry on the next poll
+      extAnalysisCache.set(url, d);
+      const cur = document.querySelector(`canvas[data-ext-wave="${url}"]`);
+      if (cur) drawExtWave(cur, d);
+    });
   });
   // Phrase strip under each loaded deck's waveform. Phrases are fetched per
   // track and cached (the 1Hz poll re-creates these elements every second, so

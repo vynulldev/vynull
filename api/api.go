@@ -248,9 +248,10 @@ type PlayerInfo struct {
 	BPM           float64 `json:"bpm"`
 	PitchPct      float64 `json:"pitch_pct"` // pitch as percent (-100..+100); 0 = nominal
 	Key           string  `json:"key"`
-	External      bool    `json:"external,omitempty"`    // track loaded from a source other than us
-	Source        string  `json:"source,omitempty"`      // that source, e.g. "USB · player 2"
-	ArtworkURL    string  `json:"artwork_url,omitempty"` // cover-art endpoint for the loaded track
+	External      bool    `json:"external,omitempty"`     // track loaded from a source other than us
+	Source        string  `json:"source,omitempty"`       // that source, e.g. "USB · player 2"
+	ArtworkURL    string  `json:"artwork_url,omitempty"`  // cover-art endpoint for the loaded track
+	AnalysisURL   string  `json:"analysis_url,omitempty"` // waveform+cues endpoint (external tracks only)
 	IsPlaying     bool    `json:"is_playing"`
 	IsMaster      bool    `json:"is_master"`
 	IsSync        bool    `json:"is_sync,omitempty"`
@@ -529,9 +530,13 @@ func (s *Server) getPlayers() []PlayerInfo {
 		// Cover-art endpoint: external tracks resolve via the source player's
 		// media (over NFS), local tracks via the library by track ID.
 		artURL := ""
+		analysisURL := ""
 		if ps.Status.TrackID > 0 {
 			if ps.External {
 				artURL = fmt.Sprintf("/api/artwork/ext/%d/%d/%d", ps.Status.TrackDevice, ps.Status.TrackSlot, ps.Status.TrackID)
+				// Waveform + cues come from the source player's ANLZ over NFS;
+				// local tracks use the existing track-ID waveform/cue endpoints.
+				analysisURL = fmt.Sprintf("/api/analysis/ext/%d/%d/%d", ps.Status.TrackDevice, ps.Status.TrackSlot, ps.Status.TrackID)
 			} else {
 				artURL = fmt.Sprintf("/api/artwork/%d", ps.Status.TrackID)
 			}
@@ -543,6 +548,7 @@ func (s *Server) getPlayers() []PlayerInfo {
 			TrackTitle:    ps.TrackName,
 			Artist:        ps.Artist,
 			ArtworkURL:    artURL,
+			AnalysisURL:   analysisURL,
 			BPM:           float64(ps.Status.BPM) / 100.0,
 			PitchPct:      pitchPct,
 			Key:           ps.Key,
