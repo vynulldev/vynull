@@ -5442,18 +5442,24 @@ function initialPlayheadMarkup(p) {
 }
 
 function samplePlayerPosition(p) {
-  // CDJ reports beats elapsed since track start; convert to ms via BPM.
-  // beat_in_track is 1-based on the wire, 0 = unknown.
-  let posMs = 0;
-  if (p.beat_in_track > 0 && p.bpm > 0) {
-    posMs = (p.beat_in_track - 1) * 60000 / p.bpm;
-  }
-  // External tracks carry no library duration; use the one from their ANLZ
-  // (fetched for the waveform) so the playhead + time row can position.
-  let durationMs = p.duration_ms || 0;
-  if (!durationMs && p.external && p.analysis_url) {
+  // CDJ reports beats elapsed since track start (beat_in_track, 1-based).
+  // External tracks carry no library duration and the status BPM is the pitched
+  // playback tempo, so prefer the ANLZ we fetched for the waveform: it gives the
+  // real beat grid (exact beat times) plus the nominal tempo and duration.
+  let bpm = p.bpm, durationMs = p.duration_ms || 0, beats = null;
+  if (p.external && p.analysis_url) {
     const d = extAnalysisCache.get(p.analysis_url);
-    if (d && d.duration_ms) durationMs = d.duration_ms;
+    if (d) {
+      if (d.bpm > 0) bpm = d.bpm;
+      if (d.duration_ms) durationMs = d.duration_ms;
+      if (d.beats && d.beats.length) beats = d.beats;
+    }
+  }
+  let posMs = 0;
+  if (beats && p.beat_in_track > 0 && p.beat_in_track <= beats.length) {
+    posMs = beats[p.beat_in_track - 1]; // exact beat time from the grid
+  } else if (p.beat_in_track > 0 && bpm > 0) {
+    posMs = (p.beat_in_track - 1) * 60000 / bpm;
   }
   // Pitch_pct is what % above/below nominal speed the deck is set to.
   const rate = 1 + ((p.pitch_pct || 0) / 100);

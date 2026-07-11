@@ -74,6 +74,7 @@ type Analysis struct {
 	BPM        float64
 	WaveDetail []byte                 // raw PWV5 colour-detail waveform (may be nil)
 	Cues       []analysis.ImportedCue // hot + memory cues
+	Beats      []float64              // beat grid positions in ms (for the playhead)
 }
 
 type entry struct {
@@ -394,8 +395,12 @@ func (f *Fetcher) doFetchAnalysis(player uint8, export string, db *pdb.Database,
 	}
 	if res != nil {
 		a.WaveDetail = res.WaveDetail
+		a.Beats = res.Beats
+		if res.BPM > 0 {
+			a.BPM = res.BPM // grid tempo is authoritative when present
+		}
 	}
-	log.Printf("mediadb: player %d track %d analysis: waveform=%dB cues=%d",
-		player, trackID, len(a.WaveDetail), len(a.Cues))
+	log.Printf("mediadb: player %d track %d analysis: waveform=%dB cues=%d beats=%d",
+		player, trackID, len(a.WaveDetail), len(a.Cues), len(a.Beats))
 	return a
 }

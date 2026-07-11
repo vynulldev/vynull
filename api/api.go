@@ -2447,6 +2447,7 @@ func (s *Server) handleExtAnalysis(w http.ResponseWriter, r *http.Request) {
 		SampleRate int                 `json:"sample_rate"`
 		Waveform   []WaveEntrySpectral `json:"waveform"`
 		Cues       []CueInfo           `json:"cues"`
+		Beats      []float64           `json:"beats,omitempty"` // beat grid ms, for the playhead
 	}{
 		TrackID:    uint32(trackID),
 		DurationMs: a.DurationMs,
@@ -2454,6 +2455,7 @@ func (s *Server) handleExtAnalysis(w http.ResponseWriter, r *http.Request) {
 		SampleRate: 150,
 		Waveform:   decodePWV5(a.WaveDetail),
 		Cues:       importedCuesToInfo(a.Cues),
+		Beats:      a.Beats,
 	})
 }
 
