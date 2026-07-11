@@ -68,3 +68,21 @@ func TestParseANLZCuesBytes(t *testing.T) {
 		t.Errorf("cue1 wrong: %+v", c)
 	}
 }
+
+// A cue set on a CDJ carries palette index 0 with the real colour only in its
+// RGB bytes; the parser must recover the palette id (its default hot-cue green
+// 0x00ff30 -> 0x16) rather than leave it 0 (which paints Pioneer orange).
+func TestParseANLZCuesColorFromRGB(t *testing.T) {
+	e := buildPCP2(1, 1, 1000, 0xffffffff, "", 0) // color_code 0
+	// buildPCP2 appends color_code + R,G,B then 8 padding bytes; set the RGB.
+	e[len(e)-11], e[len(e)-10], e[len(e)-9] = 0x00, 0xff, 0x30
+	ext := anlzBytes(buildPCO2(1, e))
+
+	cues := ParseANLZCuesBytes(ext, nil)
+	if len(cues) != 1 {
+		t.Fatalf("got %d cues, want 1", len(cues))
+	}
+	if cues[0].ColorID != 0x16 {
+		t.Fatalf("ColorID = %#x, want 0x16 (green recovered from RGB)", cues[0].ColorID)
+	}
+}

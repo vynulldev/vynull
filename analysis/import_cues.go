@@ -94,8 +94,19 @@ func parsePCO2(data []byte) []ImportedCue {
 			if lenComment > 0 && coff+lenComment <= len(e) {
 				c.Comment = decodeUTF16BE(e[coff : coff+lenComment])
 			}
+			// Colour: a palette index (color_code) followed by R/G/B. A cue set
+			// on a CDJ carries index 0 with the real colour only in the RGB (its
+			// default hot-cue green is 0x00ff30) — using the index alone would
+			// paint Pioneer orange, so recover the nearest palette id from the
+			// RGB in that case.
 			if colOff := coff + lenComment; colOff < len(e) {
-				c.ColorID = uint32(e[colOff]) // color_code byte
+				code := e[colOff]
+				switch {
+				case code != 0:
+					c.ColorID = uint32(code)
+				case colOff+3 < len(e) && (e[colOff+1]|e[colOff+2]|e[colOff+3]) != 0:
+					c.ColorID = NearestCueColorID(e[colOff+1], e[colOff+2], e[colOff+3])
+				}
 			}
 			out = append(out, c)
 			p += el
