@@ -592,6 +592,7 @@ func main() {
 		CacheDir:     cfg.DataDir, // for rendered waveform PNGs etc.
 		ExtArtwork:   extMeta.Artwork,
 		ExtAnalysis:  extMeta.Analysis,
+		Overlay:      api.NewOverlayStore(filepath.Join(cfg.DataDir, "overlay.json")),
 	}
 	if cfg.Web {
 		log.Printf("web UI enabled: http://%s/", displayAddr(cfg.Listen))

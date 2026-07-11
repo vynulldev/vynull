@@ -2,9 +2,10 @@
 <!-- SPDX-License-Identifier: GPL-3.0-or-later -->
 <!--
   Vynull now-playing overlay. Add as an OBS "Browser" source pointing at
-  http://<host>:<port>/overlay with a transparent background. Polls
-  /api/nowplaying and shows the audible deck's track as a spinning-vinyl
-  lower-third card.
+  http://<host>:<port>/overlay with a transparent background. Appearance
+  (position, vinyl/cover style, accent, label, meta) is configured from the web
+  UI settings tab and served by /api/overlay/config; the track comes from
+  /api/nowplaying (the audible deck).
 -->
 <html lang="en">
 <head>
@@ -20,18 +21,31 @@
   }
 
   #np {
-    position: fixed; left: 40px; bottom: 40px;
+    position: fixed;
     display: flex; align-items: center; gap: 20px;
     padding: 16px 28px 16px 16px;
     background: linear-gradient(180deg, rgba(20, 20, 24, 0.90), rgba(8, 8, 10, 0.93));
-    border: 1px solid rgba(255, 119, 20, 0.28);
+    border: 1px solid color-mix(in srgb, var(--orange) 30%, transparent);
     border-radius: 14px;
-    box-shadow: 0 12px 42px rgba(0, 0, 0, 0.6), 0 0 44px rgba(255, 119, 20, 0.14);
+    box-shadow: 0 12px 42px rgba(0, 0, 0, 0.6),
+                0 0 44px color-mix(in srgb, var(--orange) 15%, transparent);
     max-width: 680px;
-    opacity: 0; transform: translateY(16px);
+    opacity: 0;
     transition: opacity 0.45s ease, transform 0.45s ease;
   }
-  #np.show { opacity: 1; transform: none; }
+  #np.show { opacity: 1; }
+
+  /* position — corners translate the card up while fading; centres also -50% X */
+  #np.pos-bottom-left   { left: 40px; bottom: 40px; }
+  #np.pos-bottom-right  { right: 40px; bottom: 40px; }
+  #np.pos-top-left      { left: 40px; top: 40px; }
+  #np.pos-top-right     { right: 40px; top: 40px; }
+  #np.pos-bottom-center { left: 50%; bottom: 40px; }
+  #np.pos-top-center    { left: 50%; top: 40px; }
+  #np:not(.pos-bottom-center):not(.pos-top-center) { transform: translateY(16px); }
+  #np:not(.pos-bottom-center):not(.pos-top-center).show { transform: none; }
+  #np.pos-bottom-center, #np.pos-top-center { transform: translate(-50%, 16px); }
+  #np.pos-bottom-center.show, #np.pos-top-center.show { transform: translateX(-50%); }
 
   /* --- spinning vinyl --- */
   .deck { position: relative; width: 108px; height: 108px; flex: 0 0 auto; }
@@ -41,7 +55,7 @@
       repeating-radial-gradient(circle at center, #121212 0 2px, #0a0a0a 2px 3px),
       radial-gradient(circle at center, #1a1a1a 0%, #000 72%);
     box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.05), 0 6px 22px rgba(0, 0, 0, 0.65),
-                0 0 26px rgba(255, 119, 20, 0.22);
+                0 0 26px color-mix(in srgb, var(--orange) 22%, transparent);
     animation: spin 1.8s linear infinite;
   }
   .label {
@@ -55,12 +69,19 @@
     width: 8px; height: 8px; border-radius: 50%;
     background: #000; box-shadow: 0 0 0 2px #2a2a2a; z-index: 2;
   }
-  /* fixed light reflection — does not rotate with the record */
   .sheen {
     position: absolute; inset: 0; border-radius: 50%; pointer-events: none;
     background: radial-gradient(circle at 32% 26%, rgba(255, 255, 255, 0.20), transparent 46%);
   }
   @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* --- cover style: square art, no spin --- */
+  .deck.cover .vinyl { animation: none; background: none; box-shadow: none; }
+  .deck.cover .hole, .deck.cover .sheen { display: none; }
+  .deck.cover .label {
+    position: static; transform: none; width: 100%; height: 100%; border-radius: 10px;
+    box-shadow: 0 4px 18px rgba(0, 0, 0, 0.55), 0 0 24px color-mix(in srgb, var(--orange) 18%, transparent);
+  }
 
   /* --- text --- */
   .meta { min-width: 0; }
@@ -71,7 +92,7 @@
   }
   #title {
     font-size: 23px; font-weight: 700; color: #fff; letter-spacing: 0.01em;
-    text-shadow: 0 0 18px rgba(255, 119, 20, 0.25);
+    text-shadow: 0 0 18px color-mix(in srgb, var(--orange) 25%, transparent);
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 500px;
   }
   #artist {
@@ -92,8 +113,8 @@
 </style>
 </head>
 <body>
-  <div id="np">
-    <div class="deck">
+  <div id="np" class="pos-bottom-left">
+    <div class="deck" id="deck">
       <div class="vinyl" id="vinyl">
         <img id="art" class="label hidden" alt="">
         <div class="hole"></div>
@@ -101,7 +122,7 @@
       <div class="sheen"></div>
     </div>
     <div class="meta">
-      <div class="np-label"><span class="eq"><i></i><i></i><i></i><i></i></span> Now Playing</div>
+      <div class="np-label" id="np-label"><span class="eq"><i></i><i></i><i></i><i></i></span> <span id="np-label-text">Now Playing</span></div>
       <div id="title"></div>
       <div id="artist"></div>
       <div id="sub"></div>
@@ -110,24 +131,40 @@
 <script>
   const el = {
     np: document.getElementById('np'),
+    deck: document.getElementById('deck'),
     vinyl: document.getElementById('vinyl'),
     art: document.getElementById('art'),
     title: document.getElementById('title'),
     artist: document.getElementById('artist'),
     sub: document.getElementById('sub'),
+    label: document.getElementById('np-label'),
+    labelText: document.getElementById('np-label-text'),
   };
+  const POSITIONS = ['bottom-left', 'bottom-right', 'top-left', 'top-right', 'bottom-center', 'top-center'];
   let curKey = null;
+  let showMeta = true;
+
+  function applyConfig(cfg) {
+    document.documentElement.style.setProperty('--orange', cfg.accent || '#ff7714');
+    POSITIONS.forEach(p => el.np.classList.remove('pos-' + p));
+    el.np.classList.add('pos-' + (POSITIONS.includes(cfg.position) ? cfg.position : 'bottom-left'));
+    el.deck.classList.toggle('cover', cfg.style === 'cover');
+    const label = (cfg.label || '').trim();
+    el.labelText.textContent = label;
+    el.label.style.display = label ? '' : 'none';
+    showMeta = cfg.show_meta !== false;
+    el.sub.style.display = showMeta ? '' : 'none';
+  }
 
   function apply(np) {
     el.title.textContent = np.title;
     el.artist.textContent = np.artist || '';
     const bits = [];
-    if (np.bpm) bits.push(`<b>${np.bpm.toFixed(1)}</b> BPM`);
-    if (np.key) bits.push(`<b>${np.key}</b>`);
+    if (showMeta && np.bpm) bits.push(`<b>${np.bpm.toFixed(1)}</b> BPM`);
+    if (showMeta && np.key) bits.push(`<b>${np.key}</b>`);
     el.sub.innerHTML = bits.join(' &nbsp;&middot;&nbsp; ');
 
-    // Spin like a turntable — one rotation per bar (4 beats) at the track's BPM,
-    // so faster tracks visibly spin faster. Default to ~33 RPM when BPM unknown.
+    // Spin like a turntable — one rotation per bar (4 beats) at the track's BPM.
     el.vinyl.style.animationDuration = np.bpm ? (240 / np.bpm).toFixed(3) + 's' : '1.8s';
 
     if (np.track_id) {
@@ -147,7 +184,7 @@
       return;
     }
     const key = (np.track_id || 0) + '|' + np.title + '|' + np.artist;
-    if (key === curKey) return; // unchanged — leave the card as-is
+    if (key === curKey) return; // unchanged
     const wasShowing = el.np.classList.contains('show');
     curKey = key;
     if (wasShowing) {
@@ -158,14 +195,23 @@
     }
   }
 
-  async function poll() {
+  async function pollNowPlaying() {
     try {
       const r = await fetch('/api/nowplaying', { cache: 'no-store' });
       if (r.ok) render(await r.json());
     } catch (e) { /* keep polling */ }
   }
-  poll();
-  setInterval(poll, 1000);
+  async function pollConfig() {
+    try {
+      const r = await fetch('/api/overlay/config', { cache: 'no-store' });
+      if (r.ok) applyConfig(await r.json());
+    } catch (e) { /* keep defaults */ }
+  }
+
+  pollConfig();
+  pollNowPlaying();
+  setInterval(pollNowPlaying, 1000);
+  setInterval(pollConfig, 5000); // pick up settings-tab edits live
 </script>
 </body>
 </html>

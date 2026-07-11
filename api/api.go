@@ -56,6 +56,7 @@ type Server struct {
 	Listen       string              // full listen address (e.g. "0.0.0.0:9443"). Takes precedence over Port.
 	Web          bool                // if true, serve the HTML UI at /
 	CacheDir     string              // disk cache root for rendered waveform PNGs etc.
+	Overlay      *OverlayStore       // now-playing streaming-overlay config (optional)
 
 	// ExtArtwork, if set, returns cover-art JPEG bytes for a track a deck plays
 	// from another player's media (downloaded over NFS by package mediadb).
@@ -291,6 +292,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/peers", s.handlePeers)
 	mux.HandleFunc("/api/players", s.handlePlayers)
 	mux.HandleFunc("/api/nowplaying", s.handleNowPlaying)
+	mux.HandleFunc("/api/overlay/config", s.handleOverlayConfig)
 	mux.HandleFunc("/api/history", s.handleHistory)
 	mux.HandleFunc("/api/tracks", s.handleTracks)
 	mux.HandleFunc("/api/tracks/rev", s.handleTracksRev)
