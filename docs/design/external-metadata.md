@@ -91,8 +91,11 @@ framing is familiar — but the client handshake and menu-render flow are new.
   Served at `/api/analysis/ext/{player}/{slot}/{trackID}` (via `Server.ExtAnalysis`);
   the PLAYERS card renders the real waveform and cue markers instead of
   "WAVEFORM UNAVAILABLE" (`PlayerInfo.AnalysisURL`). Needs a deck to confirm the
-  ANLZ path resolves on real media. Beat grid overlay in the detail drawer and
-  the overlay's reuse are possible follow-ups.
+  ANLZ path resolves on real media. The now-playing overlay reuses this (waveform
+  per deck) since the overlay merged. A beat-grid / zoom view for external tracks
+  would need a dedicated inspector rather than the library-track detail drawer
+  (which is built around a library track object and its deck-control features),
+  so it is deferred as its own feature, not a loose end.
 
 ### Known limitations (need a deck)
 
