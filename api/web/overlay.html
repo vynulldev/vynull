@@ -105,6 +105,14 @@
   #sub { font-size: 12px; color: #8a8a8a; margin-top: 8px; letter-spacing: 0.05em; }
   #sub b { color: var(--orange); font-weight: 700; }
 
+  /* --- marquee: scroll text back and forth only when it overflows its box --- */
+  .tx { display: inline-block; white-space: nowrap; will-change: transform; }
+  .tx.scroll { animation: txscroll var(--txdur, 8s) linear infinite alternate; }
+  @keyframes txscroll {
+    0%, 18%   { transform: translateX(0); }
+    82%, 100% { transform: translateX(var(--txshift, 0)); }
+  }
+
   /* --- animated EQ bars --- */
   .eq { display: inline-flex; align-items: flex-end; gap: 2px; height: 11px; }
   .eq i { width: 2px; height: 100%; background: var(--orange); transform-origin: bottom; border-radius: 1px; }
@@ -128,7 +136,8 @@
   .deck-badge { font-size: 10px; font-weight: 700; letter-spacing: 0.08em; color: #0a0a0a;
     background: var(--orange); border-radius: 4px; padding: 2px 6px; flex: 0 0 auto; }
   .deck-badge.idle { background: #3a3a40; color: #b6b6bc; }
-  .deck-track { font-size: 13px; color: #eaeaea; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .deck-track { font-size: 13px; color: #eaeaea; white-space: nowrap; overflow: hidden;
+    flex: 1 1 auto; min-width: 0; }
   .deck-track b { color: #fff; font-weight: 700; }
   .flags { display: inline-flex; gap: 5px; flex: 0 0 auto; }
   .flag { font-size: 9px; letter-spacing: 0.08em; padding: 1px 5px; border-radius: 3px; font-weight: 700; }
@@ -156,8 +165,8 @@
         </div>
         <div class="meta">
           <div class="np-label" id="np-label"><span class="eq"><i></i><i></i><i></i><i></i></span> <span id="np-label-text">Now Playing</span></div>
-          <div id="title"></div>
-          <div id="artist"></div>
+          <div id="title"><span class="tx"></span></div>
+          <div id="artist"><span class="tx"></span></div>
           <div id="sub"></div>
         </div>
       </div>
@@ -172,6 +181,7 @@
     np: $('np'), sectNow: $('nowplaying'), sectDecks: $('decks'), sectHist: $('history'),
     deck: $('deck'), vinyl: $('vinyl'), art: $('art'),
     title: $('title'), artist: $('artist'), sub: $('sub'),
+    titleTx: $('title').querySelector('.tx'), artistTx: $('artist').querySelector('.tx'),
     label: $('np-label'), labelText: $('np-label-text'), npWave: $('np-wave'),
     npWaveCanvas: $('np-wave').querySelector('canvas'),
   };
@@ -184,6 +194,20 @@
   const deckWave = {};  // dev -> { key, entries, durMs, beats }
 
   const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+
+  // Scroll a `.tx` span back and forth inside its clipping box, but only when it
+  // overflows — so long titles/artists are fully readable instead of clipped.
+  function setupMarquee(tx) {
+    tx.classList.remove('scroll');
+    tx.style.removeProperty('--txshift'); tx.style.removeProperty('--txdur');
+    const over = tx.offsetWidth - tx.parentElement.clientWidth;
+    if (over > 6) {
+      tx.style.setProperty('--txshift', (-over - 4) + 'px');
+      tx.style.setProperty('--txdur', Math.max(5, over / 35).toFixed(1) + 's'); // ~35px/s each way
+      tx.classList.add('scroll');
+    }
+  }
+  function marqueeAll(root) { requestAnimationFrame(() => root.querySelectorAll('.tx').forEach(setupMarquee)); }
 
   // --- waveform data per deck -------------------------------------------------
   function trackKey(p) { return (p.device_number || 0) + '|' + (p.track_id || 0) + '|' + (p.title || p.track_title || ''); }
@@ -279,8 +303,9 @@
 
   // --- now-playing card ------------------------------------------------------
   function applyNow(np) {
-    el.title.textContent = np.title;
-    el.artist.textContent = np.artist || '';
+    el.titleTx.textContent = np.title;
+    el.artistTx.textContent = np.artist || '';
+    marqueeAll(el.sectNow);
     const bits = [];
     if (cfg.show_meta !== false && np.bpm) bits.push(`<b>${np.bpm.toFixed(1)}</b> BPM`);
     if (cfg.show_meta !== false && np.key) bits.push(`<b>${esc(np.key)}</b>`);
@@ -328,12 +353,13 @@
       return `<div class="deck-item">
         <div class="deck-line">
           <span class="deck-badge">${String(p.device_number).padStart(2, '0')}</span>
-          <span class="deck-track"><b>${esc(p.track_title || 'Track ' + p.track_id)}</b>${p.artist ? ' — ' + esc(p.artist) : ''}</span>
+          <span class="deck-track"><span class="tx"><b>${esc(p.track_title || 'Track ' + p.track_id)}</b>${p.artist ? ' — ' + esc(p.artist) : ''}</span></span>
           <span class="flags">${flags}</span>
         </div>
         <div class="wave-wrap"><canvas class="wave" data-dev="${p.device_number}"></canvas></div>
       </div>`;
     }).join('');
+    marqueeAll(el.sectDecks);
     return true;
   }
 
@@ -349,8 +375,9 @@
       histHas = recent.length > 0;
       el.sectHist.innerHTML = recent.length
         ? '<div class="sect-head">Recently Played</div>' + recent.map((h, i) =>
-            `<div class="hist-item"><span class="n">${i + 1}</span><b>${esc(h.title || 'Track ' + h.track_id)}</b>${h.artist ? ' — ' + esc(h.artist) : ''}</div>`).join('')
+            `<div class="hist-item"><span class="n">${i + 1}</span><span class="tx"><b>${esc(h.title || 'Track ' + h.track_id)}</b>${h.artist ? ' — ' + esc(h.artist) : ''}</span></div>`).join('')
         : '';
+      marqueeAll(el.sectHist);
     }
     return histHas;
   }
