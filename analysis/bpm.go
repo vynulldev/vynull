@@ -12,6 +12,11 @@ type BeatResult struct {
 	BPM      float64   // detected tempo
 	Beats    []float64 // beat positions in milliseconds
 	Downbeat float64   // first downbeat (beat 1) in milliseconds
+
+	// KickRatio is a diagnostic: the low-band (kick/bass) onset energy summed on
+	// the half-beat-offset comb divided by that on the chosen grid. >1 means the
+	// off-phase carries more kick energy — a candidate half-beat flip.
+	KickRatio float64
 }
 
 // tempoPriorCenter / tempoPriorSigma define the perceptual tempo prior used to
@@ -558,7 +563,13 @@ func DetectBeats(samples []float32, sampleRate int) *BeatResult {
 				phaseOnset, phaseOnsetMs = mb, mbMs
 			}
 		}
-		if tp, ok := tempogramPhase(phaseOnset, phaseOnsetMs, msPerBeat); ok {
+		// Combine per-window phasors (WindowedPhase, the default) so the sharpest,
+		// cleanest sections dominate; fall back to the whole-track tempogram sum.
+		tp, ok := tempogramPhase(phaseOnset, phaseOnsetMs, msPerBeat)
+		if WindowedPhase {
+			tp, ok = windowedTempogramPhase(phaseOnset, phaseOnsetMs, msPerBeat, WindowSec, AmpWeight, ClarityWeight)
+		}
+		if ok {
 			bestPhase = math.Mod(tp+TempogramLatencyMs, msPerBeat)
 			if bestPhase < 0 {
 				bestPhase += msPerBeat
@@ -603,21 +614,82 @@ func DetectBeats(samples []float32, sampleRate int) *BeatResult {
 		msPerBeat = roundedInterval
 	}
 
+	// Half-beat disambiguation: the tempogram phase is unique mod one beat, but on
+	// tracks with a strong off-beat (bass/hat anti-phase to the kick) it can lock
+	// to the off-beat while rekordbox anchors on the kick. Compare the low-band
+	// (kick/bass) onset energy on the chosen grid vs the half-beat-offset comb;
+	// when the offset comb carries HalfBeatGate× more, flip the grid by P/2. The
+	// gate keeps weak/ambiguous kicks (net-negative unconditionally) from firing.
+	gridPhase := math.Mod(beats[0], msPerBeat)
+	if gridPhase < 0 {
+		gridPhase += msPerBeat
+	}
+	eOn := combEnergy(onset, msPerFrame, gridPhase, msPerBeat)
+	eHalf := combEnergy(onset, msPerFrame, gridPhase+msPerBeat/2, msPerBeat)
+	kickRatio := eHalf / (eOn + 1e-9)
+	if HalfBeatGate > 0 && kickRatio > HalfBeatGate {
+		beats = buildGrid(math.Mod(gridPhase+msPerBeat/2, msPerBeat), msPerBeat, durationMs)
+	}
+
 	// Find downbeat (beat 1 of 4) using accent detection.
 	downbeat := findDownbeat(beats)
 
 	return &BeatResult{
-		BPM:      bpm,
-		Beats:    beats,
-		Downbeat: downbeat,
+		BPM:       bpm,
+		Beats:     beats,
+		Downbeat:  downbeat,
+		KickRatio: kickRatio,
 	}
 }
 
+// combEnergy sums the onset envelope on the comb of beat positions starting at
+// phaseMs with the given period, peak-picking a ±1-frame window at each beat to
+// tolerate sub-frame jitter.
+func combEnergy(onset []float64, msPerFrame, phaseMs, periodMs float64) float64 {
+	if periodMs <= 0 || msPerFrame <= 0 || len(onset) == 0 {
+		return 0
+	}
+	dur := float64(len(onset)) * msPerFrame
+	start := math.Mod(phaseMs, periodMs)
+	if start < 0 {
+		start += periodMs
+	}
+	var sum float64
+	for t := start; t < dur; t += periodMs {
+		f := int(math.Round(t / msPerFrame))
+		best := 0.0
+		for d := -1; d <= 1; d++ {
+			if i := f + d; i >= 0 && i < len(onset) && onset[i] > best {
+				best = onset[i]
+			}
+		}
+		sum += best
+	}
+	return sum
+}
+
+// buildGrid extrapolates a constant-period beat grid from a phase back to 0 and
+// out to durationMs.
+func buildGrid(phaseMs, periodMs, durationMs float64) []float64 {
+	sp := phaseMs
+	for sp-periodMs >= 0 {
+		sp -= periodMs
+	}
+	var beats []float64
+	for t := sp; t < durationMs; t += periodMs {
+		beats = append(beats, math.Round(t*10)/10)
+	}
+	return beats
+}
+
 // Tempogram-phase calibration knobs, tuned to reproduce rekordbox's grids.
-// Validated against imported rekordbox grids (n=400, near-exact-BPM subset
-// n=208):
+// Measured as the share of tracks whose grid phase matches rekordbox within
+// 50ms, each step building on the previous one:
 //
-//	peak/DP 30% → tempogram 34% → multiband 42% → +band-norm 61%
+//	peak/DP 30% → tempogram 34% → multiband 42% → +band-norm 61% → +windowed 66%
+//
+// The final step (WindowedPhase) replaces the whole-track tempogram sum with a
+// per-window clarity-weighted combine; see that var and windowedTempogramPhase.
 //
 // UseBandNorm is rekordbox's band "combination": adaptive per-band normalization
 // (divide each band's flux by its own running EMA level, BandNormAlpha=0.99),
@@ -633,6 +705,31 @@ var (
 	BandNormAlpha      = 0.99
 	MultiBandMaxHz     = 4096.0
 	TempogramLatencyMs = 55.0
+
+	// HalfBeatGate, when > 0, flips the grid by half a beat if the half-beat
+	// comb carries more than this multiple of the on-grid kick/bass onset energy
+	// (BeatResult.KickRatio). This resolves tracks where the tempogram locked to
+	// a strong off-beat instead of rekordbox's kick. 2.0 sits on a flat 1.5-2.0
+	// plateau, re-confirmed best alongside the windowed phase; it recovers part of
+	// the half-beat tail the sharper windowed phase introduces.
+	// The gate can only ever help so much: the kick ratio is a weak predictor
+	// (half-beat-off tracks span the whole range of ratios, including tracks whose
+	// kick evidence points the wrong way), so most of the tail is a genuine
+	// per-track convention gap the kick cannot resolve. 0 disables it.
+	HalfBeatGate = 2.0
+
+	// WindowedPhase makes the phase estimator combine per-window beat phasors
+	// weighted by AmpWeight/ClarityWeight (see windowedTempogramPhase) instead of
+	// one whole-track tempogram sum, so the sharpest, cleanest windows dominate and
+	// loud-but-messy sections (kick-less intros, breakdowns) stop dragging the
+	// estimate. Tuned (ampW=3, clarW=1, 4s windows) and validated against
+	// rekordbox's grids on a held-out split: phase alignment <50ms 60.6% -> 65.7%
+	// and the tight <20ms metric 31.8% -> 37.6%, at the cost of a ~1pt larger
+	// half-beat tail that the gate partly offsets.
+	WindowedPhase = true
+	WindowSec     = 4.0
+	AmpWeight     = 3.0
+	ClarityWeight = 1.0
 )
 
 // rbBandEdgesHz is rekordbox's 25-band filterbank edge table (ascending Hz),
@@ -731,6 +828,57 @@ func multiBandOnset(samples []float32, sampleRate int) ([]float64, float64) {
 		copy(prevMag, bandMag)
 	}
 	return onset, float64(hop) / float64(sampleRate) * 1000.0
+}
+
+// windowedTempogramPhase is a robust variant of tempogramPhase: instead of one
+// complex sum over the whole track (which weights every section by loudness, so
+// a loud but rhythmically messy breakdown drags the estimate), it splits the
+// onset into overlapping windows, takes each window's beat-period phasor, and
+// combines the UNIT phasors weighted by beat-clarity (|z|/Σe — how concentrated
+// that window's energy is at the beat period). Clean four-on-the-floor windows
+// dominate; kick-less or syncopated windows are discounted. ampW/clarW are the
+// exponents on phasor magnitude and clarity (ampW=1,clarW=0 reduces to the global
+// sum). All windows share the global frame index n, so their phases are directly
+// comparable and no unwrapping is needed.
+func windowedTempogramPhase(onset []float64, msPerFrame, msPerBeat, winSec, ampW, clarW float64) (float64, bool) {
+	period := msPerBeat / msPerFrame
+	if period <= 1 || len(onset) < int(period*2) {
+		return 0, false
+	}
+	w := 2 * math.Pi / period
+	winFrames := int(winSec * 1000 / msPerFrame)
+	if min := int(period * 2); winFrames < min {
+		winFrames = min
+	}
+	hop := winFrames / 2
+	if hop < 1 {
+		hop = 1
+	}
+	var Zr, Zi float64
+	for start := 0; start+winFrames <= len(onset); start += hop {
+		var zr, zi, esum float64
+		for n := start; n < start+winFrames; n++ {
+			e := onset[n]
+			zr += e * math.Cos(w*float64(n))
+			zi += e * math.Sin(w*float64(n))
+			esum += e
+		}
+		mag := math.Hypot(zr, zi)
+		if mag < 1e-12 || esum < 1e-12 {
+			continue
+		}
+		weight := math.Pow(mag, ampW) * math.Pow(mag/esum, clarW)
+		Zr += weight * zr / mag
+		Zi += weight * zi / mag
+	}
+	if Zr == 0 && Zi == 0 {
+		return 0, false
+	}
+	n0 := math.Mod(math.Atan2(Zi, Zr)/w, period)
+	if n0 < 0 {
+		n0 += period
+	}
+	return n0 * msPerFrame, true
 }
 
 // tempogramPhase returns the first-beat sub-beat offset (ms, in [0,msPerBeat))
