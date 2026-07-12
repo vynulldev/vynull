@@ -590,6 +590,10 @@ type NowPlaying struct {
 	Key          string  `json:"key,omitempty"`
 	DurationMs   uint32  `json:"duration_ms,omitempty"`
 	BeatInTrack  uint32  `json:"beat_in_track,omitempty"`
+	// ArtworkURL is the cover-art endpoint for the audible track: the library
+	// endpoint for our own tracks, or the external endpoint (the source player's
+	// media over NFS) when a deck plays from its own USB/SD.
+	ArtworkURL string `json:"artwork_url,omitempty"`
 }
 
 func (s *Server) handleNowPlaying(w http.ResponseWriter, r *http.Request) {
@@ -613,6 +617,7 @@ func nowPlayingFrom(players []PlayerInfo) NowPlaying {
 		Key:          p.Key,
 		DurationMs:   p.DurationMs,
 		BeatInTrack:  p.BeatInTrack,
+		ArtworkURL:   p.ArtworkURL,
 	}
 }
 

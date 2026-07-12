@@ -143,6 +143,7 @@
   const POSITIONS = ['bottom-left', 'bottom-right', 'top-left', 'top-right', 'bottom-center', 'top-center'];
   let curKey = null;
   let showMeta = true;
+  let artToken = 0;
 
   function applyConfig(cfg) {
     document.documentElement.style.setProperty('--orange', cfg.accent || '#ff7714');
@@ -167,10 +168,25 @@
     // Spin like a turntable — one rotation per bar (4 beats) at the track's BPM.
     el.vinyl.style.animationDuration = np.bpm ? (240 / np.bpm).toFixed(3) + 's' : '1.8s';
 
-    if (np.track_id) {
-      el.art.onerror = () => el.art.classList.add('hidden');
-      el.art.classList.remove('hidden');
-      el.art.src = '/api/artwork/' + np.track_id;
+    // Cover art from the server-provided URL (the library endpoint for our own
+    // tracks, the external endpoint for a deck playing off its own USB). The
+    // external art 404s until it downloads over NFS, so retry a few times;
+    // artToken aborts a stale retry loop once the track changes.
+    artToken++;
+    const myToken = artToken;
+    if (np.artwork_url) {
+      let tries = 0;
+      const loadArt = () => {
+        if (myToken !== artToken) return; // track changed
+        el.art.onload = () => { if (myToken === artToken) el.art.classList.remove('hidden'); };
+        el.art.onerror = () => {
+          if (myToken !== artToken) return;
+          el.art.classList.add('hidden');
+          if (++tries < 8) setTimeout(loadArt, 1500);
+        };
+        el.art.src = np.artwork_url + (tries ? (np.artwork_url.indexOf('?') >= 0 ? '&' : '?') + 'r=' + tries : '');
+      };
+      loadArt();
     } else {
       el.art.classList.add('hidden');
     }
