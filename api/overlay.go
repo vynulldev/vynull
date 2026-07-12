@@ -15,20 +15,30 @@ import (
 // settings tab and read by the /overlay page (which runs in a separate browser,
 // e.g. OBS — hence a server-side store rather than browser-local prefs).
 type OverlayConfig struct {
-	Position string `json:"position"`  // bottom-left | bottom-right | top-left | top-right | bottom-center | top-center
-	Style    string `json:"style"`     // vinyl | cover
-	Accent   string `json:"accent"`    // #rrggbb
-	ShowMeta bool   `json:"show_meta"` // show the BPM / key line
-	Label    string `json:"label"`     // header text (empty = no label)
+	Position       string `json:"position"`        // bottom-left | bottom-right | top-left | top-right | bottom-center | top-center
+	Style          string `json:"style"`           // vinyl | cover
+	Accent         string `json:"accent"`          // #rrggbb
+	ShowMeta       bool   `json:"show_meta"`       // show the BPM / key line
+	ShowNowplaying bool   `json:"show_nowplaying"` // show the now-playing card (the audible deck)
+	ShowWaveform   bool   `json:"show_waveform"`   // show the now-playing card's scrolling waveform
+	ShowDecks      bool   `json:"show_decks"`      // show the per-deck section (which deck plays what)
+	ShowHistory    bool   `json:"show_history"`    // show the recently-played list
+	HistoryCount   int    `json:"history_count"`   // how many recent tracks to list
+	Label          string `json:"label"`           // header text (empty = no label)
 }
 
 func defaultOverlayConfig() OverlayConfig {
 	return OverlayConfig{
-		Position: "bottom-left",
-		Style:    "vinyl",
-		Accent:   "#ff7714",
-		ShowMeta: true,
-		Label:    "Now Playing",
+		Position:       "bottom-left",
+		Style:          "vinyl",
+		Accent:         "#ff7714",
+		ShowMeta:       true,
+		ShowNowplaying: true,
+		ShowWaveform:   true,
+		ShowDecks:      false,
+		ShowHistory:    false,
+		HistoryCount:   5,
+		Label:          "Now Playing",
 	}
 }
 
@@ -58,6 +68,11 @@ func (c OverlayConfig) sanitize() OverlayConfig {
 		c.Label = string(r[:40])
 	} else {
 		c.Label = string(r)
+	}
+	if c.HistoryCount < 0 {
+		c.HistoryCount = 0
+	} else if c.HistoryCount > 20 {
+		c.HistoryCount = 20
 	}
 	return c
 }

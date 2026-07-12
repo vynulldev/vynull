@@ -7257,6 +7257,16 @@ async function renderOverlaySettings(el) {
         <div class="selector"><input type="text" class="input" data-overlay="label" value="${labelVal}" maxlength="40" placeholder="Now Playing"></div></div>
       <div class="settings-row"><div class="key">show BPM / key</div>
         <div class="selector"><input type="checkbox" data-overlay="show_meta" ${cfg.show_meta !== false ? 'checked' : ''}></div></div>
+      <div class="settings-row"><div class="key">now-playing card<div class="row-hint">the audible deck's track</div></div>
+        <div class="selector"><input type="checkbox" data-overlay="show_nowplaying" ${cfg.show_nowplaying !== false ? 'checked' : ''}></div></div>
+      <div class="settings-row"><div class="key">waveform<div class="row-hint">scrolling waveform under the card</div></div>
+        <div class="selector"><input type="checkbox" data-overlay="show_waveform" ${cfg.show_waveform !== false ? 'checked' : ''}></div></div>
+      <div class="settings-row"><div class="key">decks<div class="row-hint">which deck is playing what, with waveforms</div></div>
+        <div class="selector"><input type="checkbox" data-overlay="show_decks" ${cfg.show_decks ? 'checked' : ''}></div></div>
+      <div class="settings-row"><div class="key">recently played</div>
+        <div class="selector"><input type="checkbox" data-overlay="show_history" ${cfg.show_history ? 'checked' : ''}></div></div>
+      <div class="settings-row"><div class="key">recent count<div class="row-hint">how many tracks in the recently-played list</div></div>
+        <div class="selector"><input type="number" class="input" data-overlay="history_count" value="${cfg.history_count || 5}" min="0" max="20" style="width:64px"></div></div>
       <div class="settings-row"><div class="key"></div><div class="selector">
         <a href="/overlay" target="_blank" rel="noopener" class="source-btn" style="text-decoration:none">&#8599; Open overlay preview</a></div></div>
     </div>
@@ -7271,6 +7281,11 @@ async function renderOverlaySettings(el) {
         accent: v('accent').value,
         label: v('label').value,
         show_meta: v('show_meta').checked,
+        show_nowplaying: v('show_nowplaying').checked,
+        show_waveform: v('show_waveform').checked,
+        show_decks: v('show_decks').checked,
+        show_history: v('show_history').checked,
+        history_count: parseInt(v('history_count').value, 10) || 0,
       }),
     }).then(() => toast('OVERLAY UPDATED', 'success'));
   };

@@ -253,6 +253,7 @@ type PlayerInfo struct {
 	Source        string  `json:"source,omitempty"`       // that source, e.g. "USB · player 2"
 	ArtworkURL    string  `json:"artwork_url,omitempty"`  // cover-art endpoint for the loaded track
 	AnalysisURL   string  `json:"analysis_url,omitempty"` // waveform+cues endpoint (external tracks only)
+	WaveformURL   string  `json:"waveform_url,omitempty"` // colour-detail waveform endpoint (local or external)
 	IsPlaying     bool    `json:"is_playing"`
 	IsMaster      bool    `json:"is_master"`
 	IsSync        bool    `json:"is_sync,omitempty"`
@@ -534,14 +535,17 @@ func (s *Server) getPlayers() []PlayerInfo {
 		// media (over NFS), local tracks via the library by track ID.
 		artURL := ""
 		analysisURL := ""
+		waveURL := ""
 		if ps.Status.TrackID > 0 {
 			if ps.External {
 				artURL = fmt.Sprintf("/api/artwork/ext/%d/%d/%d", ps.Status.TrackDevice, ps.Status.TrackSlot, ps.Status.TrackID)
 				// Waveform + cues come from the source player's ANLZ over NFS;
 				// local tracks use the existing track-ID waveform/cue endpoints.
 				analysisURL = fmt.Sprintf("/api/analysis/ext/%d/%d/%d", ps.Status.TrackDevice, ps.Status.TrackSlot, ps.Status.TrackID)
+				waveURL = analysisURL // ext endpoint returns {waveform, beats, duration_ms}
 			} else {
 				artURL = fmt.Sprintf("/api/artwork/%d", ps.Status.TrackID)
+				waveURL = fmt.Sprintf("/api/analysis/waveform/%d?type=detail", ps.Status.TrackID)
 			}
 		}
 		out = append(out, PlayerInfo{
@@ -552,6 +556,7 @@ func (s *Server) getPlayers() []PlayerInfo {
 			Artist:        ps.Artist,
 			ArtworkURL:    artURL,
 			AnalysisURL:   analysisURL,
+			WaveformURL:   waveURL,
 			BPM:           float64(ps.Status.BPM) / 100.0,
 			PitchPct:      pitchPct,
 			Key:           ps.Key,
@@ -594,6 +599,10 @@ type NowPlaying struct {
 	// endpoint for our own tracks, or the external endpoint (the source player's
 	// media over NFS) when a deck plays from its own USB/SD.
 	ArtworkURL string `json:"artwork_url,omitempty"`
+	// WaveformURL is the colour-detail waveform endpoint: the library waveform
+	// endpoint (returns {entries}) for our own tracks, or the external analysis
+	// endpoint (returns {waveform, beats, duration_ms}) for external ones.
+	WaveformURL string `json:"waveform_url,omitempty"`
 }
 
 func (s *Server) handleNowPlaying(w http.ResponseWriter, r *http.Request) {
@@ -618,6 +627,7 @@ func nowPlayingFrom(players []PlayerInfo) NowPlaying {
 		DurationMs:   p.DurationMs,
 		BeatInTrack:  p.BeatInTrack,
 		ArtworkURL:   p.ArtworkURL,
+		WaveformURL:  p.WaveformURL,
 	}
 }
 
