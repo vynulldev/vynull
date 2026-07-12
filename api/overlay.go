@@ -24,6 +24,7 @@ type OverlayConfig struct {
 	ShowDecks      bool   `json:"show_decks"`      // show the per-deck section (which deck plays what)
 	ShowHistory    bool   `json:"show_history"`    // show the recently-played list
 	HistoryCount   int    `json:"history_count"`   // how many recent tracks to list
+	Width          int    `json:"width"`           // card width in px
 	Label          string `json:"label"`           // header text (empty = no label)
 }
 
@@ -38,6 +39,7 @@ func defaultOverlayConfig() OverlayConfig {
 		ShowDecks:      false,
 		ShowHistory:    false,
 		HistoryCount:   5,
+		Width:          440,
 		Label:          "Now Playing",
 	}
 }
@@ -73,6 +75,13 @@ func (c OverlayConfig) sanitize() OverlayConfig {
 		c.HistoryCount = 0
 	} else if c.HistoryCount > 20 {
 		c.HistoryCount = 20
+	}
+	if c.Width == 0 {
+		c.Width = d.Width
+	} else if c.Width < 280 {
+		c.Width = 280
+	} else if c.Width > 1000 {
+		c.Width = 1000
 	}
 	return c
 }

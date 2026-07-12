@@ -7253,6 +7253,8 @@ async function renderOverlaySettings(el) {
         <div class="selector">${sel('style', [['vinyl', 'Vinyl (spinning)'], ['cover', 'Cover (square)']], cfg.style)}</div></div>
       <div class="settings-row"><div class="key">accent colour</div>
         <div class="selector"><input type="color" data-overlay="accent" value="${cfg.accent}"></div></div>
+      <div class="settings-row"><div class="key">width<div class="row-hint">card width in px (280–1000)</div></div>
+        <div class="selector"><input type="number" class="input" data-overlay="width" value="${cfg.width || 440}" min="280" max="1000" step="10" style="width:88px;padding-left:10px;padding-right:6px"></div></div>
       <div class="settings-row"><div class="key">label<div class="row-hint">header text · leave blank to hide</div></div>
         <div class="selector"><input type="text" class="input" data-overlay="label" value="${labelVal}" maxlength="40" placeholder="Now Playing"></div></div>
       <div class="settings-row"><div class="key">show BPM / key</div>
@@ -7286,6 +7288,7 @@ async function renderOverlaySettings(el) {
         show_decks: v('show_decks').checked,
         show_history: v('show_history').checked,
         history_count: parseInt(v('history_count').value, 10) || 0,
+        width: parseInt(v('width').value, 10) || 0,
       }),
     }).then(() => toast('OVERLAY UPDATED', 'success'));
   };

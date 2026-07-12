@@ -288,6 +288,7 @@
   function applyConfig(c) {
     cfg = c || cfg;
     document.documentElement.style.setProperty('--orange', cfg.accent || '#ff7714');
+    el.np.style.width = (cfg.width && cfg.width >= 280 ? cfg.width : 440) + 'px';
     POSITIONS.forEach(p => el.np.classList.remove('pos-' + p));
     el.np.classList.add('pos-' + (POSITIONS.includes(cfg.position) ? cfg.position : 'bottom-left'));
     el.deck.classList.toggle('cover', cfg.style === 'cover');
