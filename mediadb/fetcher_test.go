@@ -3,6 +3,7 @@
 package mediadb
 
 import (
+	"net"
 	"testing"
 	"time"
 
@@ -54,6 +55,24 @@ func TestGetCacheHit(t *testing.T) {
 	// A track id not in that media's database resolves to nil.
 	if got := f.Get(1, 3, 999); got != nil {
 		t.Fatalf("expected nil for unknown track, got %+v", got)
+	}
+}
+
+func TestSlotExport(t *testing.T) {
+	cases := map[uint8]string{3: "/C/", 2: "/B/", 1: "", 0: "", 9: ""}
+	for slot, want := range cases {
+		if got := slotExport(slot); got != want {
+			t.Errorf("slotExport(%d) = %q, want %q", slot, got, want)
+		}
+	}
+}
+
+func TestDoFetchSkipsCD(t *testing.T) {
+	// A CD (slot 1) carries no rekordbox export; the fetch must short-circuit
+	// before touching the network even with a resolvable IP.
+	f := NewFetcher(func(uint8) net.IP { return net.IPv4(169, 254, 1, 2) })
+	if db, ex := f.doFetch(1, slotCD); db != nil || ex != "" {
+		t.Fatalf("doFetch for CD = (%v, %q), want (nil, \"\")", db, ex)
 	}
 }
 

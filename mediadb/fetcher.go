@@ -100,6 +100,25 @@ func key(player, slot uint8) string {
 	return fmt.Sprintf("%d:%d", player, slot)
 }
 
+// slotCD is the TrackSlot value for the CD/disc slot (SD=2, USB=3). A CD carries
+// no rekordbox export, so we never fetch metadata for it.
+const slotCD = 1
+
+// slotExport is the NFS export a media slot lives at, tried first so a player
+// with both a USB and an SD mounted resolves each to the right pdb rather than
+// to whichever export is listed first. Both confirmed on a CDJ-2000NXS2:
+// USB(3)->/C/, SD(2)->/B/. The fetch still falls back to the advertised export
+// list and the common roots if a deck differs.
+func slotExport(slot uint8) string {
+	switch slot {
+	case 3:
+		return "/C/"
+	case 2:
+		return "/B/"
+	}
+	return ""
+}
+
 // Get returns metadata for a track on the given player's media, or nil when the
 // media's database isn't downloaded yet (a background fetch starts on the first
 // miss) or the track isn't in it.
@@ -181,8 +200,8 @@ func (f *Fetcher) fetch(k string, player, slot uint8) {
 }
 
 func (f *Fetcher) doFetch(player, slot uint8) (*pdb.Database, string) {
-	if f.ResolveIP == nil {
-		return nil, ""
+	if f.ResolveIP == nil || slot == slotCD {
+		return nil, "" // a CD carries no rekordbox export; don't churn NFS for it
 	}
 	ip := f.ResolveIP(player)
 	if ip == nil {
@@ -195,7 +214,7 @@ func (f *Fetcher) doFetch(player, slot uint8) (*pdb.Database, string) {
 	}
 	defer c.Close()
 
-	data, export, err := c.FetchExportPDB()
+	data, export, err := c.FetchExportPDB(slotExport(slot))
 	if err != nil {
 		log.Printf("mediadb: player %d (%s) export.pdb: %v", player, ip, err)
 		return nil, ""

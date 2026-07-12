@@ -91,15 +91,23 @@ framing is familiar — but the client handshake and menu-render flow are new.
   Served at `/api/analysis/ext/{player}/{slot}/{trackID}` (via `Server.ExtAnalysis`);
   the PLAYERS card renders the real waveform and cue markers instead of
   "WAVEFORM UNAVAILABLE" (`PlayerInfo.AnalysisURL`). Needs a deck to confirm the
-  ANLZ path resolves on real media. Beat grid overlay in the detail drawer and
-  the overlay's reuse are possible follow-ups.
+  ANLZ path resolves on real media. The now-playing overlay reuses this (waveform
+  per deck) since the overlay merged. A beat-grid / zoom view for external tracks
+  would need a dedicated inspector rather than the library-track detail drawer
+  (which is built around a library track object and its deck-control features),
+  so it is deferred as its own feature, not a loose end.
 
-### Known limitations (need a deck)
+### Media slots
 
-- The export-name -> slot mapping is best-effort: `FetchExportPDB` tries the
-  advertised MOUNT EXPORT list, then `/C/`, `/B/`, `/`. If a deck has both a USB
-  and an SD with databases, both slot keys currently resolve to the first export
-  found. Fixable once we see a real deck's export list per slot.
+- The export-name -> slot mapping is confirmed on a CDJ-2000NXS2: USB(3)->/C/,
+  SD(2)->/B/. `mediadb` passes `FetchExportPDB` the matching export per slot,
+  tried before the advertised MOUNT EXPORT list and the common roots, so a
+  player with both a USB and an SD resolves each to the right pdb instead of
+  collapsing both onto the first export found.
+- A CD (slot 1) carries no rekordbox export (the deck's MOUNT EXPORT list is
+  empty and every mount is refused), so there is nothing to fetch. We skip the
+  fetch entirely for the CD slot and fall back to the "CD · player N" source
+  label, avoiding pointless NFS churn during CD playback.
 
 ## Hardware finding: the dbserver-client path is blocked by our player number
 

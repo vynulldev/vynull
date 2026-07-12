@@ -502,11 +502,23 @@ func (c *Client) ReadFile(export, path string) ([]byte, error) {
 // FetchExportPDB downloads the rekordbox export.pdb, trying the server's
 // advertised export list first and then common CDJ roots. It returns the bytes
 // and the export they came from.
-func (c *Client) FetchExportPDB() ([]byte, string, error) {
+// FetchExportPDB downloads the rekordbox export.pdb. preferred is the export the
+// caller believes matches the media it wants (e.g. the letter for a slot); it is
+// tried first, then the server's advertised export list, then common CDJ roots.
+// The preferred hint matters only when a player has more than one media mounted
+// (USB + SD), where every export otherwise resolves to whichever comes first.
+func (c *Client) FetchExportPDB(preferred string) ([]byte, string, error) {
 	var candidates []string
+	if preferred != "" {
+		candidates = append(candidates, preferred)
+	}
 	if exports, err := c.Exports(); err == nil {
 		log.Printf("nfs client: %s exports: %v", c.ip, exports)
-		candidates = append(candidates, exports...)
+		for _, e := range exports {
+			if !containsStr(candidates, e) {
+				candidates = append(candidates, e)
+			}
+		}
 	} else {
 		log.Printf("nfs client: %s EXPORT failed (%v); trying common roots", c.ip, err)
 	}
