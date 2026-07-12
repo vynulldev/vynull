@@ -1,0 +1,420 @@
+<!DOCTYPE html>
+<!-- SPDX-License-Identifier: GPL-3.0-or-later -->
+<!--
+  Vynull stream overlay. Add as an OBS "Browser" source pointing at
+  http://<host>:<port>/overlay with a transparent background. Which sections
+  show (now-playing card, per-deck view, recently played) and the appearance
+  are configured from the web UI settings tab and served by /api/overlay/config.
+  Track data comes from /api/nowplaying, /api/players and /api/history.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Vynull — Stream Overlay</title>
+<style>
+  :root { --orange: #ff7714; }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body {
+    background: transparent;
+    overflow: hidden;
+    font-family: ui-monospace, "SF Mono", "Cascadia Code", Menlo, Consolas, monospace;
+  }
+
+  #np {
+    position: fixed;
+    display: flex; flex-direction: column; gap: 12px;
+    padding: 16px 20px 16px 16px;
+    background: linear-gradient(180deg, rgba(20, 20, 24, 0.90), rgba(8, 8, 10, 0.93));
+    border: 1px solid color-mix(in srgb, var(--orange) 30%, transparent);
+    border-radius: 14px;
+    box-shadow: 0 12px 42px rgba(0, 0, 0, 0.6),
+                0 0 44px color-mix(in srgb, var(--orange) 15%, transparent);
+    width: 440px; max-width: 92vw;
+    opacity: 0;
+    transition: opacity 0.45s ease, transform 0.45s ease;
+  }
+  #np.show { opacity: 1; }
+
+  /* position — corners translate the card up while fading; centres also -50% X */
+  #np.pos-bottom-left   { left: 40px; bottom: 40px; }
+  #np.pos-bottom-right  { right: 40px; bottom: 40px; }
+  #np.pos-top-left      { left: 40px; top: 40px; }
+  #np.pos-top-right     { right: 40px; top: 40px; }
+  #np.pos-bottom-center { left: 50%; bottom: 40px; }
+  #np.pos-top-center    { left: 50%; top: 40px; }
+  #np:not(.pos-bottom-center):not(.pos-top-center) { transform: translateY(16px); }
+  #np:not(.pos-bottom-center):not(.pos-top-center).show { transform: none; }
+  #np.pos-bottom-center, #np.pos-top-center { transform: translate(-50%, 16px); }
+  #np.pos-bottom-center.show, #np.pos-top-center.show { transform: translateX(-50%); }
+
+  .section.hidden { display: none; }
+  .np-row { display: flex; align-items: center; gap: 20px; }
+
+  /* --- spinning vinyl --- */
+  .deck { position: relative; width: 96px; height: 96px; flex: 0 0 auto; }
+  .vinyl {
+    width: 100%; height: 100%; border-radius: 50%;
+    background:
+      repeating-radial-gradient(circle at center, #121212 0 2px, #0a0a0a 2px 3px),
+      radial-gradient(circle at center, #1a1a1a 0%, #000 72%);
+    box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.05), 0 6px 22px rgba(0, 0, 0, 0.65),
+                0 0 26px color-mix(in srgb, var(--orange) 22%, transparent);
+    animation: spin 1.8s linear infinite;
+  }
+  .label {
+    position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+    width: 46px; height: 46px; border-radius: 50%; object-fit: cover;
+    box-shadow: 0 0 0 2px #000, 0 0 0 3px rgba(255, 255, 255, 0.14);
+  }
+  .label.hidden { display: none; }
+  .hole {
+    position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+    width: 8px; height: 8px; border-radius: 50%;
+    background: #000; box-shadow: 0 0 0 2px #2a2a2a; z-index: 2;
+  }
+  .sheen {
+    position: absolute; inset: 0; border-radius: 50%; pointer-events: none;
+    background: radial-gradient(circle at 32% 26%, rgba(255, 255, 255, 0.20), transparent 46%);
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* --- cover style: square art, no spin --- */
+  .deck.cover .vinyl { animation: none; background: none; box-shadow: none; }
+  .deck.cover .hole, .deck.cover .sheen { display: none; }
+  .deck.cover .label {
+    position: static; transform: none; width: 100%; height: 100%; border-radius: 10px;
+    box-shadow: 0 4px 18px rgba(0, 0, 0, 0.55), 0 0 24px color-mix(in srgb, var(--orange) 18%, transparent);
+  }
+
+  /* --- text --- */
+  .meta { min-width: 0; flex: 1 1 auto; }
+  .np-label {
+    display: flex; align-items: center; gap: 8px;
+    font-size: 10px; letter-spacing: 0.26em; text-transform: uppercase;
+    color: var(--orange); margin-bottom: 6px;
+  }
+  #title {
+    font-size: 22px; font-weight: 700; color: #fff; letter-spacing: 0.01em;
+    text-shadow: 0 0 18px color-mix(in srgb, var(--orange) 25%, transparent);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  #artist {
+    font-size: 15px; color: #d4d4d4; margin-top: 3px;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  #sub { font-size: 12px; color: #8a8a8a; margin-top: 8px; letter-spacing: 0.05em; }
+  #sub b { color: var(--orange); font-weight: 700; }
+
+  /* --- marquee: scroll text back and forth only when it overflows its box --- */
+  .tx { display: inline-block; white-space: nowrap; will-change: transform; }
+  .tx.scroll { animation: txscroll var(--txdur, 8s) linear infinite alternate; }
+  @keyframes txscroll {
+    0%, 18%   { transform: translateX(0); }
+    82%, 100% { transform: translateX(var(--txshift, 0)); }
+  }
+
+  /* --- animated EQ bars --- */
+  .eq { display: inline-flex; align-items: flex-end; gap: 2px; height: 11px; }
+  .eq i { width: 2px; height: 100%; background: var(--orange); transform-origin: bottom; border-radius: 1px; }
+  .eq i:nth-child(1) { animation: eq 0.9s ease-in-out infinite; }
+  .eq i:nth-child(2) { animation: eq 0.7s ease-in-out infinite 0.15s; }
+  .eq i:nth-child(3) { animation: eq 1.1s ease-in-out infinite 0.05s; }
+  .eq i:nth-child(4) { animation: eq 0.8s ease-in-out infinite 0.25s; }
+  @keyframes eq { 0%, 100% { transform: scaleY(0.3); } 50% { transform: scaleY(1); } }
+
+  /* --- scrolling waveform --- */
+  .wave-wrap { position: relative; height: 46px; border-radius: 6px; overflow: hidden;
+    background: rgba(0, 0, 0, 0.34); box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.05); }
+  .wave-wrap.hidden { display: none; }
+  canvas.wave { display: block; width: 100%; height: 100%; }
+
+  /* --- decks section --- */
+  #decks { display: flex; flex-direction: column; gap: 10px; }
+  .sect-head { font-size: 9px; letter-spacing: 0.24em; text-transform: uppercase; color: #6f6f74; }
+  .deck-item { display: flex; flex-direction: column; gap: 5px; }
+  .deck-line { display: flex; align-items: center; gap: 8px; min-width: 0; }
+  .deck-badge { font-size: 10px; font-weight: 700; letter-spacing: 0.08em; color: #0a0a0a;
+    background: var(--orange); border-radius: 4px; padding: 2px 6px; flex: 0 0 auto; }
+  .deck-badge.idle { background: #3a3a40; color: #b6b6bc; }
+  .deck-track { font-size: 13px; color: #eaeaea; white-space: nowrap; overflow: hidden;
+    flex: 1 1 auto; min-width: 0; }
+  .deck-track b { color: #fff; font-weight: 700; }
+  .flags { display: inline-flex; gap: 5px; flex: 0 0 auto; }
+  .flag { font-size: 9px; letter-spacing: 0.08em; padding: 1px 5px; border-radius: 3px; font-weight: 700; }
+  .flag.air { background: #e0301e; color: #fff; }
+  .flag.master { background: color-mix(in srgb, var(--orange) 85%, #000); color: #0a0a0a; }
+  .deck-item .wave-wrap { height: 30px; }
+
+  /* --- history section --- */
+  #history { display: flex; flex-direction: column; gap: 4px; }
+  .hist-item { font-size: 12px; color: #b4b4ba; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .hist-item b { color: #e6e6ea; font-weight: 600; }
+  .hist-item .n { color: #56565c; margin-right: 6px; }
+</style>
+</head>
+<body>
+  <div id="np" class="pos-bottom-left">
+    <div id="nowplaying" class="section">
+      <div class="np-row">
+        <div class="deck" id="deck">
+          <div class="vinyl" id="vinyl">
+            <img id="art" class="label hidden" alt="">
+            <div class="hole"></div>
+          </div>
+          <div class="sheen"></div>
+        </div>
+        <div class="meta">
+          <div class="np-label" id="np-label"><span class="eq"><i></i><i></i><i></i><i></i></span> <span id="np-label-text">Now Playing</span></div>
+          <div id="title"><span class="tx"></span></div>
+          <div id="artist"><span class="tx"></span></div>
+          <div id="sub"></div>
+        </div>
+      </div>
+      <div class="wave-wrap" id="np-wave"><canvas class="wave" data-dev="0"></canvas></div>
+    </div>
+    <div id="decks" class="section hidden"></div>
+    <div id="history" class="section hidden"></div>
+  </div>
+<script>
+  const $ = id => document.getElementById(id);
+  const el = {
+    np: $('np'), sectNow: $('nowplaying'), sectDecks: $('decks'), sectHist: $('history'),
+    deck: $('deck'), vinyl: $('vinyl'), art: $('art'),
+    title: $('title'), artist: $('artist'), sub: $('sub'),
+    titleTx: $('title').querySelector('.tx'), artistTx: $('artist').querySelector('.tx'),
+    label: $('np-label'), labelText: $('np-label-text'), npWave: $('np-wave'),
+    npWaveCanvas: $('np-wave').querySelector('canvas'),
+  };
+  const POSITIONS = ['bottom-left', 'bottom-right', 'top-left', 'top-right', 'bottom-center', 'top-center'];
+  let cfg = { show_nowplaying: true, show_waveform: true, show_meta: true, show_decks: false, show_history: false, history_count: 5, style: 'vinyl' };
+  let curTrackKey = null, artToken = 0;
+
+  // Per-deck state, keyed by device number.
+  const deckPos = {};   // dev -> { posMs, durMs, sampledAt }
+  const deckWave = {};  // dev -> { key, entries, durMs, beats }
+
+  const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+
+  // Scroll a `.tx` span back and forth inside its clipping box, but only when it
+  // overflows — so long titles/artists are fully readable instead of clipped.
+  function setupMarquee(tx) {
+    tx.classList.remove('scroll');
+    tx.style.removeProperty('--txshift'); tx.style.removeProperty('--txdur');
+    const over = tx.offsetWidth - tx.parentElement.clientWidth;
+    if (over > 6) {
+      tx.style.setProperty('--txshift', (-over - 4) + 'px');
+      tx.style.setProperty('--txdur', Math.max(5, over / 35).toFixed(1) + 's'); // ~35px/s each way
+      tx.classList.add('scroll');
+    }
+  }
+  function marqueeAll(root) { requestAnimationFrame(() => root.querySelectorAll('.tx').forEach(setupMarquee)); }
+
+  // --- waveform data per deck -------------------------------------------------
+  function trackKey(p) { return (p.device_number || 0) + '|' + (p.track_id || 0) + '|' + (p.title || p.track_title || ''); }
+
+  function ensureWave(dev, key, url, fallbackDur) {
+    if (deckWave[dev] && deckWave[dev].key === key) return;    // already have / fetching this track
+    deckWave[dev] = { key, entries: null, durMs: fallbackDur || 0, beats: null };
+    if (!url) return;
+    let tries = 0;
+    const go = () => {
+      if (!deckWave[dev] || deckWave[dev].key !== key) return; // track changed under us
+      fetch(url, { cache: 'no-store' }).then(r => r.ok ? r.json() : null).then(d => {
+        if (!deckWave[dev] || deckWave[dev].key !== key) return;
+        if (!d) { if (++tries < 8) setTimeout(go, 1500); return; } // ext waveform 404s until it downloads
+        deckWave[dev] = { key, entries: d.entries || d.waveform || [], durMs: d.duration_ms || fallbackDur || 0, beats: d.beats || null };
+      }).catch(() => {});
+    };
+    go();
+  }
+
+  // Sample a deck's position from its beat/bpm (or exact beat grid) each poll.
+  function sampleDeck(p) {
+    const dev = p.device_number;
+    if (!dev || !p.track_id) { delete deckPos[dev]; return; }
+    ensureWave(dev, trackKey(p), p.waveform_url, p.duration_ms || 0);
+    const w = deckWave[dev];
+    const durMs = (w && w.durMs) || p.duration_ms || 0;
+    let posMs = 0;
+    if (w && w.beats && p.beat_in_track > 0 && p.beat_in_track <= w.beats.length) posMs = w.beats[p.beat_in_track - 1];
+    else if (p.beat_in_track > 0 && p.bpm > 0) posMs = (p.beat_in_track - 1) * 60000 / p.bpm;
+    deckPos[dev] = { posMs, durMs, sampledAt: performance.now() };
+  }
+
+  // --- scrolling waveform render (rAF) ---------------------------------------
+  const WINDOW_SEC = 12, ENTRY_RATE = 150; // PWV5 is 150 entries/sec
+  function drawWave(cv, w, pos, now) {
+    if (cv.width !== cv.clientWidth || cv.height !== cv.clientHeight) {
+      cv.width = cv.clientWidth || 300; cv.height = cv.clientHeight || 40;
+    }
+    const ctx = cv.getContext('2d'), W = cv.width, H = cv.height;
+    ctx.clearRect(0, 0, W, H);
+    if (!w || !w.entries || !w.entries.length || !pos || !pos.durMs) return;
+    const posMs = pos.posMs + (now - pos.sampledAt); // 1x interpolation between polls
+    const cur = (posMs / 1000) * ENTRY_RATE;
+    const epp = (WINDOW_SEC * ENTRY_RATE) / W; // entries per pixel
+    const n = w.entries.length;
+    for (let x = 0; x < W; x++) {
+      const f0 = cur + (x - W / 2) * epp;
+      let i0 = Math.floor(f0), i1 = Math.max(i0 + 1, Math.floor(f0 + epp));
+      let mh = 0, r = 0, g = 0, b = 0, c = 0;
+      for (let i = i0; i < i1; i++) {
+        if (i < 0 || i >= n) continue;
+        const e = w.entries[i]; const h = e.h || 0;
+        if (h > mh) mh = h; r += e.r || 0; g += e.g || 0; b += e.b || 0; c++;
+      }
+      if (!c) continue;
+      const bh = Math.max(1, mh / 31 * H);
+      ctx.globalAlpha = x < W / 2 ? 1 : 0.45; // dim the not-yet-played side
+      ctx.fillStyle = `rgb(${Math.round(r / c * 36)},${Math.round(g / c * 36)},${Math.round(b / c * 36)})`;
+      ctx.fillRect(x, H - bh, 1, bh);
+    }
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = '#fff';
+    ctx.fillRect((W >> 1), 0, 2, H); // fixed centre playhead
+  }
+
+  function tick() {
+    requestAnimationFrame(tick);
+    const now = performance.now();
+    document.querySelectorAll('canvas.wave').forEach(cv => {
+      const dev = +cv.dataset.dev;
+      drawWave(cv, deckWave[dev], deckPos[dev], now);
+    });
+  }
+  requestAnimationFrame(tick);
+
+  // --- config ----------------------------------------------------------------
+  function applyConfig(c) {
+    cfg = c || cfg;
+    document.documentElement.style.setProperty('--orange', cfg.accent || '#ff7714');
+    el.np.style.width = (cfg.width && cfg.width >= 280 ? cfg.width : 440) + 'px';
+    POSITIONS.forEach(p => el.np.classList.remove('pos-' + p));
+    el.np.classList.add('pos-' + (POSITIONS.includes(cfg.position) ? cfg.position : 'bottom-left'));
+    el.deck.classList.toggle('cover', cfg.style === 'cover');
+    const label = (cfg.label || '').trim();
+    el.labelText.textContent = label;
+    el.label.style.display = label ? '' : 'none';
+    el.sub.style.display = cfg.show_meta !== false ? '' : 'none';
+    el.sectNow.classList.toggle('hidden', cfg.show_nowplaying === false);
+    el.npWave.classList.toggle('hidden', cfg.show_waveform === false);
+    el.sectDecks.classList.toggle('hidden', !cfg.show_decks);
+    el.sectHist.classList.toggle('hidden', !cfg.show_history);
+  }
+
+  // --- now-playing card ------------------------------------------------------
+  function applyNow(np) {
+    el.titleTx.textContent = np.title;
+    el.artistTx.textContent = np.artist || '';
+    marqueeAll(el.sectNow);
+    const bits = [];
+    if (cfg.show_meta !== false && np.bpm) bits.push(`<b>${np.bpm.toFixed(1)}</b> BPM`);
+    if (cfg.show_meta !== false && np.key) bits.push(`<b>${esc(np.key)}</b>`);
+    el.sub.innerHTML = bits.join(' &nbsp;&middot;&nbsp; ');
+    el.vinyl.style.animationDuration = np.bpm ? (240 / np.bpm).toFixed(3) + 's' : '1.8s';
+    el.npWaveCanvas.dataset.dev = np.device_number || 0;
+
+    artToken++;
+    const myToken = artToken;
+    if (np.artwork_url) {
+      let tries = 0;
+      const loadArt = () => {
+        if (myToken !== artToken) return;
+        el.art.onload = () => { if (myToken === artToken) el.art.classList.remove('hidden'); };
+        el.art.onerror = () => { if (myToken !== artToken) return; el.art.classList.add('hidden'); if (++tries < 8) setTimeout(loadArt, 1500); };
+        el.art.src = np.artwork_url + (tries ? (np.artwork_url.indexOf('?') >= 0 ? '&' : '?') + 'r=' + tries : '');
+      };
+      loadArt();
+    } else { el.art.classList.add('hidden'); }
+  }
+
+  function renderNow(np) {
+    if (np && np.playing && np.title) {
+      sampleDeck(np);
+      const key = trackKey(np);
+      if (key !== curTrackKey) { curTrackKey = key; applyNow(np); }
+      return true;
+    }
+    curTrackKey = null;
+    return false;
+  }
+
+  // --- decks section ---------------------------------------------------------
+  let decksKey = '';
+  function renderDecks(players) {
+    const playing = (players || []).filter(p => p.is_playing && p.track_id);
+    playing.forEach(sampleDeck);
+    if (cfg.show_decks === false || cfg.show_decks === undefined) return playing.length > 0;
+    const key = playing.map(p => trackKey(p) + (p.on_air ? 'A' : '') + (p.is_master ? 'M' : '')).join('~');
+    if (key === decksKey) return playing.length > 0; // unchanged; canvases keep drawing
+    decksKey = key;
+    if (!playing.length) { el.sectDecks.innerHTML = ''; return false; }
+    el.sectDecks.innerHTML = '<div class="sect-head">Decks</div>' + playing.map(p => {
+      const flags = (p.on_air ? '<span class="flag air">ON AIR</span>' : '') + (p.is_master ? '<span class="flag master">MASTER</span>' : '');
+      return `<div class="deck-item">
+        <div class="deck-line">
+          <span class="deck-badge">${String(p.device_number).padStart(2, '0')}</span>
+          <span class="deck-track"><span class="tx"><b>${esc(p.track_title || 'Track ' + p.track_id)}</b>${p.artist ? ' — ' + esc(p.artist) : ''}</span></span>
+          <span class="flags">${flags}</span>
+        </div>
+        <div class="wave-wrap"><canvas class="wave" data-dev="${p.device_number}"></canvas></div>
+      </div>`;
+    }).join('');
+    marqueeAll(el.sectDecks);
+    return true;
+  }
+
+  // --- history section -------------------------------------------------------
+  let histKey = '', histHas = false;
+  function renderHistory(items) {
+    if (!cfg.show_history) { histHas = false; return false; }
+    const n = Math.max(0, Math.min(20, cfg.history_count || 5));
+    const recent = (items || []).slice().reverse().slice(0, n); // newest first
+    const key = recent.map(h => h.track_id + '|' + h.title).join('~') + '|' + n;
+    if (key !== histKey) {
+      histKey = key;
+      histHas = recent.length > 0;
+      el.sectHist.innerHTML = recent.length
+        ? '<div class="sect-head">Recently Played</div>' + recent.map((h, i) =>
+            `<div class="hist-item"><span class="n">${i + 1}</span><span class="tx"><b>${esc(h.title || 'Track ' + h.track_id)}</b>${h.artist ? ' — ' + esc(h.artist) : ''}</span></div>`).join('')
+        : '';
+      marqueeAll(el.sectHist);
+    }
+    return histHas;
+  }
+
+  // --- polling ---------------------------------------------------------------
+  async function poll() {
+    try {
+      const [np, players, history] = await Promise.all([
+        fetch('/api/nowplaying', { cache: 'no-store' }).then(r => r.ok ? r.json() : null).catch(() => null),
+        (cfg.show_decks ? fetch('/api/players', { cache: 'no-store' }).then(r => r.ok ? r.json() : []).catch(() => []) : Promise.resolve([])),
+        (cfg.show_history ? fetch('/api/history', { cache: 'no-store' }).then(r => r.ok ? r.json() : []).catch(() => []) : Promise.resolve([])),
+      ]);
+      const nowShown = renderNow(np);
+      const decksShown = renderDecks(players);
+      const histShown = renderHistory(history);
+      // Drop stale per-deck state for decks that are gone.
+      const live = new Set((players || []).map(p => p.device_number));
+      if (np && np.device_number) live.add(np.device_number);
+      for (const d of Object.keys(deckPos)) if (!live.has(+d)) { delete deckPos[d]; delete deckWave[d]; }
+      // Show the panel if any enabled section has content.
+      const anything = (cfg.show_nowplaying !== false && nowShown) ||
+        (cfg.show_decks && decksShown) || (cfg.show_history && histShown);
+      el.np.classList.toggle('show', !!anything);
+    } catch (e) { /* keep polling */ }
+  }
+  async function pollConfig() {
+    try {
+      const r = await fetch('/api/overlay/config', { cache: 'no-store' });
+      if (r.ok) applyConfig(await r.json());
+    } catch (e) { /* keep defaults */ }
+  }
+
+  pollConfig();
+  poll();
+  setInterval(poll, 1000);
+  setInterval(pollConfig, 5000); // pick up settings-tab edits live
+</script>
+</body>
+</html>

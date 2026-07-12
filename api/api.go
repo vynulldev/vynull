@@ -56,6 +56,7 @@ type Server struct {
 	Listen       string              // full listen address (e.g. "0.0.0.0:9443"). Takes precedence over Port.
 	Web          bool                // if true, serve the HTML UI at /
 	CacheDir     string              // disk cache root for rendered waveform PNGs etc.
+	Overlay      *OverlayStore       // now-playing streaming-overlay config (optional)
 
 	// ExtArtwork, if set, returns cover-art JPEG bytes for a track a deck plays
 	// from another player's media (downloaded over NFS by package mediadb).
@@ -252,6 +253,7 @@ type PlayerInfo struct {
 	Source        string  `json:"source,omitempty"`       // that source, e.g. "USB · player 2"
 	ArtworkURL    string  `json:"artwork_url,omitempty"`  // cover-art endpoint for the loaded track
 	AnalysisURL   string  `json:"analysis_url,omitempty"` // waveform+cues endpoint (external tracks only)
+	WaveformURL   string  `json:"waveform_url,omitempty"` // colour-detail waveform endpoint (local or external)
 	IsPlaying     bool    `json:"is_playing"`
 	IsMaster      bool    `json:"is_master"`
 	IsSync        bool    `json:"is_sync,omitempty"`
@@ -290,6 +292,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/status", s.handleStatus)
 	mux.HandleFunc("/api/peers", s.handlePeers)
 	mux.HandleFunc("/api/players", s.handlePlayers)
+	mux.HandleFunc("/api/nowplaying", s.handleNowPlaying)
+	mux.HandleFunc("/api/overlay/config", s.handleOverlayConfig)
 	mux.HandleFunc("/api/history", s.handleHistory)
 	mux.HandleFunc("/api/tracks", s.handleTracks)
 	mux.HandleFunc("/api/tracks/rev", s.handleTracksRev)
@@ -531,14 +535,17 @@ func (s *Server) getPlayers() []PlayerInfo {
 		// media (over NFS), local tracks via the library by track ID.
 		artURL := ""
 		analysisURL := ""
+		waveURL := ""
 		if ps.Status.TrackID > 0 {
 			if ps.External {
 				artURL = fmt.Sprintf("/api/artwork/ext/%d/%d/%d", ps.Status.TrackDevice, ps.Status.TrackSlot, ps.Status.TrackID)
 				// Waveform + cues come from the source player's ANLZ over NFS;
 				// local tracks use the existing track-ID waveform/cue endpoints.
 				analysisURL = fmt.Sprintf("/api/analysis/ext/%d/%d/%d", ps.Status.TrackDevice, ps.Status.TrackSlot, ps.Status.TrackID)
+				waveURL = analysisURL // ext endpoint returns {waveform, beats, duration_ms}
 			} else {
 				artURL = fmt.Sprintf("/api/artwork/%d", ps.Status.TrackID)
+				waveURL = fmt.Sprintf("/api/analysis/waveform/%d?type=detail", ps.Status.TrackID)
 			}
 		}
 		out = append(out, PlayerInfo{
@@ -549,6 +556,7 @@ func (s *Server) getPlayers() []PlayerInfo {
 			Artist:        ps.Artist,
 			ArtworkURL:    artURL,
 			AnalysisURL:   analysisURL,
+			WaveformURL:   waveURL,
 			BPM:           float64(ps.Status.BPM) / 100.0,
 			PitchPct:      pitchPct,
 			Key:           ps.Key,
@@ -572,6 +580,83 @@ func (s *Server) getPlayers() []PlayerInfo {
 		return out[i].DeviceNumber < out[j].DeviceNumber
 	})
 	return out
+}
+
+// NowPlaying is the currently-audible track, for the streaming overlay: the
+// on-air playing deck (preferring the tempo master during a transition), or the
+// playing deck when no mixer reports on-air. Playing is false when nothing is.
+type NowPlaying struct {
+	Playing      bool    `json:"playing"`
+	DeviceNumber uint8   `json:"device_number,omitempty"`
+	TrackID      uint32  `json:"track_id,omitempty"`
+	Title        string  `json:"title"`
+	Artist       string  `json:"artist"`
+	BPM          float64 `json:"bpm,omitempty"`
+	Key          string  `json:"key,omitempty"`
+	DurationMs   uint32  `json:"duration_ms,omitempty"`
+	BeatInTrack  uint32  `json:"beat_in_track,omitempty"`
+	// ArtworkURL is the cover-art endpoint for the audible track: the library
+	// endpoint for our own tracks, or the external endpoint (the source player's
+	// media over NFS) when a deck plays from its own USB/SD.
+	ArtworkURL string `json:"artwork_url,omitempty"`
+	// WaveformURL is the colour-detail waveform endpoint: the library waveform
+	// endpoint (returns {entries}) for our own tracks, or the external analysis
+	// endpoint (returns {waveform, beats, duration_ms}) for external ones.
+	WaveformURL string `json:"waveform_url,omitempty"`
+}
+
+func (s *Server) handleNowPlaying(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	writeJSON(w, nowPlayingFrom(s.getPlayers()))
+}
+
+// nowPlayingFrom projects the selected player into a NowPlaying.
+func nowPlayingFrom(players []PlayerInfo) NowPlaying {
+	p := selectNowPlaying(players)
+	if p == nil {
+		return NowPlaying{}
+	}
+	return NowPlaying{
+		Playing:      true,
+		DeviceNumber: p.DeviceNumber,
+		TrackID:      p.TrackID,
+		Title:        p.TrackTitle,
+		Artist:       p.Artist,
+		BPM:          p.BPM,
+		Key:          p.Key,
+		DurationMs:   p.DurationMs,
+		BeatInTrack:  p.BeatInTrack,
+		ArtworkURL:   p.ArtworkURL,
+		WaveformURL:  p.WaveformURL,
+	}
+}
+
+// selectNowPlaying picks the audible deck from the live states: among decks that
+// are playing with a loaded track, on-air beats off-air, then the tempo master
+// beats the rest, then the lowest device number breaks ties. Returns nil when no
+// deck is playing.
+func selectNowPlaying(players []PlayerInfo) *PlayerInfo {
+	var best *PlayerInfo
+	for i := range players {
+		p := &players[i]
+		if !p.IsPlaying || p.TrackTitle == "" {
+			continue
+		}
+		if best == nil || betterNowPlaying(p, best) {
+			best = p
+		}
+	}
+	return best
+}
+
+func betterNowPlaying(a, b *PlayerInfo) bool {
+	if a.OnAir != b.OnAir {
+		return a.OnAir
+	}
+	if a.IsMaster != b.IsMaster {
+		return a.IsMaster
+	}
+	return a.DeviceNumber < b.DeviceNumber
 }
 
 // TrackInfo is the API representation of a library track. Used by

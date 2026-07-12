@@ -6956,6 +6956,7 @@ async function saveMenuItems() {
 const SETTINGS_SECTIONS = [
   { key: 'webui',          label: 'WEB UI'         }, // browser-local display prefs (not a CDJ setting)
   { key: 'source',         label: 'LIBRARY SOURCE' }, // rekordbox import + path fix (not a CDJ setting)
+  { key: 'overlay',        label: 'STREAM OVERLAY' }, // now-playing overlay config (not a CDJ setting)
   { key: 'cdj_menu',       label: 'CDJ MENU'       },
   { key: 'my_setting',     label: 'MYSETTING'    },
   { key: 'my_setting_2',   label: 'MYSETTING2'   },
@@ -7005,7 +7006,7 @@ function renderSettings(cfg) {
 
   // CDJ MENU and WEB UI are virtual sections (not part of the settings config);
   // they're always shown, the others appear only when present in cfg.
-  const sectionAvailable = s => s.key === 'cdj_menu' || s.key === 'webui' || s.key === 'source' || !!cfg[s.key];
+  const sectionAvailable = s => s.key === 'cdj_menu' || s.key === 'webui' || s.key === 'source' || s.key === 'overlay' || !!cfg[s.key];
 
   // Render the sidebar with all sections; the body only shows the active one.
   if (nav) {
@@ -7033,11 +7034,17 @@ function renderSettings(cfg) {
   // The top note describes pushing changes to the CDJ — hide it for the
   // browser-local WEB UI section so it doesn't imply those sync to the device.
   const topNote = document.querySelector('#settings .settings-note');
-  if (topNote) topNote.style.display = (section.key === 'webui' || section.key === 'source') ? 'none' : '';
+  if (topNote) topNote.style.display = (section.key === 'webui' || section.key === 'source' || section.key === 'overlay') ? 'none' : '';
 
   // WEB UI: browser-local display preferences (rendered from localStorage, not cfg).
   if (section.key === 'webui') {
     renderWebUISettings(el);
+    return;
+  }
+
+  // STREAM OVERLAY: server-side now-playing overlay config (fetched, not from cfg).
+  if (section.key === 'overlay') {
+    renderOverlaySettings(el);
     return;
   }
 
@@ -7215,6 +7222,77 @@ function renderWebUISettings(el) {
     s.addEventListener('change', () => handleWebUIChange(s)));
   el.querySelectorAll('.cue-default-swatch').forEach(sw =>
     sw.addEventListener('click', () => openDefaultCueColorPicker(sw, parseInt(sw.getAttribute('data-cue-default'), 10))));
+}
+
+// STREAM OVERLAY: edits the server-side now-playing overlay config
+// (/api/overlay/config), which the /overlay page (e.g. in OBS) reads.
+async function renderOverlaySettings(el) {
+  el.innerHTML = '<div class="empty-state">LOADING</div>';
+  let cfg;
+  try {
+    cfg = await (await fetch('/api/overlay/config', { cache: 'no-store' })).json();
+  } catch (e) {
+    el.innerHTML = '<div class="empty-state">OVERLAY CONFIG UNAVAILABLE</div>';
+    return;
+  }
+  const sel = (id, opts, cur) => `<select data-overlay="${id}">${
+    opts.map(([v, t]) => `<option value="${v}" ${v === cur ? 'selected' : ''}>${t}</option>`).join('')
+  }</select>`;
+  const url = location.origin + '/overlay';
+  const labelVal = (cfg.label || '').replace(/&/g, '&amp;').replace(/"/g, '&quot;');
+  el.innerHTML = `<div class="settings-block">
+    <div class="head"><span class="inner">STREAM OVERLAY</span></div>
+    <div class="settings-note" style="margin: 6px 8px; border: 0">
+      NOW-PLAYING OVERLAY FOR STREAMING · ADD AN OBS BROWSER SOURCE AT <b>${url}</b> WITH A TRANSPARENT BACKGROUND · CHANGES APPLY LIVE
+    </div>
+    <div class="body">
+      <div class="settings-row"><div class="key">position</div><div class="selector">${sel('position',
+        [['bottom-left', 'Bottom left'], ['bottom-right', 'Bottom right'], ['top-left', 'Top left'],
+         ['top-right', 'Top right'], ['bottom-center', 'Bottom centre'], ['top-center', 'Top centre']], cfg.position)}</div></div>
+      <div class="settings-row"><div class="key">style<div class="row-hint">spinning vinyl, or a square album cover</div></div>
+        <div class="selector">${sel('style', [['vinyl', 'Vinyl (spinning)'], ['cover', 'Cover (square)']], cfg.style)}</div></div>
+      <div class="settings-row"><div class="key">accent colour</div>
+        <div class="selector"><input type="color" data-overlay="accent" value="${cfg.accent}"></div></div>
+      <div class="settings-row"><div class="key">width<div class="row-hint">card width in px (280–1000)</div></div>
+        <div class="selector"><input type="number" class="input" data-overlay="width" value="${cfg.width || 440}" min="280" max="1000" step="10" style="width:88px;padding-left:10px;padding-right:6px"></div></div>
+      <div class="settings-row"><div class="key">label<div class="row-hint">header text · leave blank to hide</div></div>
+        <div class="selector"><input type="text" class="input" data-overlay="label" value="${labelVal}" maxlength="40" placeholder="Now Playing"></div></div>
+      <div class="settings-row"><div class="key">show BPM / key</div>
+        <div class="selector"><input type="checkbox" data-overlay="show_meta" ${cfg.show_meta !== false ? 'checked' : ''}></div></div>
+      <div class="settings-row"><div class="key">now-playing card<div class="row-hint">the audible deck's track</div></div>
+        <div class="selector"><input type="checkbox" data-overlay="show_nowplaying" ${cfg.show_nowplaying !== false ? 'checked' : ''}></div></div>
+      <div class="settings-row"><div class="key">waveform<div class="row-hint">scrolling waveform under the card</div></div>
+        <div class="selector"><input type="checkbox" data-overlay="show_waveform" ${cfg.show_waveform !== false ? 'checked' : ''}></div></div>
+      <div class="settings-row"><div class="key">decks<div class="row-hint">which deck is playing what, with waveforms</div></div>
+        <div class="selector"><input type="checkbox" data-overlay="show_decks" ${cfg.show_decks ? 'checked' : ''}></div></div>
+      <div class="settings-row"><div class="key">recently played</div>
+        <div class="selector"><input type="checkbox" data-overlay="show_history" ${cfg.show_history ? 'checked' : ''}></div></div>
+      <div class="settings-row"><div class="key">recent count<div class="row-hint">how many tracks in the recently-played list</div></div>
+        <div class="selector"><input type="number" class="input" data-overlay="history_count" value="${cfg.history_count || 5}" min="0" max="20" style="width:74px;padding-left:10px;padding-right:6px"></div></div>
+      <div class="settings-row"><div class="key"></div><div class="selector">
+        <a href="/overlay" target="_blank" rel="noopener" class="source-btn" style="text-decoration:none">&#8599; Open overlay preview</a></div></div>
+    </div>
+  </div>`;
+  const save = () => {
+    const v = id => el.querySelector(`[data-overlay="${id}"]`);
+    fetch('/api/overlay/config', {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        position: v('position').value,
+        style: v('style').value,
+        accent: v('accent').value,
+        label: v('label').value,
+        show_meta: v('show_meta').checked,
+        show_nowplaying: v('show_nowplaying').checked,
+        show_waveform: v('show_waveform').checked,
+        show_decks: v('show_decks').checked,
+        show_history: v('show_history').checked,
+        history_count: parseInt(v('history_count').value, 10) || 0,
+        width: parseInt(v('width').value, 10) || 0,
+      }),
+    }).then(() => toast('OVERLAY UPDATED', 'success'));
+  };
+  el.querySelectorAll('[data-overlay]').forEach(c => c.addEventListener('change', save));
 }
 function handleWebUIChange(sel) {
   const id = sel.getAttribute('data-webui'), v = sel.value;
