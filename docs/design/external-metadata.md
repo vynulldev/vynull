@@ -97,15 +97,17 @@ framing is familiar — but the client handshake and menu-render flow are new.
   (which is built around a library track object and its deck-control features),
   so it is deferred as its own feature, not a loose end.
 
-### Known limitations (need a deck)
+### Media slots
 
-- The export-name -> slot mapping is slot-aware but best-effort. `mediadb`
-  passes `FetchExportPDB` a preferred export per slot (USB(3)->/C/ confirmed on
-  hardware, SD(2)->/B/ and CD(1)->/A/ guessed), tried before the advertised
-  MOUNT EXPORT list and the common roots. So a player with both a USB and an SD
-  no longer collapses both slots onto the first export found; a wrong guess for
-  SD/CD just falls back to the old behaviour and never breaks a single-media
-  player. The SD/CD letters should be confirmed against a deck with that media.
+- The export-name -> slot mapping is confirmed on a CDJ-2000NXS2: USB(3)->/C/,
+  SD(2)->/B/. `mediadb` passes `FetchExportPDB` the matching export per slot,
+  tried before the advertised MOUNT EXPORT list and the common roots, so a
+  player with both a USB and an SD resolves each to the right pdb instead of
+  collapsing both onto the first export found.
+- A CD (slot 1) carries no rekordbox export (the deck's MOUNT EXPORT list is
+  empty and every mount is refused), so there is nothing to fetch. We skip the
+  fetch entirely for the CD slot and fall back to the "CD · player N" source
+  label, avoiding pointless NFS churn during CD playback.
 
 ## Hardware finding: the dbserver-client path is blocked by our player number
 
