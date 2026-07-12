@@ -100,6 +100,24 @@ func key(player, slot uint8) string {
 	return fmt.Sprintf("%d:%d", player, slot)
 }
 
+// slotExport is the NFS export a media slot most likely lives at, tried first so
+// a player with both a USB and an SD mounted resolves each to the right pdb
+// rather than to whichever export is listed first. USB(3)->/C/ is confirmed on
+// hardware; SD(2)->/B/ and CD(1)->/A/ are best-effort (the fetch falls back to
+// the advertised export list and common roots, so a wrong guess never breaks a
+// single-media player). TrackSlot values: CD=1, SD=2, USB=3.
+func slotExport(slot uint8) string {
+	switch slot {
+	case 3:
+		return "/C/"
+	case 2:
+		return "/B/"
+	case 1:
+		return "/A/"
+	}
+	return ""
+}
+
 // Get returns metadata for a track on the given player's media, or nil when the
 // media's database isn't downloaded yet (a background fetch starts on the first
 // miss) or the track isn't in it.
@@ -195,7 +213,7 @@ func (f *Fetcher) doFetch(player, slot uint8) (*pdb.Database, string) {
 	}
 	defer c.Close()
 
-	data, export, err := c.FetchExportPDB()
+	data, export, err := c.FetchExportPDB(slotExport(slot))
 	if err != nil {
 		log.Printf("mediadb: player %d (%s) export.pdb: %v", player, ip, err)
 		return nil, ""

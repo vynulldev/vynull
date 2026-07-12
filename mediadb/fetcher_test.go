@@ -57,6 +57,15 @@ func TestGetCacheHit(t *testing.T) {
 	}
 }
 
+func TestSlotExport(t *testing.T) {
+	cases := map[uint8]string{3: "/C/", 2: "/B/", 1: "/A/", 0: "", 9: ""}
+	for slot, want := range cases {
+		if got := slotExport(slot); got != want {
+			t.Errorf("slotExport(%d) = %q, want %q", slot, got, want)
+		}
+	}
+}
+
 func TestAnalysisCache(t *testing.T) {
 	f := NewFetcher(nil)
 	a := &Analysis{DurationMs: 180000, BPM: 128, WaveDetail: []byte{1, 2, 3, 4}}

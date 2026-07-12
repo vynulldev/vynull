@@ -82,7 +82,7 @@ func TestClientFetchExportPDB(t *testing.T) {
 
 	// The full mount -> lookup chain -> chunked read must return the file byte
 	// for byte.
-	got, ex, err := c.FetchExportPDB()
+	got, ex, err := c.FetchExportPDB("")
 	if err != nil {
 		t.Fatalf("FetchExportPDB: %v", err)
 	}

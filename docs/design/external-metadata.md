@@ -96,10 +96,13 @@ framing is familiar — but the client handshake and menu-render flow are new.
 
 ### Known limitations (need a deck)
 
-- The export-name -> slot mapping is best-effort: `FetchExportPDB` tries the
-  advertised MOUNT EXPORT list, then `/C/`, `/B/`, `/`. If a deck has both a USB
-  and an SD with databases, both slot keys currently resolve to the first export
-  found. Fixable once we see a real deck's export list per slot.
+- The export-name -> slot mapping is slot-aware but best-effort. `mediadb`
+  passes `FetchExportPDB` a preferred export per slot (USB(3)->/C/ confirmed on
+  hardware, SD(2)->/B/ and CD(1)->/A/ guessed), tried before the advertised
+  MOUNT EXPORT list and the common roots. So a player with both a USB and an SD
+  no longer collapses both slots onto the first export found; a wrong guess for
+  SD/CD just falls back to the old behaviour and never breaks a single-media
+  player. The SD/CD letters should be confirmed against a deck with that media.
 
 ## Hardware finding: the dbserver-client path is blocked by our player number
 
