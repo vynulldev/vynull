@@ -164,6 +164,19 @@ func (s *Store) Set(trackID uint32, r *Result) {
 	}
 }
 
+// Remove drops the in-memory result and path mapping for a track, for use
+// when the track is deleted from the library. The on-disk cache entry is
+// deliberately kept: it is keyed by file path (derived from the audio
+// content, not track state), so re-adding the same file later reuses it
+// instead of re-analyzing. Without this, a deleted track's Result (waveform
+// blobs and all, hundreds of KB) stayed resident until restart.
+func (s *Store) Remove(trackID uint32) {
+	s.mu.Lock()
+	delete(s.results, trackID)
+	delete(s.pathMap, trackID)
+	s.mu.Unlock()
+}
+
 // Status returns a human-readable status line for the monitor UI.
 func (s *Store) Status() string {
 	s.statusMu.RLock()
