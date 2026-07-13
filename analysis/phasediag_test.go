@@ -52,11 +52,11 @@ func TestPhaseDiag(t *testing.T) {
 	}
 	workers := runtime.NumCPU()
 
-	names := []string{"s_mb", "s_mblog", "s_low", "s_full", "s_hfc", "s_intro"}
+	names := []string{"s_mb", "s_mblog", "s_low", "s_full", "s_hfc", "s_intro", "s_kick"}
 	type row struct {
 		name           string
 		frac, period   float64
-		s              [6]float64
+		s              [7]float64
 		dFirstO, dFRef float64 // first-onset phase distance to ours / reference, in beats
 		ok             bool
 	}
@@ -104,8 +104,9 @@ func TestPhaseDiag(t *testing.T) {
 				if n := int(45000.0 / mbMs); n < len(mb) {
 					intro = mb[:n]
 				}
+				kick := kickSTFTEnvelope(samples, AnalysisRate, 180.0)
 
-				envs := [][]float64{mb, mblog, low, full, hfc, intro}
+				envs := [][]float64{mb, mblog, low, full, hfc, intro, kick}
 				var r row
 				r.name, r.frac, r.period, r.ok = g.Title, e/P, P, true
 				for i, env := range envs {
@@ -284,6 +285,50 @@ func hfcEnvelope(samples []float32, rate int) []float64 {
 		var s float64
 		for bin := 1; bin < frameSize/2; bin++ {
 			s += float64(bin) * math.Sqrt(re[k][bin]*re[k][bin]+im[k][bin]*im[k][bin])
+		}
+		if k > 0 && s > prev {
+			env[k] = s - prev
+		}
+		prev = s
+	}
+	return env
+}
+
+// kickSTFTEnvelope is the half-wave-rectified flux of the STFT magnitude summed
+// over bins below maxHz: a sharp sub-bass kick onset with a steep bin cutoff,
+// unlike the smeared single-pole variant in fluxEnvelope. On the half-beat
+// specimen that motivated it, this envelope discriminates the two phases nearly
+// 6:1 where the single-pole one is unstable.
+func kickSTFTEnvelope(samples []float32, rate int, maxHz float64) []float64 {
+	const frameSize, hop = 1024, 512
+	n := (len(samples) - frameSize) / hop
+	if n < 4 {
+		return nil
+	}
+	win := make([]float64, frameSize)
+	for i := range win {
+		win[i] = 0.5 * (1 - math.Cos(2*math.Pi*float64(i)/float64(frameSize-1)))
+	}
+	windows := make([][]float64, n)
+	for k := 0; k < n; k++ {
+		off := k * hop
+		w := make([]float64, frameSize)
+		for j := 0; j < frameSize; j++ {
+			w[j] = float64(samples[off+j]) * win[j]
+		}
+		windows[k] = w
+	}
+	re, im := batchFFT(windows, frameSize)
+	hi := int(maxHz / (float64(rate) / frameSize))
+	if hi < 2 {
+		hi = 2
+	}
+	env := make([]float64, n)
+	prev := 0.0
+	for k := 0; k < n && k < len(re); k++ {
+		var s float64
+		for bin := 1; bin < hi && bin < len(re[k]); bin++ {
+			s += math.Sqrt(re[k][bin]*re[k][bin] + im[k][bin]*im[k][bin])
 		}
 		if k > 0 && s > prev {
 			env[k] = s - prev
