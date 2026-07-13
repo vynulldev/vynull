@@ -792,8 +792,16 @@ func (s *Server) handleTracks(w http.ResponseWriter, r *http.Request) {
 			if s.Cues != nil {
 				s.Cues.DeleteAllForTrack(trackID)
 			}
+			// Free the in-memory analysis entry (it holds the waveform
+			// blobs) and any stale queue marker. The on-disk analysis
+			// cache is kept on purpose: it is keyed by file path, so
+			// re-adding the same file reuses it instead of re-analyzing.
+			if s.Analysis != nil {
+				s.Analysis.Remove(trackID)
+			}
+			s.queuedAnalyses.Delete(trackID)
 			s.Library.RemoveTrack(trackID)
-			log.Printf("api: deleted track %d (library + playlists + tags + cues)", trackID)
+			log.Printf("api: deleted track %d (library + playlists + tags + cues + analysis)", trackID)
 			writeJSON(w, struct{ OK bool }{true})
 			return
 		}
