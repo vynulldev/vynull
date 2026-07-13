@@ -78,7 +78,7 @@ func main() {
 			fmt.Fprintf(os.Stderr, "skip %s: %v\n", e.Title, err)
 			continue
 		}
-		res := analysis.DetectBeats(samples, rate)
+		res := analysis.DetectBeatsWithEncoderDelay(samples, rate, analysis.EncoderDelayMs(e.File))
 		if res == nil || len(res.Beats) == 0 || e.BPM <= 0 {
 			continue
 		}

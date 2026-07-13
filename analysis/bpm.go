@@ -4,7 +4,9 @@ package analysis
 
 import (
 	"math"
+	"path/filepath"
 	"sort"
+	"strings"
 )
 
 // BeatResult holds the detected BPM and actual beat positions.
@@ -36,10 +38,19 @@ func tempoPrior(bpm float64) float64 {
 	return math.Exp(-0.5 * x * x)
 }
 
-// DetectBeats finds individual beat positions and computes BPM from them.
-// Uses onset peak detection with adaptive threshold, then computes BPM
-// from the median inter-beat interval.
+// DetectBeats finds individual beat positions and computes BPM from them, using
+// the lossy-codec latency compensation. Callers that know the source format
+// should prefer DetectBeatsWithEncoderDelay (with EncoderDelayMs) so lossless
+// tracks are not over-compensated for an encoder delay they do not have.
 func DetectBeats(samples []float32, sampleRate int) *BeatResult {
+	return DetectBeatsWithEncoderDelay(samples, sampleRate, LossyEncoderDelayMs)
+}
+
+// DetectBeatsWithEncoderDelay is DetectBeats with an explicit lossy encoder-delay
+// compensation (ms) added to the phase latency. Pass EncoderDelayMs(path), or 0
+// for a lossless source. Uses onset peak detection with an adaptive threshold,
+// then computes BPM from the median inter-beat interval.
+func DetectBeatsWithEncoderDelay(samples []float32, sampleRate int, encoderDelayMs float64) *BeatResult {
 	if len(samples) < sampleRate*2 {
 		return &BeatResult{}
 	}
@@ -570,7 +581,7 @@ func DetectBeats(samples []float32, sampleRate int) *BeatResult {
 			tp, ok = windowedTempogramPhase(phaseOnset, phaseOnsetMs, msPerBeat, WindowSec, AmpWeight, ClarityWeight)
 		}
 		if ok {
-			bestPhase = math.Mod(tp+TempogramLatencyMs, msPerBeat)
+			bestPhase = math.Mod(tp+TempogramLatencyMs+encoderDelayMs, msPerBeat)
 			if bestPhase < 0 {
 				bestPhase += msPerBeat
 			}
@@ -697,14 +708,25 @@ func buildGrid(phaseMs, periodMs, durationMs float64) []float64 {
 // bands is what makes the full 25-band set usable; a raw sum is dominated by the
 // bass and scores worse than a single band. MultiBandMaxHz is only the cutoff
 // for the non-normalized fallback path. TempogramLatencyMs cancels the STFT
-// framing+flux+EMA latency, centering the residual bias.
+// framing+flux+EMA latency (format-independent), centering the residual bias.
 var (
-	UseTempogramPhase  = true
-	UseMultiBandOnset  = true
-	UseBandNorm        = true
-	BandNormAlpha      = 0.99
-	MultiBandMaxHz     = 4096.0
-	TempogramLatencyMs = 55.0
+	UseTempogramPhase = true
+	UseMultiBandOnset = true
+	UseBandNorm       = true
+	BandNormAlpha     = 0.99
+	MultiBandMaxHz    = 4096.0
+
+	// TempogramLatencyMs is the pipeline group delay (STFT framing + flux + EMA),
+	// which is codec-independent. LossyEncoderDelayMs is added on top for lossy
+	// codecs: rekordbox grids on the raw decoded stream INCLUDING the ~1105-sample
+	// (25ms at 44.1kHz) MP3/AAC encoder delay, while our ffmpeg decode strips it,
+	// so a lossy track's grid must be shifted back by that delay to match
+	// rekordbox. Lossless (FLAC/WAV/AIFF) has no encoder delay and adds 0. The two
+	// terms were separated by calibrating the pipeline delay on lossless (the clean
+	// case) and confirming lossy = pipeline + encoder delay reproduces the old
+	// single 55ms constant. See EncoderDelayMs and DetectBeatsWithEncoderDelay.
+	TempogramLatencyMs  = 30.0
+	LossyEncoderDelayMs = 25.0
 
 	// HalfBeatGate, when > 0, flips the grid by half a beat if the half-beat
 	// comb carries more than this multiple of the on-grid kick/bass onset energy
@@ -928,6 +950,21 @@ func findDownbeat(beats []float64) float64 {
 		return beats[0]
 	}
 	return 0
+}
+
+// losslessExts are the container extensions whose codecs carry no encoder delay,
+// so their decoded timeline matches rekordbox's grid reference directly.
+var losslessExts = map[string]bool{".flac": true, ".wav": true, ".aiff": true, ".aif": true}
+
+// EncoderDelayMs returns the encoder-delay latency compensation for a source file:
+// 0 for lossless containers (FLAC/WAV/AIFF), LossyEncoderDelayMs otherwise. Lossy
+// codecs (MP3/AAC/...) prepend an encoder delay that rekordbox grids on but our
+// decoder strips, so the grid must be shifted back by that delay to match.
+func EncoderDelayMs(path string) float64 {
+	if losslessExts[strings.ToLower(filepath.Ext(path))] {
+		return 0
+	}
+	return LossyEncoderDelayMs
 }
 
 // DetectBPM is a convenience wrapper that returns just the BPM.

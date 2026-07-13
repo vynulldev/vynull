@@ -75,6 +75,7 @@ func TestBeatGridAccuracy(t *testing.T) {
 	envF("VYNULL_BEAT_REF_AMPW", &AmpWeight)
 	envF("VYNULL_BEAT_REF_CLARW", &ClarityWeight)
 	envF("VYNULL_BEAT_REF_GATE", &HalfBeatGate)
+	envF("VYNULL_BEAT_REF_LATENCY", &TempogramLatencyMs)
 	t.Logf("windowed=%v winSec=%.1f ampW=%.1f clarW=%.1f gate=%.1f", WindowedPhase, WindowSec, AmpWeight, ClarityWeight, HalfBeatGate)
 
 	type result struct {
@@ -100,7 +101,7 @@ func TestBeatGridAccuracy(t *testing.T) {
 				if err != nil || len(samples) == 0 {
 					continue
 				}
-				r := DetectBeats(samples, AnalysisRate)
+				r := DetectBeatsWithEncoderDelay(samples, AnalysisRate, EncoderDelayMs(g.File))
 				if r == nil || len(r.Beats) == 0 || g.BPM <= 0 {
 					continue
 				}

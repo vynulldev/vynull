@@ -386,7 +386,8 @@ func AnalyzeTrack(filePath string) (*Result, error) {
 	}
 
 	// ---- DSP (brand-neutral) ----
-	beatResult := DetectBeats(samples, AnalysisRate)
+	// Compensate the lossy encoder delay so lossless grids are not shifted late.
+	beatResult := DetectBeatsWithEncoderDelay(samples, AnalysisRate, EncoderDelayMs(filePath))
 	camelot, standard := DetectKey(samples, AnalysisRate)
 	artwork := ExtractArtwork(filePath)
 	durationSec := float64(len(samples)) / float64(AnalysisRate)
