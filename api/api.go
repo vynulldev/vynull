@@ -1952,6 +1952,10 @@ func (s *Server) tryQueueAnalysis(trackID uint32, filePath string) bool {
 	// here). SetPath above lets Get find the .gob now.
 	if r := s.Analysis.Get(trackID); r != nil {
 		s.queuedAnalyses.Delete(trackID)
+		// A cache hit skips the worker, so apply the worker's library-row
+		// writeback here — without this, a deleted-and-re-added track (whose
+		// cache entry survives, keyed by file path) keeps BPM/duration 0.
+		s.applyAnalysisToTrack(trackID, r)
 		return false
 	}
 	s.Analysis.IncPending()
@@ -1971,26 +1975,7 @@ func (s *Server) analysisWorker() {
 			continue
 		}
 		s.Analysis.Set(job.trackID, r)
-
-		if t := s.Library.Track(job.trackID); t != nil {
-			if t.BPM == 0 && r.BPM > 0 {
-				t.BPM = r.BPM
-			}
-			if t.Duration == 0 && r.Duration > 0 {
-				t.Duration = library.DurationSec(time.Duration(r.Duration) * time.Second)
-			}
-			if t.Key == "" && r.KeyCamelot != "" {
-				t.Key = r.KeyCamelot
-			}
-			// Estimate bitrate from file size and duration.
-			if t.Bitrate == 0 && t.FileSize > 0 && t.Duration > 0 {
-				t.Bitrate = int(t.FileSize * 8 / int64(t.Duration.Seconds()) / 1000)
-			}
-			s.Library.Save()
-		}
-		if r.Artwork != nil {
-			s.Library.Artwork.AddWithID(job.trackID, "image/jpeg", r.Artwork)
-		}
+		s.applyAnalysisToTrack(job.trackID, r)
 
 		// Update device track count.
 		if s.Device != nil {
@@ -1999,6 +1984,53 @@ func (s *Server) analysisWorker() {
 
 		s.Analysis.ClearStatus()
 		log.Printf("api: analyzed track %d: BPM=%.1f key=%s path=%s", job.trackID, r.BPM, r.KeyCamelot, job.filePath)
+	}
+}
+
+// applyAnalysisToTrack fills a library row's analysis-derived fields (BPM,
+// duration, key, bitrate, artwork) from a result. Only empty fields are
+// filled — user edits and existing values are never clobbered — and the
+// library is saved only when something actually changed, so callers can
+// invoke it on every analysis retrieval and it noops once the row is filled.
+//
+// This is the single writeback point for every api route that lands an
+// analysis result: the worker queue, the on-demand path, and a disk-cache
+// hit. Before this, only the worker wrote back, so a track deleted and
+// re-added (whose cache entry survives, keyed by file path) skipped the
+// worker and kept BPM/duration/key zeroed forever — and the web UI scales
+// the detail waveform by the row's duration, so the re-added track showed
+// no waveform at all.
+func (s *Server) applyAnalysisToTrack(trackID uint32, r *analysis.Result) {
+	if s.Library == nil || r == nil {
+		return
+	}
+	t := s.Library.Track(trackID)
+	if t == nil {
+		return
+	}
+	changed := false
+	if t.BPM == 0 && r.BPM > 0 {
+		t.BPM = r.BPM
+		changed = true
+	}
+	if t.Duration == 0 && r.Duration > 0 {
+		t.Duration = library.DurationSec(time.Duration(r.Duration) * time.Second)
+		changed = true
+	}
+	if t.Key == "" && r.KeyCamelot != "" {
+		t.Key = r.KeyCamelot
+		changed = true
+	}
+	// Estimate bitrate from file size and duration.
+	if t.Bitrate == 0 && t.FileSize > 0 && t.Duration > 0 {
+		t.Bitrate = int(t.FileSize * 8 / int64(t.Duration.Seconds()) / 1000)
+		changed = true
+	}
+	if changed {
+		s.Library.Save()
+	}
+	if r.Artwork != nil && s.Library.Artwork.Get(trackID) == nil {
+		s.Library.Artwork.AddWithID(trackID, "image/jpeg", r.Artwork)
 	}
 }
 
@@ -2050,6 +2082,7 @@ func (s *Server) getOrAnalyze(trackID uint32) *analysis.Result {
 		return nil
 	}
 	if r := s.Analysis.Get(trackID); r != nil {
+		s.applyAnalysisToTrack(trackID, r)
 		return r
 	}
 
@@ -2072,6 +2105,7 @@ func (s *Server) getOrAnalyze(trackID uint32) *analysis.Result {
 	// Analyze synchronously.
 	s.Analysis.SetPath(trackID, filePath)
 	if r := s.Analysis.Get(trackID); r != nil {
+		s.applyAnalysisToTrack(trackID, r)
 		return r // disk cache was valid after SetPath
 	}
 
@@ -2082,6 +2116,7 @@ func (s *Server) getOrAnalyze(trackID uint32) *analysis.Result {
 		return nil
 	}
 	s.Analysis.Set(trackID, r)
+	s.applyAnalysisToTrack(trackID, r)
 	log.Printf("api: analyzed track %d: BPM=%.1f key=%s path=%s", trackID, r.BPM, r.KeyCamelot, filePath)
 	return r
 }
@@ -2768,6 +2803,10 @@ func (s *Server) handleWaveformPNG(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	result := s.Analysis.Get(trackID)
+	// Heal the library row from the result (noop once filled): thumbnails are
+	// often the first thing to touch a re-added track's surviving cache entry,
+	// and the row's BPM/duration must follow for the rest of the UI to work.
+	s.applyAnalysisToTrack(trackID, result)
 	if result == nil {
 		s.tryQueueAnalysis(trackID, "")
 		w.Header().Set("Content-Type", "image/png")
