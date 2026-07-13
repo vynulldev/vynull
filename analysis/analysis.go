@@ -26,7 +26,11 @@ const AnalysisRate = 44100
 // only encoder — old V1-encoded caches (saved as 17) and the older
 // experimental V2 caches (saved as 2017 behind --pwv4-v2) both invalidate
 // here, so the next run re-analyzes once and converges on a single format.
-const cacheVersion = 25
+// Bumped to 26 for the beat-grid phase improvements (windowed clarity-weighted
+// phase, gated half-beat flip, codec-aware lossless latency): the values in a
+// v25 cache are still readable but its grids predate those fixes, so one
+// re-analysis pass upgrades every library instead of only newly-added tracks.
+const cacheVersion = 26
 
 // PWV4Override and PWV5Override, when non-nil, replace every track's color
 // preview / detail waveform at serve time. Set via the --pwv4-override /
