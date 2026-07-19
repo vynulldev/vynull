@@ -30,7 +30,10 @@ const AnalysisRate = 44100
 // phase, gated half-beat flip, codec-aware lossless latency): the values in a
 // v25 cache are still readable but its grids predate those fixes, so one
 // re-analysis pass upgrades every library instead of only newly-added tracks.
-const cacheVersion = 26
+// Bumped to 27 for integer-snap BPM verification: ~1/3 of a real library
+// detected a fraction off the true integer tempo (and gridded at the wrong
+// period), so v26 BPMs and grids must re-analyze.
+const cacheVersion = 27
 
 // PWV4Override and PWV5Override, when non-nil, replace every track's color
 // preview / detail waveform at serve time. Set via the --pwv4-override /
