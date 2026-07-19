@@ -1996,10 +1996,14 @@ func (s *Server) analysisWorker() {
 }
 
 // applyAnalysisToTrack fills a library row's analysis-derived fields (BPM,
-// duration, key, bitrate, artwork) from a result. Only empty fields are
-// filled — user edits and existing values are never clobbered — and the
-// library is saved only when something actually changed, so callers can
-// invoke it on every analysis retrieval and it noops once the row is filled.
+// duration, key, bitrate, artwork) from a result. Fields are filled when
+// empty — user edits are never clobbered — and the library is saved only
+// when something actually changed, so callers can invoke it on every
+// analysis retrieval and it noops once the row is settled. BPM is the one
+// field that also UPDATES on re-analysis (unless user-overridden): the beat
+// grid served to decks always comes from the analysis result, so the row
+// must follow it or the UI would display one tempo and the deck play
+// another.
 //
 // This is the single writeback point for every api route that lands an
 // analysis result: the worker queue, the on-demand path, and a disk-cache
@@ -2018,6 +2022,15 @@ func (s *Server) applyAnalysisToTrack(trackID uint32, r *analysis.Result) {
 	}
 	changed := false
 	if t.BPM == 0 && r.BPM > 0 {
+		t.BPM = r.BPM
+		changed = true
+	} else if t.DetectedBPM == 0 && r.BPM > 0 && t.BPM != r.BPM {
+		// Re-analysis produced a different tempo (e.g. a cacheVersion bump
+		// like the v27 integer-snap upgrade): adopt it unless the user
+		// overrode BPM (DetectedBPM != 0 marks an override snapshot). The
+		// played beat grid always comes from the analysis result, so
+		// leaving the row at the old value would display one BPM and play
+		// another.
 		t.BPM = r.BPM
 		changed = true
 	}
