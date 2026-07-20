@@ -690,6 +690,7 @@ type TrackInfo struct {
 	PlayCount      int      `json:"play_count,omitempty"`
 	Tags           []string `json:"tags,omitempty"`
 	ArtID          uint32   `json:"art_id,omitempty"`
+	ArtChecked     bool     `json:"art_checked,omitempty"` // false with art_id 0 = never probed; the web UI requests art optimistically to trigger lazy extraction
 	FileMissing    bool     `json:"file_missing,omitempty"`
 }
 
@@ -744,6 +745,7 @@ func (s *Server) libTrackToInfo(t *library.Track) TrackInfo {
 		ColorName:      trackColorNames[t.ColorID],
 		PlayCount:      t.PlayCount,
 		ArtID:          t.ArtID,
+		ArtChecked:     t.ArtChecked,
 		FileMissing:    t.FileMissing,
 	}
 	if !t.DateAdded.IsZero() {
