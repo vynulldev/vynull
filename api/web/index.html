@@ -5586,12 +5586,32 @@ function thumbLoaded(img) {
 }
 // `sort` is the accessor used by the comparator. `sortable: false` opts a
 // column out of header-click sorting (e.g. the waveform thumbnail).
+// artHTML renders a track's artwork <img>. The request is made optimistically
+// for tracks whose file has never been probed (art_id 0 with art_checked
+// unset): GET /api/artwork/{id} is what triggers the server's lazy ffmpeg
+// extraction, so the first view of a newly added track pulls the art out of
+// the file instead of waiting for a CDJ load to analyze it. Tracks already
+// probed and found artless (art_checked true) go straight to the placeholder,
+// so there is no repeated 404 traffic; onerror degrades to the placeholder
+// for the artless-probe and concurrent-probe cases.
+function artHTML(t, imgClass, fbClass, fbText) {
+  if (t.art_id > 0 || !t.art_checked) {
+    return `<img class="${imgClass}" loading="lazy" alt="" src="/api/artwork/${t.id}"` +
+      ` data-fb-class="${fbClass}" data-fb-text="${fbText}" onerror="artFallback(this)">`;
+  }
+  return `<div class="${fbClass}">${fbText}</div>`;
+}
+function artFallback(img) {
+  const d = document.createElement('div');
+  d.className = img.getAttribute('data-fb-class') || 'lib-art empty';
+  d.textContent = img.getAttribute('data-fb-text') || '';
+  img.replaceWith(d);
+}
+
 const LIBRARY_COLUMNS = [
   { key: 'art',      label: 'ART',    default: false, thClass: '',    tdClass: 'art-cell',
     sortable: false,
-    cell: t => t.art_id > 0
-      ? `<img class="lib-art" loading="lazy" alt="" src="/api/artwork/${t.id}">`
-      : `<div class="lib-art empty"></div>` },
+    cell: t => artHTML(t, 'lib-art', 'lib-art empty', '') },
   { key: 'waveform', label: 'WV',     default: true,  thClass: '',    tdClass: 'wave-cell',
     sortable: false,
     cell: t => `<div class="wave-thumb"><img class="loading" data-libtrack="${t.id}" alt="" loading="lazy" src="${waveThumbSrc(t.id)}" onload="thumbLoaded(this)">${cueMarkerOverlay(t.id, t.duration)}</div>` },
@@ -6191,9 +6211,7 @@ placeMobileSidebar();
 mobileMQ.addEventListener('change', placeMobileSidebar);
 
 function libCardHtml(t) {
-  const art = t.art_id > 0
-    ? `<img class="lib-art" loading="lazy" alt="" src="/api/artwork/${t.id}">`
-    : `<div class="lib-art placeholder">♪</div>`;
+  const art = artHTML(t, 'lib-art', 'lib-art placeholder', '♪');
   const facts = [];
   if (t.bpm) facts.push((+t.bpm).toFixed(1));
   if (t.key) facts.push(t.key);
@@ -7654,9 +7672,7 @@ function renderDetail(t, cues, wave, phrases, analysis) {
   // Tags section is re-rendered into <div id="tags-host"> after mutations.
   const tagsHTML = '<div id="tags-host"></div>';
 
-  const detailArt = t.art_id > 0
-    ? `<img class="detail-art" loading="lazy" alt="" src="/api/artwork/${t.id}">`
-    : `<div class="detail-art empty"></div>`;
+  const detailArt = artHTML(t, 'detail-art', 'detail-art empty', '');
   document.getElementById('detail-body').innerHTML = `
     <div class="detail-track-head">
       ${detailArt}
