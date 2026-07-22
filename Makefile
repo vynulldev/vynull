@@ -6,7 +6,7 @@ build:
 
 # rekordbox mode (the default) — no privileged ports needed
 run: build
-	sudo ./vynull --music-dir $(MUSIC)
+	./vynull --music-dir $(MUSIC)
 
 # CDJ-USB source mode — needs UDP 111 (see README Requirements)
 run-cdj: build
