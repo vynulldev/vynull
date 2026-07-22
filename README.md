@@ -128,7 +128,7 @@ By default it listens on `127.0.0.1:9443`; use `--listen 0.0.0.0:9443` to reach
 it from another device on the LAN.
 
 ```bash
-sudo ./vynull --interface eth1 --mode rekordbox --web --listen 0.0.0.0:9443
+./vynull --interface eth1 --mode rekordbox --web --listen 0.0.0.0:9443
 # then open http://<this-machine>:9443/
 ```
 
@@ -173,7 +173,7 @@ else need no Python.
 Scan a music directory at startup:
 
 ```bash
-sudo ./vynull --interface eth1 --music-dir /path/to/music --lazy-analysis
+./vynull --interface eth1 --music-dir /path/to/music --lazy-analysis
 ```
 
 ### Rekordbox USB Mode
@@ -181,6 +181,7 @@ sudo ./vynull --interface eth1 --music-dir /path/to/music --lazy-analysis
 If you have an existing rekordbox-exported USB drive:
 
 ```bash
+# CDJ mode needs UDP 111 — see "Port 111 (CDJ mode only)" for sudo-free options
 sudo ./vynull --interface eth1 --music-dir /media/usb --mode cdj
 ```
 
