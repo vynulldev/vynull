@@ -55,9 +55,10 @@ const (
 	tabPlayers tuiTab = iota
 	tabLibrary
 	tabSettings
+	tabLogs
 )
 
-var tabNames = []string{"Players", "Library", "Settings"}
+var tabNames = []string{"Players", "Library", "Settings", "Logs"}
 
 type tuiModel struct {
 	monitor  *PlayerMonitor
@@ -66,6 +67,7 @@ type tuiModel struct {
 	peers    *PeerTracker
 	mixersFn func() map[uint8]proto.MixerStatus
 	apiAddr  string
+	logs     *LogRing // nil → Logs tab shows a hint instead
 
 	active tuiTab
 	width  int
@@ -79,6 +81,12 @@ type tuiModel struct {
 	// Settings tab state
 	settingsCursor int
 	settingsOffset int
+
+	// Logs tab state. logFollow pins the view to the tail (the default);
+	// scrolling up detaches it, G/end re-attach. logOffset is the index of
+	// the first visible line while detached.
+	logOffset int
+	logFollow bool
 }
 
 // NewTUI returns a bubbletea program rendering the player monitor +
@@ -86,14 +94,18 @@ type tuiModel struct {
 // the user presses 'q' or sends SIGINT/SIGTERM.
 // mixersFn (optional) returns the latest per-device mixer status snapshot,
 // used to fill in channel/master state on the PLAYERS-view mixer strip.
-func NewTUI(monitor *PlayerMonitor, lib *library.Library, settings *CDJSettings, peers *PeerTracker, mixersFn func() map[uint8]proto.MixerStatus, apiAddr string) *tea.Program {
+// logs (optional) is the in-memory tail of the log stream for the Logs tab;
+// pass the LogRing that tees the log file writer.
+func NewTUI(monitor *PlayerMonitor, lib *library.Library, settings *CDJSettings, peers *PeerTracker, mixersFn func() map[uint8]proto.MixerStatus, apiAddr string, logs *LogRing) *tea.Program {
 	m := tuiModel{
-		monitor:  monitor,
-		lib:      lib,
-		settings: settings,
-		peers:    peers,
-		mixersFn: mixersFn,
-		apiAddr:  apiAddr,
+		monitor:   monitor,
+		lib:       lib,
+		settings:  settings,
+		peers:     peers,
+		mixersFn:  mixersFn,
+		apiAddr:   apiAddr,
+		logs:      logs,
+		logFollow: true,
 	}
 	return tea.NewProgram(m, tea.WithAltScreen())
 }
@@ -168,6 +180,30 @@ func (m *tuiModel) moveCursor(delta int) {
 		if m.settingsCursor < 0 {
 			m.settingsCursor = 0
 		}
+	case tabLogs:
+		if m.logs == nil {
+			return
+		}
+		total := len(m.logs.Lines())
+		rows := m.logViewRows()
+		maxOffset := total - rows
+		if maxOffset < 0 {
+			maxOffset = 0
+		}
+		if m.logFollow {
+			// Detach from the tail at the current position.
+			m.logOffset = maxOffset
+		}
+		m.logOffset += delta
+		if m.logOffset < 0 {
+			m.logOffset = 0
+		}
+		if m.logOffset >= maxOffset {
+			m.logOffset = maxOffset
+			m.logFollow = true // scrolled back to the tail → re-follow
+		} else {
+			m.logFollow = false
+		}
 	}
 }
 
@@ -187,6 +223,13 @@ func (m *tuiModel) setCursor(pos int) {
 			pos = 0
 		}
 		m.settingsCursor = pos
+	case tabLogs:
+		if pos == 0 { // g → jump to the oldest buffered line
+			m.logOffset = 0
+			m.logFollow = false
+		} else { // G → back to following the tail
+			m.logFollow = true
+		}
 	}
 }
 
@@ -213,6 +256,8 @@ func (m tuiModel) View() string {
 		top.WriteString(m.renderLibrary())
 	case tabSettings:
 		top.WriteString(m.renderSettings())
+	case tabLogs:
+		top.WriteString(m.renderLogs())
 	}
 	top.WriteString("\n")
 	top.WriteString(divider)
@@ -288,6 +333,8 @@ func (m tuiModel) renderHints() string {
 	switch m.active {
 	case tabLibrary:
 		return hintStyle.Render(common + "  •  g/G: top/bottom")
+	case tabLogs:
+		return hintStyle.Render(common + "  •  ↑↓/pgup/pgdn: scroll  •  g: oldest  •  G: follow")
 	default:
 		return hintStyle.Render(common)
 	}
@@ -525,6 +572,68 @@ func (m tuiModel) renderSettings() string {
 		b.WriteString(line + "\n")
 	}
 	return b.String()
+}
+
+// ---------- Logs tab ----------
+
+// logViewRows is the line budget for the Logs tab: the viewport minus the
+// tab's own header line.
+func (m tuiModel) logViewRows() int {
+	rows := m.viewportRows() - 2
+	if rows < 1 {
+		rows = 1
+	}
+	return rows
+}
+
+func (m tuiModel) renderLogs() string {
+	if m.logs == nil {
+		return dimStyle.Render("\n  Log buffer not available (--log-file only captures to disk).")
+	}
+	lines := m.logs.Lines()
+	rows := m.logViewRows()
+	offset := m.logOffset
+	if m.logFollow || offset > len(lines)-rows {
+		offset = len(lines) - rows
+	}
+	if offset < 0 {
+		offset = 0
+	}
+	end := offset + rows
+	if end > len(lines) {
+		end = len(lines)
+	}
+
+	var b strings.Builder
+	b.WriteByte('\n')
+	b.WriteString("  ")
+	mode := accentStyle.Render("● FOLLOWING")
+	if !m.logFollow {
+		mode = dimStyle.Render("⏸ PAUSED (G to follow)")
+	}
+	b.WriteString(titleStyle.Render(fmt.Sprintf("%d lines buffered", len(lines))))
+	b.WriteString("  ")
+	b.WriteString(mode)
+	b.WriteByte('\n')
+	if len(lines) == 0 {
+		b.WriteString(dimStyle.Render("  (no log output yet)"))
+		return b.String()
+	}
+	// Trim the stdlib log timestamp to the clock (drop the date — the date
+	// column is dead width on a live view) and clip to the terminal.
+	width := m.width - 4
+	if width < 10 {
+		width = 10
+	}
+	for _, line := range lines[offset:end] {
+		if len(line) > 20 && line[4] == '/' && line[7] == '/' && line[10] == ' ' {
+			line = line[11:] // "2026/07/23 12:04:05 msg" → "12:04:05 msg"
+		}
+		b.WriteString("  ")
+		b.WriteString(truncate(line, width))
+		b.WriteByte('\n')
+	}
+	return strings.TrimRight(b.String(), "\n")
 }
 
 // ---------- helpers ----------
