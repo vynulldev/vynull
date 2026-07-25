@@ -12,7 +12,13 @@ import (
 	"github.com/vynulldev/vynull/proto"
 )
 
-const peerTimeout = 5 * time.Second
+// peerTimeout is how long a peer stays "active" after its last keep-alive.
+// Devices broadcast keep-alives every 2s (measured on a DJM-A9; CDJs are
+// similar), so the old 5s window meant two consecutive lost broadcasts —
+// easy on a busy link-local segment — made the device vanish from the
+// players/mixer views until the next packet. 10s tolerates four lost
+// packets while still clearing genuinely departed devices quickly.
+const peerTimeout = 10 * time.Second
 
 // Peer represents a device seen on the Pro DJ Link network.
 type Peer struct {

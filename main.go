@@ -652,7 +652,9 @@ func main() {
 		// Launch the TUI on the main goroutine. It owns the terminal until
 		// the user presses 'q' or ctx is cancelled from elsewhere (SIGINT,
 		// service error). Bridge ctx → program.Quit so SIGINT unwinds cleanly.
-		tuiProgram := device.NewTUI(monitor, lib, cdjSettings, dev.Peers, dev.MixerSnapshot, displayAddr(cfg.Listen), logRing)
+		tuiProgram := device.NewTUI(monitor, lib, cdjSettings,
+			func() *device.PeerTracker { return dev.Peers }, // created inside dev.Start — resolve at render time
+			dev.MixerSnapshot, displayAddr(cfg.Listen), logRing)
 		go func() {
 			<-ctx.Done()
 			tuiProgram.Quit()

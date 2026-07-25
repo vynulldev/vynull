@@ -64,7 +64,7 @@ type tuiModel struct {
 	monitor  *PlayerMonitor
 	lib      *library.Library
 	settings *CDJSettings
-	peers    *PeerTracker
+	peersFn  func() *PeerTracker // resolved at render time — see NewTUI
 	mixersFn func() map[uint8]proto.MixerStatus
 	apiAddr  string
 	logs     *LogRing // nil → Logs tab shows a hint instead
@@ -96,12 +96,18 @@ type tuiModel struct {
 // used to fill in channel/master state on the PLAYERS-view mixer strip.
 // logs (optional) is the in-memory tail of the log stream for the Logs tab;
 // pass the LogRing that tees the log file writer.
-func NewTUI(monitor *PlayerMonitor, lib *library.Library, settings *CDJSettings, peers *PeerTracker, mixersFn func() map[uint8]proto.MixerStatus, apiAddr string, logs *LogRing) *tea.Program {
+//
+// peersFn returns the live PeerTracker and is called at render time, NOT
+// captured once here: the tracker is created inside VirtualDevice.Start,
+// which races TUI construction at startup. Passing dev.Peers by value made
+// the mixer strip a per-session coin flip — whichever goroutine won, the TUI
+// either had the tracker or held nil for the whole run.
+func NewTUI(monitor *PlayerMonitor, lib *library.Library, settings *CDJSettings, peersFn func() *PeerTracker, mixersFn func() map[uint8]proto.MixerStatus, apiAddr string, logs *LogRing) *tea.Program {
 	m := tuiModel{
 		monitor:   monitor,
 		lib:       lib,
 		settings:  settings,
-		peers:     peers,
+		peersFn:   peersFn,
 		mixersFn:  mixersFn,
 		apiAddr:   apiAddr,
 		logs:      logs,
@@ -356,12 +362,12 @@ func (m tuiModel) renderPlayers() string {
 	// When we've parsed a status broadcast for it (0x29 rich, or the
 	// 0x03 channel packet), show master tempo and which channels are
 	// on-air; otherwise fall back to a "detected" hint.
-	if m.peers != nil {
+	if peers := m.resolvePeers(); peers != nil {
 		var mixers map[uint8]proto.MixerStatus
 		if m.mixersFn != nil {
 			mixers = m.mixersFn()
 		}
-		for _, p := range m.peers.Peers() {
+		for _, p := range peers.Peers() {
 			if p.DeviceType != proto.DeviceMixer {
 				continue
 			}
@@ -690,6 +696,15 @@ func (m tuiModel) renderLogs() string {
 }
 
 // ---------- helpers ----------
+
+// resolvePeers fetches the live PeerTracker (nil until the device loop has
+// created it).
+func (m tuiModel) resolvePeers() *PeerTracker {
+	if m.peersFn == nil {
+		return nil
+	}
+	return m.peersFn()
+}
 
 func (m tuiModel) viewportRows() int {
 	// reserve lines for header (2), divider (2), status (1), hints (2)
