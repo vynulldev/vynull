@@ -180,6 +180,9 @@ func (m *tuiModel) moveCursor(delta int) {
 		if m.settingsCursor < 0 {
 			m.settingsCursor = 0
 		}
+		if m.settingsCursor > settingsRowCount-1 {
+			m.settingsCursor = settingsRowCount - 1
+		}
 	case tabLogs:
 		if m.logs == nil {
 			return
@@ -219,6 +222,9 @@ func (m *tuiModel) setCursor(pos int) {
 		}
 		m.libCursor = pos
 	case tabSettings:
+		if pos > settingsRowCount-1 {
+			pos = settingsRowCount - 1
+		}
 		if pos < 0 {
 			pos = 0
 		}
@@ -526,6 +532,10 @@ func (m tuiModel) renderLibrary() string {
 
 // ---------- Settings tab ----------
 
+// settingsRowCount mirrors the row list in renderSettings so cursor
+// clamping can know the bound without building the rows.
+const settingsRowCount = 25
+
 func (m tuiModel) renderSettings() string {
 	if m.settings == nil {
 		return dimStyle.Render("\n  Settings not available.")
@@ -560,18 +570,61 @@ func (m tuiModel) renderSettings() string {
 		{"wave_position", cfg.DevSetting.WavePosition},
 	}
 
-	var b strings.Builder
-	b.WriteString("\n  " + dimStyle.Render("(read-only view — edit settings.json to change)") + "\n\n")
-	for i, r := range rows {
-		if r.value == "" {
-			b.WriteString("  " + titleStyle.Render(r.label) + "\n")
-			continue
-		}
-		line := fmt.Sprintf("  %-26s %s", r.label, r.value)
-		_ = i
-		b.WriteString(line + "\n")
+	// Scroll to the viewport like the Library tab: the full list is taller
+	// than a typical terminal, and rendering every row pushed the tab bar
+	// off the top of the screen. The cursor row stays in view; section
+	// headers scroll with their rows.
+	view := m.viewportRows() - 3 // hint line + 2 padding
+	if view < 1 {
+		view = 1
 	}
-	return b.String()
+	cursor := m.settingsCursor
+	if cursor >= len(rows) {
+		cursor = len(rows) - 1
+	}
+	offset := m.settingsOffset
+	if cursor < offset {
+		offset = cursor
+	}
+	if cursor >= offset+view {
+		offset = cursor - view + 1
+	}
+	if offset > len(rows)-view {
+		offset = len(rows) - view
+	}
+	if offset < 0 {
+		offset = 0
+	}
+	end := offset + view
+	if end > len(rows) {
+		end = len(rows)
+	}
+
+	var b strings.Builder
+	b.WriteByte('\n')
+	b.WriteString("  ")
+	b.WriteString(dimStyle.Render("(read-only view — edit settings.json to change)"))
+	if len(rows) > view {
+		b.WriteString(dimStyle.Render(fmt.Sprintf("  · %d-%d of %d", offset+1, end, len(rows))))
+	}
+	b.WriteByte('\n')
+	for i := offset; i < end; i++ {
+		r := rows[i]
+		var line string
+		if r.value == "" {
+			line = "  " + titleStyle.Render(r.label)
+		} else {
+			line = fmt.Sprintf("  %-26s %s", r.label, r.value)
+		}
+		if i == cursor {
+			// Rebuild unstyled so the cursor background spans the row.
+			plain := fmt.Sprintf("  %-26s %s", r.label, r.value)
+			line = cursorStyle.Render(plain)
+		}
+		b.WriteString(line)
+		b.WriteByte('\n')
+	}
+	return strings.TrimRight(b.String(), "\n")
 }
 
 // ---------- Logs tab ----------
