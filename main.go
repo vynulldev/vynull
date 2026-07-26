@@ -5,6 +5,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"io"
 	"log"
 	"net"
 	"net/http"
@@ -106,6 +107,9 @@ func main() {
 	//   --log-file PATH  → append to that file (TUI or headless)
 	//   TUI (default)    → an auto temp file, since the TUI owns the terminal
 	//   headless         → stdout (no redirect)
+	// In TUI mode the last few thousand log lines are also kept in memory
+	// for the Logs tab, teed alongside the file writer.
+	var logRing *device.LogRing
 	if cfg.GenerateDir == "" {
 		var logFile *os.File
 		var err error
@@ -118,7 +122,12 @@ func main() {
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "warning: could not open log file: %v (logging to stdout)\n", err)
 		} else if logFile != nil {
-			log.SetOutput(logFile)
+			if cfg.TUI {
+				logRing = device.NewLogRing(2000)
+				log.SetOutput(io.MultiWriter(logFile, logRing))
+			} else {
+				log.SetOutput(logFile)
+			}
 			defer logFile.Close()
 			fmt.Printf("Logging to %s\n", logFile.Name())
 			// Mirror runtime crash output (panics from any goroutine
@@ -643,7 +652,9 @@ func main() {
 		// Launch the TUI on the main goroutine. It owns the terminal until
 		// the user presses 'q' or ctx is cancelled from elsewhere (SIGINT,
 		// service error). Bridge ctx → program.Quit so SIGINT unwinds cleanly.
-		tuiProgram := device.NewTUI(monitor, lib, cdjSettings, dev.Peers, dev.MixerSnapshot, displayAddr(cfg.Listen))
+		tuiProgram := device.NewTUI(monitor, lib, cdjSettings,
+			func() *device.PeerTracker { return dev.Peers }, // created inside dev.Start — resolve at render time
+			dev.MixerSnapshot, displayAddr(cfg.Listen), logRing)
 		go func() {
 			<-ctx.Done()
 			tuiProgram.Quit()

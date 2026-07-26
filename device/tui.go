@@ -55,17 +55,19 @@ const (
 	tabPlayers tuiTab = iota
 	tabLibrary
 	tabSettings
+	tabLogs
 )
 
-var tabNames = []string{"Players", "Library", "Settings"}
+var tabNames = []string{"Players", "Library", "Settings", "Logs"}
 
 type tuiModel struct {
 	monitor  *PlayerMonitor
 	lib      *library.Library
 	settings *CDJSettings
-	peers    *PeerTracker
+	peersFn  func() *PeerTracker // resolved at render time — see NewTUI
 	mixersFn func() map[uint8]proto.MixerStatus
 	apiAddr  string
+	logs     *LogRing // nil → Logs tab shows a hint instead
 
 	active tuiTab
 	width  int
@@ -79,6 +81,12 @@ type tuiModel struct {
 	// Settings tab state
 	settingsCursor int
 	settingsOffset int
+
+	// Logs tab state. logFollow pins the view to the tail (the default);
+	// scrolling up detaches it, G/end re-attach. logOffset is the index of
+	// the first visible line while detached.
+	logOffset int
+	logFollow bool
 }
 
 // NewTUI returns a bubbletea program rendering the player monitor +
@@ -86,14 +94,24 @@ type tuiModel struct {
 // the user presses 'q' or sends SIGINT/SIGTERM.
 // mixersFn (optional) returns the latest per-device mixer status snapshot,
 // used to fill in channel/master state on the PLAYERS-view mixer strip.
-func NewTUI(monitor *PlayerMonitor, lib *library.Library, settings *CDJSettings, peers *PeerTracker, mixersFn func() map[uint8]proto.MixerStatus, apiAddr string) *tea.Program {
+// logs (optional) is the in-memory tail of the log stream for the Logs tab;
+// pass the LogRing that tees the log file writer.
+//
+// peersFn returns the live PeerTracker and is called at render time, NOT
+// captured once here: the tracker is created inside VirtualDevice.Start,
+// which races TUI construction at startup. Passing dev.Peers by value made
+// the mixer strip a per-session coin flip — whichever goroutine won, the TUI
+// either had the tracker or held nil for the whole run.
+func NewTUI(monitor *PlayerMonitor, lib *library.Library, settings *CDJSettings, peersFn func() *PeerTracker, mixersFn func() map[uint8]proto.MixerStatus, apiAddr string, logs *LogRing) *tea.Program {
 	m := tuiModel{
-		monitor:  monitor,
-		lib:      lib,
-		settings: settings,
-		peers:    peers,
-		mixersFn: mixersFn,
-		apiAddr:  apiAddr,
+		monitor:   monitor,
+		lib:       lib,
+		settings:  settings,
+		peersFn:   peersFn,
+		mixersFn:  mixersFn,
+		apiAddr:   apiAddr,
+		logs:      logs,
+		logFollow: true,
 	}
 	return tea.NewProgram(m, tea.WithAltScreen())
 }
@@ -168,6 +186,33 @@ func (m *tuiModel) moveCursor(delta int) {
 		if m.settingsCursor < 0 {
 			m.settingsCursor = 0
 		}
+		if m.settingsCursor > settingsRowCount-1 {
+			m.settingsCursor = settingsRowCount - 1
+		}
+	case tabLogs:
+		if m.logs == nil {
+			return
+		}
+		total := len(m.logs.Lines())
+		rows := m.logViewRows()
+		maxOffset := total - rows
+		if maxOffset < 0 {
+			maxOffset = 0
+		}
+		if m.logFollow {
+			// Detach from the tail at the current position.
+			m.logOffset = maxOffset
+		}
+		m.logOffset += delta
+		if m.logOffset < 0 {
+			m.logOffset = 0
+		}
+		if m.logOffset >= maxOffset {
+			m.logOffset = maxOffset
+			m.logFollow = true // scrolled back to the tail → re-follow
+		} else {
+			m.logFollow = false
+		}
 	}
 }
 
@@ -183,10 +228,20 @@ func (m *tuiModel) setCursor(pos int) {
 		}
 		m.libCursor = pos
 	case tabSettings:
+		if pos > settingsRowCount-1 {
+			pos = settingsRowCount - 1
+		}
 		if pos < 0 {
 			pos = 0
 		}
 		m.settingsCursor = pos
+	case tabLogs:
+		if pos == 0 { // g → jump to the oldest buffered line
+			m.logOffset = 0
+			m.logFollow = false
+		} else { // G → back to following the tail
+			m.logFollow = true
+		}
 	}
 }
 
@@ -213,6 +268,8 @@ func (m tuiModel) View() string {
 		top.WriteString(m.renderLibrary())
 	case tabSettings:
 		top.WriteString(m.renderSettings())
+	case tabLogs:
+		top.WriteString(m.renderLogs())
 	}
 	top.WriteString("\n")
 	top.WriteString(divider)
@@ -288,6 +345,8 @@ func (m tuiModel) renderHints() string {
 	switch m.active {
 	case tabLibrary:
 		return hintStyle.Render(common + "  •  g/G: top/bottom")
+	case tabLogs:
+		return hintStyle.Render(common + "  •  ↑↓/pgup/pgdn: scroll  •  g: oldest  •  G: follow")
 	default:
 		return hintStyle.Render(common)
 	}
@@ -303,12 +362,12 @@ func (m tuiModel) renderPlayers() string {
 	// When we've parsed a status broadcast for it (0x29 rich, or the
 	// 0x03 channel packet), show master tempo and which channels are
 	// on-air; otherwise fall back to a "detected" hint.
-	if m.peers != nil {
+	if peers := m.resolvePeers(); peers != nil {
 		var mixers map[uint8]proto.MixerStatus
 		if m.mixersFn != nil {
 			mixers = m.mixersFn()
 		}
-		for _, p := range m.peers.Peers() {
+		for _, p := range peers.Peers() {
 			if p.DeviceType != proto.DeviceMixer {
 				continue
 			}
@@ -479,6 +538,10 @@ func (m tuiModel) renderLibrary() string {
 
 // ---------- Settings tab ----------
 
+// settingsRowCount mirrors the row list in renderSettings so cursor
+// clamping can know the bound without building the rows.
+const settingsRowCount = 25
+
 func (m tuiModel) renderSettings() string {
 	if m.settings == nil {
 		return dimStyle.Render("\n  Settings not available.")
@@ -513,21 +576,135 @@ func (m tuiModel) renderSettings() string {
 		{"wave_position", cfg.DevSetting.WavePosition},
 	}
 
-	var b strings.Builder
-	b.WriteString("\n  " + dimStyle.Render("(read-only view — edit settings.json to change)") + "\n\n")
-	for i, r := range rows {
-		if r.value == "" {
-			b.WriteString("  " + titleStyle.Render(r.label) + "\n")
-			continue
-		}
-		line := fmt.Sprintf("  %-26s %s", r.label, r.value)
-		_ = i
-		b.WriteString(line + "\n")
+	// Scroll to the viewport like the Library tab: the full list is taller
+	// than a typical terminal, and rendering every row pushed the tab bar
+	// off the top of the screen. The cursor row stays in view; section
+	// headers scroll with their rows.
+	view := m.viewportRows() - 3 // hint line + 2 padding
+	if view < 1 {
+		view = 1
 	}
-	return b.String()
+	cursor := m.settingsCursor
+	if cursor >= len(rows) {
+		cursor = len(rows) - 1
+	}
+	offset := m.settingsOffset
+	if cursor < offset {
+		offset = cursor
+	}
+	if cursor >= offset+view {
+		offset = cursor - view + 1
+	}
+	if offset > len(rows)-view {
+		offset = len(rows) - view
+	}
+	if offset < 0 {
+		offset = 0
+	}
+	end := offset + view
+	if end > len(rows) {
+		end = len(rows)
+	}
+
+	var b strings.Builder
+	b.WriteByte('\n')
+	b.WriteString("  ")
+	b.WriteString(dimStyle.Render("(read-only view — edit settings.json to change)"))
+	if len(rows) > view {
+		b.WriteString(dimStyle.Render(fmt.Sprintf("  · %d-%d of %d", offset+1, end, len(rows))))
+	}
+	b.WriteByte('\n')
+	for i := offset; i < end; i++ {
+		r := rows[i]
+		var line string
+		if r.value == "" {
+			line = "  " + titleStyle.Render(r.label)
+		} else {
+			line = fmt.Sprintf("  %-26s %s", r.label, r.value)
+		}
+		if i == cursor {
+			// Rebuild unstyled so the cursor background spans the row.
+			plain := fmt.Sprintf("  %-26s %s", r.label, r.value)
+			line = cursorStyle.Render(plain)
+		}
+		b.WriteString(line)
+		b.WriteByte('\n')
+	}
+	return strings.TrimRight(b.String(), "\n")
+}
+
+// ---------- Logs tab ----------
+
+// logViewRows is the line budget for the Logs tab: the viewport minus the
+// tab's own header line.
+func (m tuiModel) logViewRows() int {
+	rows := m.viewportRows() - 2
+	if rows < 1 {
+		rows = 1
+	}
+	return rows
+}
+
+func (m tuiModel) renderLogs() string {
+	if m.logs == nil {
+		return dimStyle.Render("\n  Log buffer not available (--log-file only captures to disk).")
+	}
+	lines := m.logs.Lines()
+	rows := m.logViewRows()
+	offset := m.logOffset
+	if m.logFollow || offset > len(lines)-rows {
+		offset = len(lines) - rows
+	}
+	if offset < 0 {
+		offset = 0
+	}
+	end := offset + rows
+	if end > len(lines) {
+		end = len(lines)
+	}
+
+	var b strings.Builder
+	b.WriteByte('\n')
+	b.WriteString("  ")
+	mode := accentStyle.Render("● FOLLOWING")
+	if !m.logFollow {
+		mode = dimStyle.Render("⏸ PAUSED (G to follow)")
+	}
+	b.WriteString(titleStyle.Render(fmt.Sprintf("%d lines buffered", len(lines))))
+	b.WriteString("  ")
+	b.WriteString(mode)
+	b.WriteByte('\n')
+	if len(lines) == 0 {
+		b.WriteString(dimStyle.Render("  (no log output yet)"))
+		return b.String()
+	}
+	// Trim the stdlib log timestamp to the clock (drop the date — the date
+	// column is dead width on a live view) and clip to the terminal.
+	width := m.width - 4
+	if width < 10 {
+		width = 10
+	}
+	for _, line := range lines[offset:end] {
+		if len(line) > 20 && line[4] == '/' && line[7] == '/' && line[10] == ' ' {
+			line = line[11:] // "2026/07/23 12:04:05 msg" → "12:04:05 msg"
+		}
+		b.WriteString("  ")
+		b.WriteString(truncate(line, width))
+		b.WriteByte('\n')
+	}
+	return strings.TrimRight(b.String(), "\n")
 }
 
 // ---------- helpers ----------
+
+// resolvePeers fetches the live PeerTracker (nil until the device loop has
+// created it).
+func (m tuiModel) resolvePeers() *PeerTracker {
+	if m.peersFn == nil {
+		return nil
+	}
+	return m.peersFn()
+}
 
 func (m tuiModel) viewportRows() int {
 	// reserve lines for header (2), divider (2), status (1), hints (2)

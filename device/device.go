@@ -699,7 +699,27 @@ func (d *VirtualDevice) listenStatus(ctx context.Context) {
 					if d.mixerStatuses == nil {
 						d.mixerStatuses = make(map[uint8]*proto.MixerStatus)
 					}
-					_, alreadyLogged := d.mixerStatuses[mx.DeviceNumber]
+					prev, alreadyLogged := d.mixerStatuses[mx.DeviceNumber]
+					// A stripped 0x30 (newer DJMs) carries only presence —
+					// no channel or master state. Merge it over what the
+					// 0x03 channel listener has learned instead of
+					// clobbering, or the mixer views flip between "channel
+					// state" and "detected" at packet cadence as the two
+					// writers fight. A rich 0x29 carries everything and
+					// may replace the entry wholesale.
+					if prev != nil && !mx.ChannelStateKnown && prev.ChannelStateKnown {
+						mx.ChannelOnAir = prev.ChannelOnAir
+						mx.ChannelStateKnown = true
+						if mx.MasterBPM == 0 {
+							mx.MasterBPM = prev.MasterBPM
+						}
+						if mx.MasterDevice == 0 {
+							mx.MasterDevice = prev.MasterDevice
+						}
+						if mx.BeatInBar == 0 {
+							mx.BeatInBar = prev.BeatInBar
+						}
+					}
 					d.mixerStatuses[mx.DeviceNumber] = mx
 					d.mixerStatusesMu.Unlock()
 					if !alreadyLogged {
