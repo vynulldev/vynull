@@ -622,21 +622,56 @@ func (d *VirtualDevice) listenBeats(ctx context.Context) {
 		if !ok {
 			continue
 		}
-		d.mixerStatusesMu.Lock()
-		if d.mixerStatuses == nil {
-			d.mixerStatuses = make(map[uint8]*proto.MixerStatus)
-		}
-		prev := d.mixerStatuses[mx.DeviceNumber]
-		// Merge channel state with whatever 0x29/0x30 presence info
-		// we already have so the API can surface both at once.
-		if prev != nil {
-			prev.ChannelOnAir = mx.ChannelOnAir
-			prev.ChannelStateKnown = true
-		} else {
-			d.mixerStatuses[mx.DeviceNumber] = mx
-		}
-		d.mixerStatusesMu.Unlock()
+		d.recordMixerChannels(mx)
 	}
+}
+
+// recordMixerChannels folds a 0x03 channel-state packet into the mixer
+// status map: merge channel state with whatever 0x29/0x30 presence info we
+// already have so the API can surface both at once.
+func (d *VirtualDevice) recordMixerChannels(mx *proto.MixerStatus) {
+	d.mixerStatusesMu.Lock()
+	defer d.mixerStatusesMu.Unlock()
+	if d.mixerStatuses == nil {
+		d.mixerStatuses = make(map[uint8]*proto.MixerStatus)
+	}
+	if prev := d.mixerStatuses[mx.DeviceNumber]; prev != nil {
+		prev.ChannelOnAir = mx.ChannelOnAir
+		prev.ChannelStateKnown = true
+	} else {
+		d.mixerStatuses[mx.DeviceNumber] = mx
+	}
+}
+
+// recordMixerStatus folds a 0x29/0x30 status packet into the mixer status
+// map, returning whether this mixer had no status entry yet (callers log the
+// first packet). A stripped 0x30 (newer DJMs) carries only presence — no
+// channel or master state. Merge it over what the 0x03 channel listener has
+// learned instead of clobbering, or the mixer views flip between "channel
+// state" and "detected" at packet cadence as the two writers fight. A rich
+// 0x29 carries everything and may replace the entry wholesale.
+func (d *VirtualDevice) recordMixerStatus(mx *proto.MixerStatus) (first bool) {
+	d.mixerStatusesMu.Lock()
+	defer d.mixerStatusesMu.Unlock()
+	if d.mixerStatuses == nil {
+		d.mixerStatuses = make(map[uint8]*proto.MixerStatus)
+	}
+	prev, seen := d.mixerStatuses[mx.DeviceNumber]
+	if prev != nil && !mx.ChannelStateKnown && prev.ChannelStateKnown {
+		mx.ChannelOnAir = prev.ChannelOnAir
+		mx.ChannelStateKnown = true
+		if mx.MasterBPM == 0 {
+			mx.MasterBPM = prev.MasterBPM
+		}
+		if mx.MasterDevice == 0 {
+			mx.MasterDevice = prev.MasterDevice
+		}
+		if mx.BeatInBar == 0 {
+			mx.BeatInBar = prev.BeatInBar
+		}
+	}
+	d.mixerStatuses[mx.DeviceNumber] = mx
+	return !seen
 }
 
 func (d *VirtualDevice) listenStatus(ctx context.Context) {
@@ -695,34 +730,7 @@ func (d *VirtualDevice) listenStatus(ctx context.Context) {
 			}
 			if isMixer {
 				if mx, ok := proto.ParseMixerStatus(buf[:n]); ok {
-					d.mixerStatusesMu.Lock()
-					if d.mixerStatuses == nil {
-						d.mixerStatuses = make(map[uint8]*proto.MixerStatus)
-					}
-					prev, alreadyLogged := d.mixerStatuses[mx.DeviceNumber]
-					// A stripped 0x30 (newer DJMs) carries only presence —
-					// no channel or master state. Merge it over what the
-					// 0x03 channel listener has learned instead of
-					// clobbering, or the mixer views flip between "channel
-					// state" and "detected" at packet cadence as the two
-					// writers fight. A rich 0x29 carries everything and
-					// may replace the entry wholesale.
-					if prev != nil && !mx.ChannelStateKnown && prev.ChannelStateKnown {
-						mx.ChannelOnAir = prev.ChannelOnAir
-						mx.ChannelStateKnown = true
-						if mx.MasterBPM == 0 {
-							mx.MasterBPM = prev.MasterBPM
-						}
-						if mx.MasterDevice == 0 {
-							mx.MasterDevice = prev.MasterDevice
-						}
-						if mx.BeatInBar == 0 {
-							mx.BeatInBar = prev.BeatInBar
-						}
-					}
-					d.mixerStatuses[mx.DeviceNumber] = mx
-					d.mixerStatusesMu.Unlock()
-					if !alreadyLogged {
+					if d.recordMixerStatus(mx) {
 						log.Printf("mixer: first 0x29 from %s (%s) device %d — len=%d masterBPM=%.2f masterDev=%d onAir=%04b beat=%d\n%s",
 							mx.Name, addr.IP, mx.DeviceNumber, n, mx.MasterBPM, mx.MasterDevice, mx.ChannelOnAir, mx.BeatInBar, hex.Dump(buf[:n]))
 					}
