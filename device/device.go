@@ -13,6 +13,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/vynulldev/vynull/internal/dlog"
 	"github.com/vynulldev/vynull/proto"
 )
 
@@ -228,8 +229,10 @@ func (d *VirtualDevice) Start(ctx context.Context) error {
 	go d.statusBroadcastLoop(ctx)
 
 	// Log one keep-alive packet for debugging (purely informational).
-	sample := proto.MarshalKeepAlive(d.Name, d.DeviceNumber, d.DeviceType, d.MAC, d.IP, 0)
-	log.Printf("keep-alive packet (%d bytes):\n%s", len(sample), hex.Dump(sample))
+	if dlog.Enabled(dlog.Debug) {
+		sample := proto.MarshalKeepAlive(d.Name, d.DeviceNumber, d.DeviceType, d.MAC, d.IP, 0)
+		dlog.Debugf("keep-alive packet (%d bytes):\n%s", len(sample), hex.Dump(sample))
+	}
 	log.Printf("starting claim sequence on %s (device %d, type %s)", d.IP, d.DeviceNumber, d.DeviceType)
 
 	// Claim sequence is synchronous — keep-alive loop must NOT start
@@ -752,8 +755,12 @@ func (d *VirtualDevice) listenStatus(ctx context.Context) {
 			// and failure alike — see the load watchdog in LoadTrackOnCDJ
 			// for the actual "did the load take" check).
 		default:
-			log.Printf("status recv unknown type=0x%02x from %s (%d bytes)\n%s",
-				pktType, addr, n, hex.Dump(buf[:n]))
+			// One-liner at info so new packet types get noticed; the wire
+			// bytes for reverse-engineering them are trace.
+			log.Printf("status recv unknown type=0x%02x from %s (%d bytes)", pktType, addr, n)
+			if dlog.Enabled(dlog.Trace) {
+				dlog.Tracef("status unknown 0x%02x dump:\n%s", pktType, hex.Dump(buf[:n]))
+			}
 		}
 
 		// Respond to media queries and status queries on port 50002.
@@ -781,8 +788,11 @@ func (d *VirtualDevice) listenStatus(ctx context.Context) {
 		// Check if this is a media query (type 0x05, 48 bytes).
 		mq, ok := proto.ParseMediaQuery(buf[:n])
 		if ok {
-			log.Printf("media query from device %d, target %d, slot %d at %s\n%s",
-				mq.DeviceNumber, mq.TargetDevice, mq.SlotRequested, addr, hex.Dump(buf[:n]))
+			dlog.Debugf("media query from device %d, target %d, slot %d at %s",
+				mq.DeviceNumber, mq.TargetDevice, mq.SlotRequested, addr)
+			if dlog.Enabled(dlog.Trace) {
+				dlog.Tracef("media query dump:\n%s", hex.Dump(buf[:n]))
+			}
 			resp := proto.MarshalMediaResponse(d.Name, d.DeviceNumber, d.MediaSlot, d.TrackCount, d.MAC, d.IP)
 			d.sendStatus(resp, replyAddr)
 			d.sendStatus(resp, replyAddr) // sent twice
@@ -976,8 +986,8 @@ func (d *VirtualDevice) listenAnnouncements(ctx context.Context) {
 					loggedPeer[peerKey] = true
 					log.Printf("peer: %s (%s) device %d at %s",
 						ka.Name, ka.DeviceType, ka.DeviceNumber, ka.IP)
-					if ka.DeviceType == proto.DeviceCDJ {
-						log.Printf("CDJ keep-alive (%d bytes):\n%s", n, hex.Dump(buf[:n]))
+					if ka.DeviceType == proto.DeviceCDJ && dlog.Enabled(dlog.Trace) {
+						dlog.Tracef("CDJ keep-alive (%d bytes):\n%s", n, hex.Dump(buf[:n]))
 					}
 				}
 			}
