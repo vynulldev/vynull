@@ -735,6 +735,27 @@ DEVSETTING layout (6 bytes): `[unknown, overview_type, waveform_color, unknown, 
 
 By default, all formats are served natively. FLAC/WAV/AIFF use the appropriate decoder ID in the track info response so the CDJ selects the correct decoder. Pass `--transcode` to convert lossless formats to MP3 if needed.
 
+## Troubleshooting
+
+General questions about the project live at
+[vynull.dev/#faq](https://vynull.dev/#faq). The three problems people hit
+most:
+
+- **Blank scrolling waveform on the CDJ** — known deck quirk with network
+  sources: toggle the deck's waveform-color setting once and it renders from
+  then on.
+- **Whole library re-analyzing after an upgrade** — expected, once per
+  release that improves the analysis (the cache version is bumped so existing
+  libraries get the improvements, not just new tracks). It runs in the
+  background as tracks are viewed or loaded.
+- **CDJs silently stop loading tracks** — usually two rekordbox sources on
+  the network (real rekordbox running alongside Vynull); the log warns when
+  this collision is detected. Close one of them.
+
+For anything else, run with `--log-level debug` (or `trace` for wire-level
+hex dumps) and attach the log to a bug report — the default level keeps logs
+quiet, so debug logs say a lot more.
+
 ## Acknowledgements
 
 This wouldn't exist without the people who reverse-engineered Pioneer's Pro DJ Link protocol and rekordbox's file formats and then published what they found. Most of what this project knows, it learned from their work:
