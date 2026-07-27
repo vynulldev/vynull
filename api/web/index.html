@@ -5602,19 +5602,32 @@ function thumbLoaded(img) {
     // hits the server's disk-cached PNG, so it is one cheap fetch that
     // makes every later re-render instant.
     const tid = img.getAttribute('data-libtrack');
-    if (tid && img.src.includes('&_=')) {
+    if (tid && /[?&]_=/.test(img.src)) {
       swapImgSrc(img, waveThumbSrc(tid));
     }
     return;
   }
+  scheduleThumbRetry(img);
+}
+
+// scheduleThumbRetry keeps a pending thumbnail's self-heal alive. Analysis
+// can sit behind a LONG queue (bulk add, or the one-time cacheVersion
+// re-analysis pass), so a short fixed retry budget silently gave up before
+// the track's turn came — and the thumbnail then never appeared without a
+// page refresh. Quick retries for the first minute (analysis normally wins
+// that race), then back off to ~30-45s for up to roughly two hours; the
+// placeholder responses being retried are no-store and cost the server
+// almost nothing.
+function scheduleThumbRetry(img) {
   const tries = parseInt(img.dataset.retries || '0', 10);
-  if (tries >= 60) return;            // ~6 minutes of retries, then give up
+  if (tries >= 250) return; // ~2h with backoff — permanently-failed analysis stops here
   img.dataset.retries = String(tries + 1);
-  const delayMs = 5000 + Math.floor(Math.random() * 3000);
+  const base = tries < 12 ? 5000 : 30000;
+  const delayMs = base + Math.floor(Math.random() * base * 0.6);
   const tid = img.getAttribute('data-libtrack');
   setTimeout(() => {
     if (!tid || !document.body.contains(img)) return;
-    // Direct src set on purpose: the retry chain relies on the onload cycle
+    // Direct src set on purpose: the retry chain rides the onload cycle
     // (src -> onload -> thumbLoaded -> next retry), and the cell is showing
     // the 1x1 placeholder anyway, so there is no frame to preserve.
     img.src = waveThumbSrc(tid, true);
@@ -5650,7 +5663,7 @@ const LIBRARY_COLUMNS = [
     cell: t => artHTML(t, 'lib-art', 'lib-art empty', '') },
   { key: 'waveform', label: 'WV',     default: true,  thClass: '',    tdClass: 'wave-cell',
     sortable: false,
-    cell: t => `<div class="wave-thumb"><img class="loading" data-libtrack="${t.id}" alt="" loading="lazy" src="${waveThumbSrc(t.id)}" onload="thumbLoaded(this)">${cueMarkerOverlay(t.id, t.duration)}</div>` },
+    cell: t => `<div class="wave-thumb"><img class="loading" data-libtrack="${t.id}" alt="" loading="lazy" src="${waveThumbSrc(t.id)}" onload="thumbLoaded(this)" onerror="scheduleThumbRetry(this)">${cueMarkerOverlay(t.id, t.duration)}</div>` },
   { key: 'id',       label: 'ID',     default: true,  thClass: 'num', tdClass: 'num',
     sort: t => t.id,
     cell: t => String(t.id).padStart(4, '0') },
