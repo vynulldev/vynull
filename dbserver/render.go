@@ -4,7 +4,7 @@ package dbserver
 
 import (
 	"fmt"
-	"log"
+	"github.com/vynulldev/vynull/internal/dlog"
 	"sort"
 
 	"github.com/vynulldev/vynull/library"
@@ -73,7 +73,7 @@ func (h *Handler) handleRenderMenu(msg *proto.DBMessage) []*proto.DBMessage {
 	if len(pending) == 0 && menu > 12 && len(h.pendingItems) > 0 {
 		pending = h.pendingItems
 	}
-	log.Printf("dbserver: render menu=%d args=%v pendingItems=%d", menu, argVals, len(pending))
+	dlog.Debugf("dbserver: render menu=%d args=%v pendingItems=%d", menu, argVals, len(pending))
 
 	offset := 0
 	limit := len(pending)

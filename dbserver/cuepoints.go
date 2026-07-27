@@ -6,6 +6,7 @@ import (
 	"encoding/binary"
 	"encoding/json"
 	"fmt"
+	"github.com/vynulldev/vynull/internal/dlog"
 	"log"
 	"os"
 	"path/filepath"
@@ -62,7 +63,7 @@ func ParseCueBlob(blob []byte, trackID uint32) (*CuePoint, error) {
 	}
 	cue.ColorID = cueColorFromBlob(blob)
 
-	log.Printf("cuestore: parsed cue #%d type=%d time=%dms loop=%d color_id=%d (0x%x) track=%d",
+	dlog.Debugf("cuestore: parsed cue #%d type=%d time=%dms loop=%d color_id=%d (0x%x) track=%d",
 		cue.Number, cue.Type, cue.TimeMs, cue.LoopMs, cue.ColorID, cue.ColorID, trackID)
 	return cue, nil
 }
@@ -338,11 +339,11 @@ func (cs *CueStore) loadAll() {
 			}
 			var cues []CuePoint
 			if err := json.Unmarshal(data, &cues); err != nil {
-				log.Printf("cuestore: parse %s: %v", e.Name(), err)
+				dlog.Debugf("cuestore: parse %s: %v", e.Name(), err)
 				continue
 			}
 			cs.data[trackID] = cues
-			log.Printf("cuestore: loaded %d cues for track %d", len(cues), trackID)
+			dlog.Debugf("cuestore: loaded %d cues for track %d", len(cues), trackID)
 		}
 		// Load raw blob files.
 		var bTrackID uint32

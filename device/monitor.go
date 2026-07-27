@@ -431,8 +431,12 @@ func (m *PlayerMonitor) Update(status *proto.CDJStatus) {
 	// trigger for "stuck on now-loading"). Only fires on change, so a steady
 	// playing/paused deck stays quiet.
 	if status.PlayState != prevPlay || status.TrackID != prevTID {
-		log.Printf("deck %d: play-state %s (0x%02x) track=%d [was 0x%02x track=%d]",
-			dev, status.PlayStateString(), status.PlayState, status.TrackID, prevPlay, prevTID)
+		name := ""
+		if trackName != "" {
+			name = fmt.Sprintf(" %q", trackName)
+		}
+		log.Printf("deck %d: play-state %s (0x%02x) track=%d%s [was 0x%02x track=%d]",
+			dev, status.PlayStateString(), status.PlayState, status.TrackID, name, prevPlay, prevTID)
 	}
 
 	// Track history + play-count detection: both keyed off "current track

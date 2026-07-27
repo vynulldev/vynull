@@ -4,6 +4,7 @@ package dbserver
 
 import (
 	"encoding/binary"
+	"github.com/vynulldev/vynull/internal/dlog"
 	"log"
 	"math"
 	"strings"
@@ -80,7 +81,7 @@ func (h *Handler) handleGetMetadata(msg *proto.DBMessage) []*proto.DBMessage {
 		}}
 	}
 
-	log.Printf("dbserver: metadata for track %d: %q by %q", trackID, title, artist)
+	dlog.Debugf("dbserver: metadata for track %d: %q by %q", trackID, title, artist)
 
 	// Metadata items in the standard format.
 	// Item types: 0x000b=duration(secs), 0x000d=BPM(*100), 0x000f=key
@@ -192,7 +193,7 @@ func (h *Handler) handleSetRating(msg *proto.DBMessage) []*proto.DBMessage {
 
 func (h *Handler) handleGetArtwork(msg *proto.DBMessage) []*proto.DBMessage {
 	for i, a := range msg.Args {
-		log.Printf("dbserver: 0x%04x artwork arg[%d] = 0x%08x (%d)", msg.Type, i, a.Int(), a.Int())
+		dlog.Tracef("dbserver: 0x%04x artwork arg[%d] = 0x%08x (%d)", msg.Type, i, a.Int(), a.Int())
 	}
 	if len(msg.Args) < 2 {
 		return []*proto.DBMessage{h.success(msg)}
@@ -211,7 +212,7 @@ func (h *Handler) handleGetArtwork(msg *proto.DBMessage) []*proto.DBMessage {
 	// If not found by direct ID, try resolving via track's ArtID.
 	if art == nil && h.lib != nil {
 		if t := h.lib.Track(artID); t != nil && t.ArtID > 0 {
-			log.Printf("dbserver: artwork %d → track %d artID=%d", artID, t.ID, t.ArtID)
+			dlog.Debugf("dbserver: artwork %d → track %d artID=%d", artID, t.ID, t.ArtID)
 			art = h.lib.Artwork.Get(t.ArtID)
 		}
 	}
@@ -228,7 +229,7 @@ func (h *Handler) handleGetArtwork(msg *proto.DBMessage) []*proto.DBMessage {
 			h.lib.Artwork.AddWithID(art.ID, "image/jpeg", small)
 			art = h.lib.Artwork.Get(art.ID)
 		} else {
-			log.Printf("dbserver: artwork %d oversized (%d bytes), resize failed (%v) — skipping to protect the deck", art.ID, len(art.Data), err)
+			dlog.Warnf("dbserver: artwork %d oversized (%d bytes), resize failed (%v) — skipping to protect the deck", art.ID, len(art.Data), err)
 			art = nil
 		}
 	}
@@ -249,7 +250,7 @@ func (h *Handler) handleGetArtwork(msg *proto.DBMessage) []*proto.DBMessage {
 		}}
 	}
 
-	log.Printf("dbserver: artwork %d: %d bytes (%s)", artID, len(art.Data), art.MIMEType)
+	dlog.Debugf("dbserver: artwork %d: %d bytes (%s)", artID, len(art.Data), art.MIMEType)
 
 	// Response type 0x4002 with [echo_type, 0, size, jpeg_blob].
 	return []*proto.DBMessage{{
@@ -277,7 +278,7 @@ func (h *Handler) handleGetWavePreview(msg *proto.DBMessage) []*proto.DBMessage 
 	if trackID > 0 {
 		if r := h.lazyAnalyze(trackID); r != nil && len(r.WavePreview) > 0 {
 			blob := r.WavePreview
-			log.Printf("dbserver: wave preview for track %d (%d bytes)", trackID, len(blob))
+			dlog.Debugf("dbserver: wave preview for track %d (%d bytes)", trackID, len(blob))
 			return []*proto.DBMessage{{
 				TxID: msg.TxID, Type: 0x4402,
 				Args: []proto.DBArg{
@@ -290,7 +291,7 @@ func (h *Handler) handleGetWavePreview(msg *proto.DBMessage) []*proto.DBMessage 
 		}
 	}
 
-	log.Printf("dbserver: wave preview 0x%04x (no data)", msg.Type)
+	dlog.Debugf("dbserver: wave preview 0x%04x (no data)", msg.Type)
 	return []*proto.DBMessage{{
 		TxID: msg.TxID, Type: 0x4402,
 		Args: []proto.DBArg{
@@ -310,7 +311,7 @@ func (h *Handler) handleGetWaveDetail(msg *proto.DBMessage) []*proto.DBMessage {
 
 	if trackID > 0 {
 		if r := h.lazyAnalyze(trackID); r != nil && len(r.WaveDetailMono) > 0 {
-			log.Printf("dbserver: wave detail mono for track %d (%d bytes)", trackID, len(r.WaveDetailMono))
+			dlog.Debugf("dbserver: wave detail mono for track %d (%d bytes)", trackID, len(r.WaveDetailMono))
 			return []*proto.DBMessage{{
 				TxID: msg.TxID, Type: 0x4a02,
 				Args: []proto.DBArg{
@@ -324,7 +325,7 @@ func (h *Handler) handleGetWaveDetail(msg *proto.DBMessage) []*proto.DBMessage {
 		}
 	}
 
-	log.Printf("dbserver: wave detail 0x2904 (no data)")
+	dlog.Debugf("dbserver: wave detail 0x2904 (no data)")
 	return []*proto.DBMessage{{
 		TxID: msg.TxID, Type: 0x4a02,
 		Args: []proto.DBArg{
@@ -348,7 +349,7 @@ func (h *Handler) handleGetBeatGrid(msg *proto.DBMessage) []*proto.DBMessage {
 	if trackID > 0 {
 		if r := h.lazyAnalyze(trackID); r != nil && len(r.BeatGrid) > 0 {
 			blob := h.beatGridForTrack(trackID, r)
-			log.Printf("dbserver: beat grid for track %d (%d bytes)", trackID, len(blob))
+			dlog.Debugf("dbserver: beat grid for track %d (%d bytes)", trackID, len(blob))
 			return []*proto.DBMessage{{
 				TxID: msg.TxID, Type: 0x4602,
 				Args: []proto.DBArg{
@@ -362,7 +363,7 @@ func (h *Handler) handleGetBeatGrid(msg *proto.DBMessage) []*proto.DBMessage {
 		}
 	}
 
-	log.Printf("dbserver: beat grid (no data)")
+	dlog.Debugf("dbserver: beat grid (no data)")
 	return []*proto.DBMessage{{
 		TxID: msg.TxID, Type: 0x4602,
 		Args: []proto.DBArg{
@@ -498,7 +499,7 @@ func (h *Handler) handleGetExtAnalysis(msg *proto.DBMessage) []*proto.DBMessage 
 		// Reverse to get the actual fourcc.
 		tagFourCC = string([]byte{b[3], b[2], b[1], b[0]})
 	}
-	log.Printf("dbserver: 0x2c04 track=%d tag=%q", trackID, tagFourCC)
+	dlog.Debugf("dbserver: 0x2c04 track=%d tag=%q", trackID, tagFourCC)
 
 	if trackID > 0 {
 		r := h.lazyAnalyze(trackID)
@@ -514,7 +515,7 @@ func (h *Handler) handleGetExtAnalysis(msg *proto.DBMessage) []*proto.DBMessage 
 							extPath = h.exportRoot + extPath
 						}
 						if realBlob := analysis.ReadANLZSection(extPath, "PWV4"); realBlob != nil {
-							log.Printf("dbserver: PWV4 for track %d (%d bytes, from ANLZ file)", trackID, len(realBlob))
+							dlog.Debugf("dbserver: PWV4 for track %d (%d bytes, from ANLZ file)", trackID, len(realBlob))
 							return []*proto.DBMessage{{
 								TxID: msg.TxID, Type: 0x4f02,
 								Args: []proto.DBArg{
@@ -530,7 +531,7 @@ func (h *Handler) handleGetExtAnalysis(msg *proto.DBMessage) []*proto.DBMessage 
 				}
 				if len(r.WaveColorPreview) > 0 {
 					blob := analysis.WrapANLZ("PWV4", 6, r.WaveColorPreview)
-					log.Printf("dbserver: PWV4 for track %d (%d bytes, generated)", trackID, len(blob))
+					dlog.Debugf("dbserver: PWV4 for track %d (%d bytes, generated)", trackID, len(blob))
 					return []*proto.DBMessage{{
 						TxID: msg.TxID, Type: 0x4f02,
 						Args: []proto.DBArg{
@@ -551,7 +552,7 @@ func (h *Handler) handleGetExtAnalysis(msg *proto.DBMessage) []*proto.DBMessage 
 							extPath = h.exportRoot + extPath
 						}
 						if realBlob := analysis.ReadANLZSection(extPath, "PWV5"); realBlob != nil {
-							log.Printf("dbserver: PWV5 for track %d (%d bytes, from ANLZ file)", trackID, len(realBlob))
+							dlog.Debugf("dbserver: PWV5 for track %d (%d bytes, from ANLZ file)", trackID, len(realBlob))
 							return []*proto.DBMessage{{
 								TxID: msg.TxID, Type: 0x4f02,
 								Args: []proto.DBArg{
@@ -567,7 +568,7 @@ func (h *Handler) handleGetExtAnalysis(msg *proto.DBMessage) []*proto.DBMessage 
 				}
 				if len(r.WaveDetail) > 0 {
 					blob := analysis.WrapANLZ("PWV5", 2, r.WaveDetail)
-					log.Printf("dbserver: PWV5 for track %d (%d bytes, generated)", trackID, len(blob))
+					dlog.Debugf("dbserver: PWV5 for track %d (%d bytes, generated)", trackID, len(blob))
 					return []*proto.DBMessage{{
 						TxID: msg.TxID, Type: 0x4f02,
 						Args: []proto.DBArg{
@@ -595,7 +596,7 @@ func (h *Handler) handleGetExtAnalysis(msg *proto.DBMessage) []*proto.DBMessage 
 				}
 				if len(body) > 0 {
 					blob := analysis.WrapANLZ(tagFourCC, entrySize, body)
-					log.Printf("dbserver: %s for track %d (%d bytes)", tagFourCC, trackID, len(blob))
+					dlog.Debugf("dbserver: %s for track %d (%d bytes)", tagFourCC, trackID, len(blob))
 					return []*proto.DBMessage{{
 						TxID: msg.TxID, Type: 0x4f02,
 						Args: []proto.DBArg{
@@ -610,7 +611,7 @@ func (h *Handler) handleGetExtAnalysis(msg *proto.DBMessage) []*proto.DBMessage 
 			case "PSSI": // song structure / phrase analysis
 				if r.SongStructure != nil {
 					blob := analysis.WrapANLZ("PSSI", 24, r.SongStructure)
-					log.Printf("dbserver: PSSI for track %d (%d bytes, generated)", trackID, len(blob))
+					dlog.Debugf("dbserver: PSSI for track %d (%d bytes, generated)", trackID, len(blob))
 					return []*proto.DBMessage{{
 						TxID: msg.TxID, Type: 0x4f02,
 						Args: []proto.DBArg{
@@ -639,7 +640,7 @@ func (h *Handler) handleGetExtAnalysis(msg *proto.DBMessage) []*proto.DBMessage 
 							extPath = h.exportRoot + extPath
 						}
 						if realBlob := analysis.ReadANLZSection(extPath, "PVB2"); realBlob != nil {
-							log.Printf("dbserver: PVB2 for track %d (%d bytes, from ANLZ file)", trackID, len(realBlob))
+							dlog.Debugf("dbserver: PVB2 for track %d (%d bytes, from ANLZ file)", trackID, len(realBlob))
 							return []*proto.DBMessage{{
 								TxID: msg.TxID, Type: 0x4f02,
 								Args: []proto.DBArg{
@@ -660,10 +661,10 @@ func (h *Handler) handleGetExtAnalysis(msg *proto.DBMessage) []*proto.DBMessage 
 				// be probed.
 				blob := analysis.VBRSeekIndex(h.resolveTrackPath(trackID))
 				if blob != nil {
-					log.Printf("dbserver: PVB2 for track %d (%d bytes, generated seek index)", trackID, len(blob))
+					dlog.Debugf("dbserver: PVB2 for track %d (%d bytes, generated seek index)", trackID, len(blob))
 				} else {
 					blob = prolink.GeneratePVB2()
-					log.Printf("dbserver: PVB2 for track %d (%d bytes, placeholder — probe failed)", trackID, len(blob))
+					dlog.Debugf("dbserver: PVB2 for track %d (%d bytes, placeholder — probe failed)", trackID, len(blob))
 				}
 				return []*proto.DBMessage{{
 					TxID: msg.TxID, Type: 0x4f02,
@@ -687,7 +688,7 @@ func (h *Handler) handleGetExtAnalysis(msg *proto.DBMessage) []*proto.DBMessage 
 							extPath = h.exportRoot + extPath
 						}
 						if realBlob := analysis.ReadANLZSection(extPath, "PQT2"); realBlob != nil {
-							log.Printf("dbserver: PQT2 for track %d (%d bytes, from ANLZ file)", trackID, len(realBlob))
+							dlog.Debugf("dbserver: PQT2 for track %d (%d bytes, from ANLZ file)", trackID, len(realBlob))
 							return []*proto.DBMessage{{
 								TxID: msg.TxID, Type: 0x4f02,
 								Args: []proto.DBArg{
@@ -703,7 +704,7 @@ func (h *Handler) handleGetExtAnalysis(msg *proto.DBMessage) []*proto.DBMessage 
 				}
 				if r.BeatGridPQT2 != nil {
 					blob := r.BeatGridPQT2 // complete ANLZ section with 56-byte header
-					log.Printf("dbserver: PQT2 for track %d (%d bytes, generated)", trackID, len(blob))
+					dlog.Debugf("dbserver: PQT2 for track %d (%d bytes, generated)", trackID, len(blob))
 					return []*proto.DBMessage{{
 						TxID: msg.TxID, Type: 0x4f02,
 						Args: []proto.DBArg{
@@ -719,7 +720,7 @@ func (h *Handler) handleGetExtAnalysis(msg *proto.DBMessage) []*proto.DBMessage 
 		}
 	}
 
-	log.Printf("dbserver: ext analysis 0x2c04 tag=%q (not found)", tagFourCC)
+	dlog.Debugf("dbserver: ext analysis 0x2c04 tag=%q (not found)", tagFourCC)
 	return []*proto.DBMessage{{
 		TxID: msg.TxID, Type: 0x4f02,
 		DeclaredArgCount: 5,
@@ -739,7 +740,7 @@ func (h *Handler) handleGetSongStructure(msg *proto.DBMessage) []*proto.DBMessag
 	if len(msg.Args) >= 2 {
 		trackID = msg.Args[1].Int()
 	}
-	log.Printf("dbserver: song structure track=%d", trackID)
+	dlog.Debugf("dbserver: song structure track=%d", trackID)
 
 	var data []byte
 	if r := h.analysis.Get(trackID); r != nil && r.SongStructure != nil {
@@ -763,7 +764,7 @@ func (h *Handler) handleGetSongStructure(msg *proto.DBMessage) []*proto.DBMessag
 	// via 0x2c04 with the PSSI tag. This response signals that
 	// phrase data may be available.
 	placeholder := make([]byte, 1604)
-	log.Printf("dbserver: song structure placeholder for track %d (1604 bytes)", trackID)
+	dlog.Debugf("dbserver: song structure placeholder for track %d (1604 bytes)", trackID)
 	return []*proto.DBMessage{{
 		TxID: msg.TxID, Type: 0x4502,
 		Args: []proto.DBArg{
@@ -797,7 +798,7 @@ func (h *Handler) handleWritePVB2(msg *proto.DBMessage) []*proto.DBMessage {
 			break
 		}
 	}
-	log.Printf("dbserver: PVB2 write 0x2805 track=%d (%d-byte section) — acking", trackID, len(section))
+	dlog.Debugf("dbserver: PVB2 write 0x2805 track=%d (%d-byte section) — acking", trackID, len(section))
 
 	// Wrap with the 4-byte little-endian length prefix used by the dbserver
 	// ANLZ blob format (matches ReadANLZSection / GeneratePVB2 output).
@@ -820,7 +821,7 @@ func (h *Handler) handleWritePVB2(msg *proto.DBMessage) []*proto.DBMessage {
 func (h *Handler) handleGetNXS2Cues(msg *proto.DBMessage) []*proto.DBMessage {
 	// 0x3d03: NXS2 cue/loop point data. The response returns count=6.
 	// The CDJ checks this count but doesn't render items for it.
-	log.Printf("dbserver: NXS2 cue data (count=6)")
+	dlog.Debugf("dbserver: NXS2 cue data (count=6)")
 	return []*proto.DBMessage{{
 		TxID: msg.TxID, Type: proto.DBMsgSuccess,
 		Args: []proto.DBArg{
@@ -857,7 +858,7 @@ func (h *Handler) handleMountInfo(msg *proto.DBMessage) []*proto.DBMessage {
 			}
 		}
 	}
-	log.Printf("dbserver: mount info (0x3100) shortcut id=0x%x -> root offset %d", wantID, offset)
+	dlog.Debugf("dbserver: mount info (0x3100) shortcut id=0x%x -> root offset %d", wantID, offset)
 	return []*proto.DBMessage{{
 		TxID: msg.TxID,
 		Type: proto.DBMsgSuccess,
@@ -871,7 +872,7 @@ func (h *Handler) handleMountInfo(msg *proto.DBMessage) []*proto.DBMessage {
 func (h *Handler) handleGetTrackInfo(msg *proto.DBMessage) []*proto.DBMessage {
 	// Returns file path and basic track info.
 	for i, a := range msg.Args {
-		log.Printf("dbserver: 0x2102 arg[%d] = 0x%08x (%d)", i, a.Int(), a.Int())
+		dlog.Tracef("dbserver: 0x2102 arg[%d] = 0x%08x (%d)", i, a.Int(), a.Int())
 	}
 	if len(msg.Args) < 2 {
 		return []*proto.DBMessage{{
@@ -959,7 +960,7 @@ func (h *Handler) handleGetTrackInfo(msg *proto.DBMessage) []*proto.DBMessage {
 		}
 	}
 
-	log.Printf("dbserver: track info for track %d: path=%s dur=%d bpm=%d", trackID, relPath, duration, tempo)
+	dlog.Debugf("dbserver: track info for track %d: path=%s dur=%d bpm=%d", trackID, relPath, duration, tempo)
 
 	// The response returns 7 items: title, duration, BPM, comment, path, unknown, key.
 	infoItems := []*menuItem{
@@ -990,7 +991,7 @@ func (h *Handler) handleGetCuePoints(msg *proto.DBMessage) []*proto.DBMessage {
 	if len(msg.Args) >= 2 {
 		trackID = msg.Args[1].Int()
 	}
-	log.Printf("dbserver: cue points 0x2104 track=%d (empty)", trackID)
+	dlog.Debugf("dbserver: cue points 0x2104 track=%d (empty)", trackID)
 	return []*proto.DBMessage{{
 		TxID: msg.TxID, Type: proto.DBMsgSuccess,
 		Args: []proto.DBArg{proto.ArgI32(uint32(msg.Type)), proto.ArgI32(0)},
@@ -1013,7 +1014,7 @@ func (h *Handler) handleGetNXS2CuePoints(msg *proto.DBMessage) []*proto.DBMessag
 	}
 
 	if len(blob) == 0 {
-		log.Printf("dbserver: NXS2 cues 0x2b04 track=%d (empty)", trackID)
+		dlog.Debugf("dbserver: NXS2 cues 0x2b04 track=%d (empty)", trackID)
 		// Wire format: descriptor=06 06 06 03 06, sends 4 int32 on wire.
 		// Arg3 typed as binary(03) in descriptor but sent as int32(0).
 		// Arg4 is phantom (declared but not sent).
@@ -1031,7 +1032,7 @@ func (h *Handler) handleGetNXS2CuePoints(msg *proto.DBMessage) []*proto.DBMessag
 		}}
 	}
 
-	log.Printf("dbserver: NXS2 cues 0x2b04 track=%d (%d cues, %d bytes)", trackID, cueCount, len(blob))
+	dlog.Debugf("dbserver: NXS2 cues 0x2b04 track=%d (%d cues, %d bytes)", trackID, cueCount, len(blob))
 	return []*proto.DBMessage{{
 		TxID: msg.TxID,
 		Type: 0x4e02,

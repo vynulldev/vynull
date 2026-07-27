@@ -23,7 +23,7 @@ func (s *Server) handleMount(hdr *rpcHeader) []byte {
 	case mountMnt:
 		return s.mountMnt(hdr)
 	case mountUmnt, mountUmntAll:
-		log.Printf("mount: UMOUNT")
+		dlog.Debugf("mount: UMOUNT")
 		return buildRPCReply(hdr.XID).bytes()
 	case mountExport:
 		return s.mountExport(hdr)
@@ -47,7 +47,7 @@ func (s *Server) mountMnt(hdr *rpcHeader) []byte {
 	}
 	r := newXDRReader(hdr.body)
 	path, _ := r.str()
-	log.Printf("mount: MNT %q -> %s", path, s.exportRoot)
+	dlog.Debugf("mount: MNT %q -> %s", path, s.exportRoot)
 
 	// Use all-zeros file handle matching rekordbox behavior.
 	var rootFH [fhSize]byte
@@ -70,11 +70,11 @@ func (s *Server) mountMnt(hdr *rpcHeader) []byte {
 func (s *Server) mountExport(hdr *rpcHeader) []byte {
 	w := buildRPCReply(hdr.XID)
 	if s.LinkedFn != nil && !s.LinkedFn() {
-		log.Printf("mount: EXPORT (unlinked — empty list)")
+		dlog.Debugf("mount: EXPORT (unlinked — empty list)")
 		w.putU32(0) // value-follows = false, no exports
 		return w.bytes()
 	}
-	log.Printf("mount: EXPORT")
+	dlog.Debugf("mount: EXPORT")
 
 	w.putU32(1) // value-follows = true
 	w.putBytes([]byte("/C/"))

@@ -910,8 +910,14 @@ func (s *Server) handleLoadTrack(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Send the load track command
-	err := s.Device.LoadTrackOnCDJ(req.TrackID, req.DeviceNumber, targetIP)
+	// Send the load track command. The name rides along for the logs.
+	loadName := ""
+	if s.Library != nil {
+		if t := s.Library.Track(req.TrackID); t != nil {
+			loadName = t.Title
+		}
+	}
+	err := s.Device.LoadTrackOnCDJ(req.TrackID, loadName, req.DeviceNumber, targetIP)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
