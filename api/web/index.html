@@ -5592,7 +5592,21 @@ function fmtPath(p) {
 // out so we don't stampede the server after a fresh page load.
 function thumbLoaded(img) {
   img.classList.replace('loading', 'loaded');
-  if (img.naturalWidth !== 1) return; // real waveform, done
+  if (img.naturalWidth !== 1) {
+    // Real waveform. If it arrived via a cache-busted self-heal URL, swap
+    // back to the natural URL (preload keeps the frame up): the natural URL
+    // was last fetched when it returned the no-store placeholder, so the
+    // browser has nothing cached under it — without this, the next table
+    // re-render (view switch) starts cache-cold and the freshly-analyzed
+    // track sits blank again waiting on a full round-trip. The swap request
+    // hits the server's disk-cached PNG, so it is one cheap fetch that
+    // makes every later re-render instant.
+    const tid = img.getAttribute('data-libtrack');
+    if (tid && img.src.includes('&_=')) {
+      swapImgSrc(img, waveThumbSrc(tid));
+    }
+    return;
+  }
   const tries = parseInt(img.dataset.retries || '0', 10);
   if (tries >= 60) return;            // ~6 minutes of retries, then give up
   img.dataset.retries = String(tries + 1);
