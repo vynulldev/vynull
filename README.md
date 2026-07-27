@@ -6,7 +6,7 @@
 [![Go](https://img.shields.io/github/go-mod/go-version/vynulldev/vynull?color=ff7714)](go.mod)
 ![Platform](https://img.shields.io/badge/platform-linux%20x86--64%20%7C%20arm64-ff7714)
 
-Vynull is a virtual CDJ / rekordbox source and library manager for Linux. It serves music files to CDJs (DJM mixers are also seen on the link) over the Pro DJ Link protocol. Point it at your music collection and CDJs see it as a connected USB drive or rekordbox instance. Includes a browser-based library manager and one-click import from your existing rekordbox or Traktor library.
+Vynull is a DJ library application for Linux that interfaces directly with Pioneer CDJ/XDJ hardware: load tracks from your PC straight onto the decks over Pro DJ Link, with no rekordbox, no USB sticks, and no export step. Players see your machine as a connected rekordbox instance (or a CDJ-USB source) and browse and load your music with waveforms, beat grids, and cues; DJM mixers are tracked on the link too. Vynull analyzes tracks itself, includes a browser-based library manager, and imports your existing rekordbox or Traktor library in one click.
 
 ## Before you start
 
