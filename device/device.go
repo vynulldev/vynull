@@ -80,15 +80,27 @@ type VirtualDevice struct {
 
 type loadAttempt struct {
 	TrackID      uint32
+	TrackName    string // display name for logs; "" when the caller has no metadata
 	TargetDevice uint8
 	SentAt       time.Time
 	Retried      bool
 }
 
+// logTrack renders a track reference for logs: name plus ID when the name
+// is known, bare ID otherwise. The ID always appears so log lines stay
+// correlatable with dbserver/NFS entries.
+func logTrack(id uint32, name string) string {
+	if name == "" {
+		return fmt.Sprintf("track=%d", id)
+	}
+	return fmt.Sprintf("%q (track=%d)", name, id)
+}
+
 // LoadTrackOnCDJ sends a remote track load command (type 0x19) to a CDJ.
 // First ensures the CDJ has received Link activation + media info so it
 // has a proper NFS mount context for file access.
-func (d *VirtualDevice) LoadTrackOnCDJ(trackID uint32, targetDevice uint8, targetIP net.IP) error {
+// name is the track's display title, used only in logs (pass "" if unknown).
+func (d *VirtualDevice) LoadTrackOnCDJ(trackID uint32, name string, targetDevice uint8, targetIP net.IP) error {
 	if d.statusConn == nil {
 		return fmt.Errorf("status connection not ready")
 	}
@@ -130,11 +142,12 @@ func (d *VirtualDevice) LoadTrackOnCDJ(trackID uint32, targetDevice uint8, targe
 	}
 	d.pendingLoad[targetIP.String()] = &loadAttempt{
 		TrackID:      trackID,
+		TrackName:    name,
 		TargetDevice: targetDevice,
 		SentAt:       time.Now(),
 	}
 	d.statusMu.Unlock()
-	log.Printf("sent load track command (x2): track=%d -> device %d (%s)", trackID, targetDevice, targetIP)
+	log.Printf("sent load track command (x2): %s -> device %d (%s)", logTrack(trackID, name), targetDevice, targetIP)
 	return nil
 }
 
@@ -781,7 +794,7 @@ func (d *VirtualDevice) listenStatus(ctx context.Context) {
 			pending := d.pendingLoad[addr.IP.String()]
 			d.statusMu.Unlock()
 			if pending != nil {
-				log.Printf("status: 0x1c rejection of load track=%d from %s (not resending media — deck self-recovers)", pending.TrackID, addr.IP)
+				log.Printf("status: 0x1c rejection of load %s from %s (not resending media — deck self-recovers)", logTrack(pending.TrackID, pending.TrackName), addr.IP)
 			}
 		}
 
