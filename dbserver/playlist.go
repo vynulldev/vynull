@@ -3,7 +3,7 @@
 package dbserver
 
 import (
-	"log"
+	"github.com/vynulldev/vynull/internal/dlog"
 	"path/filepath"
 
 	"github.com/vynulldev/vynull/pdb"
@@ -16,7 +16,7 @@ import (
 // trackIDsToMenuItems shared converter.
 
 func (h *Handler) handleGetHistory(msg *proto.DBMessage) []*proto.DBMessage {
-	log.Printf("dbserver: HISTORY list (0x1016)")
+	dlog.Debugf("dbserver: HISTORY list (0x1016)")
 	var items []*menuItem
 	if h.playlists != nil {
 		folderID := h.playlists.HistoryFolderID()
@@ -45,7 +45,7 @@ func (h *Handler) handleGetHistoryTracks(msg *proto.DBMessage) []*proto.DBMessag
 	if len(msg.Args) >= 3 {
 		playlistID = msg.Args[2].Int()
 	}
-	log.Printf("dbserver: HISTORY drill (0x1116) playlist=%d", playlistID)
+	dlog.Debugf("dbserver: HISTORY drill (0x1116) playlist=%d", playlistID)
 
 	var items []*menuItem
 	if h.playlists != nil && playlistID != 0 {
@@ -105,13 +105,13 @@ func (h *Handler) handleGetPlaylist(msg *proto.DBMessage) []*proto.DBMessage {
 				})
 			}
 			h.pendingItems = items
-			log.Printf("dbserver: user-playlist folder %d returning %d items", folderID, len(items))
+			dlog.Debugf("dbserver: user-playlist folder %d returning %d items", folderID, len(items))
 		} else {
 			trackIDs := h.playlists.Tracks(folderID)
 			items := h.trackIDsToMenuItems(trackIDs)
 			sortItems(items, getSortOrder(msg))
 			h.pendingItems = items
-			log.Printf("dbserver: user-playlist %d returning %d tracks", folderID, len(items))
+			dlog.Debugf("dbserver: user-playlist %d returning %d tracks", folderID, len(items))
 		}
 		return []*proto.DBMessage{h.successWithCount(msg)}
 	}
@@ -142,13 +142,13 @@ func (h *Handler) handleGetPlaylist(msg *proto.DBMessage) []*proto.DBMessage {
 			})
 		}
 		h.pendingItems = items
-		log.Printf("dbserver: playlist folder %d returning %d items (filesystem fallback)", folderID, len(items))
+		dlog.Debugf("dbserver: playlist folder %d returning %d items (filesystem fallback)", folderID, len(items))
 	} else {
 		trackIDs := h.folders.TrackIDs(folderID)
 		items := h.trackIDsToMenuItems(trackIDs)
 		sortItems(items, getSortOrder(msg))
 		h.pendingItems = items
-		log.Printf("dbserver: playlist %d returning %d tracks (filesystem fallback)", folderID, len(items))
+		dlog.Debugf("dbserver: playlist %d returning %d tracks (filesystem fallback)", folderID, len(items))
 	}
 
 	return []*proto.DBMessage{h.successWithCount(msg)}
@@ -218,7 +218,7 @@ func (h *Handler) handleGetFolder(msg *proto.DBMessage) []*proto.DBMessage {
 		})
 	}
 	h.pendingItems = items
-	log.Printf("dbserver: folder %d returning %d items", folderID, len(items))
+	dlog.Debugf("dbserver: folder %d returning %d items", folderID, len(items))
 	return []*proto.DBMessage{h.successWithCount(msg)}
 }
 

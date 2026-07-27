@@ -288,13 +288,13 @@ func (s *Server) handleDiscovery(conn net.Conn) {
 		}
 	}
 
-	log.Printf("dbserver discovery from %s (%d bytes):\n%s",
+	dlog.Tracef("dbserver discovery from %s (%d bytes):\n%s",
 		conn.RemoteAddr(), n, hex.Dump(buf[:n]))
 
 	// Respond with dynamic port number for the dbserver.
 	resp := make([]byte, 2)
 	binary.BigEndian.PutUint16(resp, s.dynamicPort)
-	log.Printf("dbserver discovery: sent port %d to %s", s.dynamicPort, conn.RemoteAddr())
+	dlog.Debugf("dbserver discovery: sent port %d to %s", s.dynamicPort, conn.RemoteAddr())
 	if _, err := conn.Write(resp); err != nil {
 		log.Printf("dbserver discovery write: %v", err)
 	}
@@ -347,7 +347,7 @@ func (s *Server) handleSession(ctx context.Context, conn net.Conn) {
 		log.Printf("dbserver handshake write: %v", err)
 		return
 	}
-	log.Printf("dbserver handshake: echo %s", hex.EncodeToString(clientHandshake))
+	dlog.Tracef("dbserver handshake: echo %s", hex.EncodeToString(clientHandshake))
 	log.Printf("dbserver handshake complete with %s", conn.RemoteAddr())
 
 	conn.SetReadDeadline(time.Time{}) // clear deadline
@@ -405,7 +405,7 @@ func (s *Server) handleSession(ctx context.Context, conn net.Conn) {
 				if replacement := s.findReplay(resp.Type, len(data), msg); replacement != nil {
 					// Fix up the txid to match the current request.
 					binary.BigEndian.PutUint32(replacement[6:10], msg.TxID)
-					log.Printf("dbserver REPLAY type=0x%04x txid=%08x (%d bytes from recording)",
+					dlog.Tracef("dbserver REPLAY type=0x%04x txid=%08x (%d bytes from recording)",
 						resp.Type, msg.TxID, len(replacement))
 					data = replacement
 				}
