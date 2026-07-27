@@ -6,7 +6,7 @@
 [![Go](https://img.shields.io/github/go-mod/go-version/vynulldev/vynull?color=ff7714)](go.mod)
 ![Platform](https://img.shields.io/badge/platform-linux%20x86--64%20%7C%20arm64-ff7714)
 
-Vynull is a virtual CDJ / rekordbox source and library manager for Linux. It serves music files to CDJs (DJM mixers are also seen on the link) over the Pro DJ Link protocol. Point it at your music collection and CDJs see it as a connected USB drive or rekordbox instance. Includes a browser-based library manager and one-click import from your existing rekordbox or Traktor library.
+Vynull is a DJ library application for Linux that interfaces directly with Pioneer CDJ/XDJ hardware: load tracks from your PC straight onto the decks over Pro DJ Link, with no rekordbox, no USB sticks, and no export step. Players see your machine as a connected rekordbox instance (or a CDJ-USB source) and browse and load your music with waveforms, beat grids, and cues; DJM mixers are tracked on the link too. Vynull analyzes tracks itself, includes a browser-based library manager, and imports your existing rekordbox or Traktor library in one click.
 
 ## Before you start
 
@@ -734,6 +734,27 @@ DEVSETTING layout (6 bytes): `[unknown, overview_type, waveform_color, unknown, 
 | AIFF | Yes | to MP3 |
 
 By default, all formats are served natively. FLAC/WAV/AIFF use the appropriate decoder ID in the track info response so the CDJ selects the correct decoder. Pass `--transcode` to convert lossless formats to MP3 if needed.
+
+## Troubleshooting
+
+General questions about the project live at
+[vynull.dev/#faq](https://vynull.dev/#faq). The three problems people hit
+most:
+
+- **Blank scrolling waveform on the CDJ** — known deck quirk with network
+  sources: toggle the deck's waveform-color setting once and it renders from
+  then on.
+- **Whole library re-analyzing after an upgrade** — expected, once per
+  release that improves the analysis (the cache version is bumped so existing
+  libraries get the improvements, not just new tracks). It runs in the
+  background as tracks are viewed or loaded.
+- **CDJs silently stop loading tracks** — usually two rekordbox sources on
+  the network (real rekordbox running alongside Vynull); the log warns when
+  this collision is detected. Close one of them.
+
+For anything else, run with `--log-level debug` (or `trace` for wire-level
+hex dumps) and attach the log to a bug report — the default level keeps logs
+quiet, so debug logs say a lot more.
 
 ## Acknowledgements
 
