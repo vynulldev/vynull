@@ -307,7 +307,7 @@ func (s *Server) dispatchRPC(data []byte, handler func(*rpcHeader) []byte) []byt
 		log.Printf("nfs: RPC parse error: %v (data len=%d)", err, len(data))
 		return nil
 	}
-	log.Printf("nfs: RPC call prog=%d vers=%d proc=%d xid=%08x", hdr.Program, hdr.Version, hdr.Proc, hdr.XID)
+	dlog.Tracef("nfs: RPC call prog=%d vers=%d proc=%d xid=%08x", hdr.Program, hdr.Version, hdr.Proc, hdr.XID)
 	return handler(hdr)
 }
 
@@ -315,22 +315,22 @@ func (s *Server) dispatchRPC(data []byte, handler func(*rpcHeader) []byte) []byt
 func (s *Server) handleNFS(hdr *rpcHeader) []byte {
 	switch hdr.Proc {
 	case nfsNull:
-		log.Printf("nfs: NULL")
+		dlog.Tracef("nfs: NULL")
 		return buildRPCReply(hdr.XID).bytes()
 	case nfsGetAttr:
-		log.Printf("nfs: GETATTR")
+		dlog.Tracef("nfs: GETATTR")
 		return s.nfsGetAttr(hdr)
 	case nfsLookup:
-		log.Printf("nfs: LOOKUP")
+		dlog.Tracef("nfs: LOOKUP")
 		return s.nfsLookup(hdr)
 	case nfsRead:
-		log.Printf("nfs: READ")
+		dlog.Tracef("nfs: READ")
 		return s.nfsRead(hdr)
 	case nfsReadDir:
-		log.Printf("nfs: READDIR")
+		dlog.Tracef("nfs: READDIR")
 		return s.nfsReadDir(hdr)
 	case nfsStatFS:
-		log.Printf("nfs: STATFS")
+		dlog.Tracef("nfs: STATFS")
 		return s.nfsStatFS(hdr)
 	case nfsSetAttr:
 		log.Printf("nfs: SETATTR (write attempt)")
@@ -396,7 +396,7 @@ func (s *Server) nfsLookup(hdr *rpcHeader) []byte {
 		return nil
 	}
 
-	log.Printf("nfs: LOOKUP raw body (%d bytes): %x", len(hdr.body), hdr.body[:min(len(hdr.body), 80)])
+	dlog.Tracef("nfs: LOOKUP raw body (%d bytes): %x", len(hdr.body), hdr.body[:min(len(hdr.body), 80)])
 
 	// Detect UTF-16LE vs ASCII. CDJ sends UTF-16LE (every other byte is 0x00
 	// for ASCII chars). Linux sends plain ASCII.
@@ -432,15 +432,15 @@ func (s *Server) nfsLookup(hdr *rpcHeader) []byte {
 	childPath := filepath.Clean(filepath.Join(dirPath, name))
 	// Prevent path traversal outside the export root.
 	if !strings.HasPrefix(childPath, s.exportRoot) {
-		log.Printf("nfs: LOOKUP %q in %q: path traversal blocked (resolved to %q)", name, dirPath, childPath)
+		dlog.Warnf("nfs: LOOKUP %q in %q: path traversal blocked (resolved to %q)", name, dirPath, childPath)
 		w := buildRPCReply(hdr.XID)
 		w.putU32(nfsNoEnt)
 		return w.bytes()
 	}
-	log.Printf("nfs: LOOKUP %q in %q -> %q", name, dirPath, childPath)
+	dlog.Debugf("nfs: LOOKUP %q in %q -> %q", name, dirPath, childPath)
 	info, err := os.Stat(childPath)
 	if err != nil {
-		log.Printf("nfs: LOOKUP %q: %v", childPath, err)
+		dlog.Debugf("nfs: LOOKUP %q: %v", childPath, err)
 		w := buildRPCReply(hdr.XID)
 		w.putU32(nfsNoEnt)
 		return w.bytes()
@@ -454,7 +454,7 @@ func (s *Server) nfsLookup(hdr *rpcHeader) []byte {
 	putFAttr(w, info, childPath, !s.Transcode)
 	resp := w.bytes()
 
-	log.Printf("nfs: LOOKUP OK %q size=%d isdir=%v fh=%x resp_hex=%x",
+	dlog.Tracef("nfs: LOOKUP OK %q size=%d isdir=%v fh=%x resp_hex=%x",
 		name, info.Size(), info.IsDir(), childFH[:8], resp)
 
 	return resp
@@ -462,7 +462,7 @@ func (s *Server) nfsLookup(hdr *rpcHeader) []byte {
 
 func (s *Server) nfsRead(hdr *rpcHeader) []byte {
 	if len(hdr.body) >= 8 {
-		log.Printf("nfs: READ body (%d bytes) first 48: %x", len(hdr.body), hdr.body[:min(len(hdr.body), 48)])
+		dlog.Tracef("nfs: READ body (%d bytes) first 48: %x", len(hdr.body), hdr.body[:min(len(hdr.body), 48)])
 	}
 	r := newXDRReader(hdr.body)
 	fh, err := r.fh()
@@ -472,7 +472,7 @@ func (s *Server) nfsRead(hdr *rpcHeader) []byte {
 	offset, _ := r.u32()
 	count, _ := r.u32()
 	_, _ = r.u32() // totalcount (unused in v2)
-	log.Printf("nfs: READ fh=%x... offset=%d count=%d", fh[:8], offset, count)
+	dlog.Tracef("nfs: READ fh=%x... offset=%d count=%d", fh[:8], offset, count)
 
 	path, ok := s.handles.Resolve(fh)
 	if !ok {
@@ -498,7 +498,7 @@ func (s *Server) nfsRead(hdr *rpcHeader) []byte {
 			return w.bytes()
 		}
 		if offset == 0 {
-			log.Printf("nfs: READ transcode %s offset=0 count=%d read=%d",
+			dlog.Debugf("nfs: READ transcode %s offset=0 count=%d read=%d",
 				filepath.Base(path), count, len(wavBytes))
 		}
 		w := buildRPCReply(hdr.XID)
@@ -528,7 +528,7 @@ func (s *Server) nfsRead(hdr *rpcHeader) []byte {
 	info, _ := f.Stat()
 
 	if offset == 0 {
-		log.Printf("nfs: READ %s offset=0 count=%d read=%d first_bytes=%x",
+		dlog.Debugf("nfs: READ %s offset=0 count=%d read=%d first_bytes=%x",
 			filepath.Base(path), count, n, data[:min(n, 16)])
 	}
 
@@ -713,7 +713,7 @@ func (s *Server) nfsWriteStub(hdr *rpcHeader, op string) []byte {
 		s.handles.mu.RLock()
 		path := s.handles.toPath[fh]
 		s.handles.mu.RUnlock()
-		log.Printf("nfs: %s target path: %s (body %d bytes)", op, path, len(hdr.body))
+		dlog.Debugf("nfs: %s target path: %s (body %d bytes)", op, path, len(hdr.body))
 	}
 	w := buildRPCReply(hdr.XID)
 	w.putU32(nfsROFS) // read-only filesystem

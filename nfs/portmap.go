@@ -64,7 +64,7 @@ func (pm *Portmapper) Start(ctx context.Context) error {
 		}
 	}
 	if pm.cdjMode && !has111 {
-		log.Printf("portmapper: WARNING — port 111 is NOT bound; CDJ-mode track loading WILL FAIL " +
+		dlog.Warnf("portmapper: WARNING — port 111 is NOT bound; CDJ-mode track loading WILL FAIL " +
 			"(the deck can't locate the NFS mount). Grant the port with ONE of: " +
 			"`sudo sysctl -w net.ipv4.ip_unprivileged_port_start=111` (system-wide, survives rebuilds), " +
 			"`sudo setcap 'cap_net_bind_service=+ep' <binary>` (re-run after each build), or run with sudo. " +
@@ -142,10 +142,10 @@ func (pm *Portmapper) handleGetPort(hdr *rpcHeader) []byte {
 	switch prog {
 	case progMount:
 		port = pm.mountPort
-		log.Printf("portmap: GETPORT mount vers=%d proto=%d -> %d", vers, proto, port)
+		dlog.Debugf("portmap: GETPORT mount vers=%d proto=%d -> %d", vers, proto, port)
 	case progNFS:
 		port = pm.nfsPort
-		log.Printf("portmap: GETPORT nfs vers=%d proto=%d -> %d", vers, proto, port)
+		dlog.Debugf("portmap: GETPORT nfs vers=%d proto=%d -> %d", vers, proto, port)
 	default:
 		log.Printf("portmap: GETPORT unknown program %d", prog)
 	}
