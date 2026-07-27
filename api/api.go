@@ -2871,10 +2871,16 @@ func (s *Server) handleWaveformPNG(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "render failed: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
-	// Best-effort write to disk for next time.
+	// Best-effort write to disk for next time. Write-to-temp + rename so a
+	// concurrent request reading cachePath can never observe a partial file:
+	// lazy-loading <img> tags fan out many thumbnail requests at once, and a
+	// truncated PNG served here would be cached by the browser for a week.
 	if cachePath != "" {
 		_ = os.MkdirAll(filepath.Dir(cachePath), 0o755)
-		_ = os.WriteFile(cachePath, imgBytes, 0o644)
+		tmp := fmt.Sprintf("%s.tmp%d", cachePath, os.Getpid())
+		if err := os.WriteFile(tmp, imgBytes, 0o644); err == nil {
+			_ = os.Rename(tmp, cachePath)
+		}
 	}
 	w.Write(imgBytes)
 }

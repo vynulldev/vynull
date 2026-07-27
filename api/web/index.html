@@ -4057,8 +4057,27 @@ function waveThumbSrc(tid, bust) {
 }
 function updateThumbnailSrcs() {
   document.querySelectorAll('img[data-libtrack]').forEach(img => {
-    img.src = waveThumbSrc(img.getAttribute('data-libtrack'));
+    swapImgSrc(img, waveThumbSrc(img.getAttribute('data-libtrack')));
   });
+}
+
+// swapImgSrc replaces an <img> src without the black flash: setting .src
+// directly blanks the element while an uncached resource loads (exposing the
+// dark cell background — most visible on recently-added tracks whose PNG
+// isn't disk-cached at the new size yet, so the server renders live). Preload
+// through a detached Image and swap only once the bytes are in, so the old
+// frame stays up throughout. No-op when the URL is already current.
+function swapImgSrc(img, url) {
+  if (img.getAttribute('src') === url) return;
+  const pre = new Image();
+  pre.onload = () => {
+    // The row may have been re-rendered or retargeted while preloading.
+    if (document.body.contains(img)) {
+      img.src = url;
+    }
+  };
+  pre.onerror = () => {}; // keep the old frame on failure
+  pre.src = url;
 }
 // Debounced re-fetch of every visible waveform thumbnail at the new displayed
 // size — used when the row height or waveform column width changes.
@@ -5581,6 +5600,9 @@ function thumbLoaded(img) {
   const tid = img.getAttribute('data-libtrack');
   setTimeout(() => {
     if (!tid || !document.body.contains(img)) return;
+    // Direct src set on purpose: the retry chain relies on the onload cycle
+    // (src -> onload -> thumbLoaded -> next retry), and the cell is showing
+    // the 1x1 placeholder anyway, so there is no frame to preserve.
     img.src = waveThumbSrc(tid, true);
   }, delayMs);
 }
