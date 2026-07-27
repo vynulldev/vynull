@@ -4048,17 +4048,52 @@ function autoFitColumns() {
 function waveThumbCSS() {
   return { w: Math.max(60, Math.round(libWaveColWidth() - 16)), h: Math.max(14, libraryRowHeight - 8) };
 }
+// trackIsAnalyzed memoizes "does this track have analysis" per allTracks
+// snapshot (the poll swaps in a fresh array whenever anything changes).
+let _analyzedMemoSrc = null, _analyzedMemo = null;
+function trackIsAnalyzed(tid) {
+  if (_analyzedMemoSrc !== allTracks) {
+    _analyzedMemo = new Set((allTracks || []).filter(t => t.bpm > 0).map(t => t.id));
+    _analyzedMemoSrc = allTracks;
+  }
+  return _analyzedMemo.has(Number(tid));
+}
 function waveThumbSrc(tid, bust) {
   const c = waveThumbCSS();
   const dpr = Math.min(3, window.devicePixelRatio || 1);
   const w = Math.min(2400, Math.round(c.w * dpr));
   const h = Math.min(240, Math.round(c.h * dpr));
-  return `/api/analysis/waveform-png/${tid}?type=detail&color=${effectiveWaveColor()}&overview=${overviewType()}&w=${w}&h=${h}` + (bust ? `&_=${Date.now()}` : '');
+  // &a=1 once the track is analyzed: the URL must CHANGE when analysis
+  // lands, or re-created <img> elements keep resurrecting the placeholder
+  // from the browser's per-document image cache (no-store notwithstanding)
+  // for as long as the table keeps rebuilding — which during a batch
+  // analysis is every poll tick.
+  const a = trackIsAnalyzed(tid) ? '&a=1' : '';
+  return `/api/analysis/waveform-png/${tid}?type=detail&color=${effectiveWaveColor()}&overview=${overviewType()}&w=${w}&h=${h}${a}` + (bust ? `&_=${Date.now()}` : '');
 }
 function updateThumbnailSrcs() {
   document.querySelectorAll('img[data-libtrack]').forEach(img => {
-    img.src = waveThumbSrc(img.getAttribute('data-libtrack'));
+    swapImgSrc(img, waveThumbSrc(img.getAttribute('data-libtrack')));
   });
+}
+
+// swapImgSrc replaces an <img> src without the black flash: setting .src
+// directly blanks the element while an uncached resource loads (exposing the
+// dark cell background — most visible on recently-added tracks whose PNG
+// isn't disk-cached at the new size yet, so the server renders live). Preload
+// through a detached Image and swap only once the bytes are in, so the old
+// frame stays up throughout. No-op when the URL is already current.
+function swapImgSrc(img, url) {
+  if (img.getAttribute('src') === url) return;
+  const pre = new Image();
+  pre.onload = () => {
+    // The row may have been re-rendered or retargeted while preloading.
+    if (document.body.contains(img)) {
+      img.src = url;
+    }
+  };
+  pre.onerror = () => {}; // keep the old frame on failure
+  pre.src = url;
 }
 // Debounced re-fetch of every visible waveform thumbnail at the new displayed
 // size — used when the row height or waveform column width changes.
@@ -5573,14 +5608,44 @@ function fmtPath(p) {
 // out so we don't stampede the server after a fresh page load.
 function thumbLoaded(img) {
   img.classList.replace('loading', 'loaded');
-  if (img.naturalWidth !== 1) return; // real waveform, done
+  if (img.naturalWidth !== 1) {
+    // Real waveform. If it arrived via a cache-busted self-heal URL, swap
+    // back to the natural URL (preload keeps the frame up): the natural URL
+    // was last fetched when it returned the no-store placeholder, so the
+    // browser has nothing cached under it — without this, the next table
+    // re-render (view switch) starts cache-cold and the freshly-analyzed
+    // track sits blank again waiting on a full round-trip. The swap request
+    // hits the server's disk-cached PNG, so it is one cheap fetch that
+    // makes every later re-render instant.
+    const tid = img.getAttribute('data-libtrack');
+    if (tid && /[?&]_=/.test(img.src)) {
+      swapImgSrc(img, waveThumbSrc(tid));
+    }
+    return;
+  }
+  scheduleThumbRetry(img);
+}
+
+// scheduleThumbRetry keeps a pending thumbnail's self-heal alive. Analysis
+// can sit behind a LONG queue (bulk add, or the one-time cacheVersion
+// re-analysis pass), so a short fixed retry budget silently gave up before
+// the track's turn came — and the thumbnail then never appeared without a
+// page refresh. Quick retries for the first minute (analysis normally wins
+// that race), then back off to ~30-45s for up to roughly two hours; the
+// placeholder responses being retried are no-store and cost the server
+// almost nothing.
+function scheduleThumbRetry(img) {
   const tries = parseInt(img.dataset.retries || '0', 10);
-  if (tries >= 60) return;            // ~6 minutes of retries, then give up
+  if (tries >= 250) return; // ~2h with backoff — permanently-failed analysis stops here
   img.dataset.retries = String(tries + 1);
-  const delayMs = 5000 + Math.floor(Math.random() * 3000);
+  const base = tries < 12 ? 5000 : 30000;
+  const delayMs = base + Math.floor(Math.random() * base * 0.6);
   const tid = img.getAttribute('data-libtrack');
   setTimeout(() => {
     if (!tid || !document.body.contains(img)) return;
+    // Direct src set on purpose: the retry chain rides the onload cycle
+    // (src -> onload -> thumbLoaded -> next retry), and the cell is showing
+    // the 1x1 placeholder anyway, so there is no frame to preserve.
     img.src = waveThumbSrc(tid, true);
   }, delayMs);
 }
@@ -5614,7 +5679,7 @@ const LIBRARY_COLUMNS = [
     cell: t => artHTML(t, 'lib-art', 'lib-art empty', '') },
   { key: 'waveform', label: 'WV',     default: true,  thClass: '',    tdClass: 'wave-cell',
     sortable: false,
-    cell: t => `<div class="wave-thumb"><img class="loading" data-libtrack="${t.id}" alt="" loading="lazy" src="${waveThumbSrc(t.id)}" onload="thumbLoaded(this)">${cueMarkerOverlay(t.id, t.duration)}</div>` },
+    cell: t => `<div class="wave-thumb"><img class="loading" data-libtrack="${t.id}" alt="" loading="lazy" src="${waveThumbSrc(t.id)}" onload="thumbLoaded(this)" onerror="scheduleThumbRetry(this)">${cueMarkerOverlay(t.id, t.duration)}</div>` },
   { key: 'id',       label: 'ID',     default: true,  thClass: 'num', tdClass: 'num',
     sort: t => t.id,
     cell: t => String(t.id).padStart(4, '0') },
