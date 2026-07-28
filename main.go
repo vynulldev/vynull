@@ -30,6 +30,7 @@ import (
 	"github.com/vynulldev/vynull/library"
 	"github.com/vynulldev/vynull/link/prolink"
 	"github.com/vynulldev/vynull/mediadb"
+	"github.com/vynulldev/vynull/mpris"
 	"github.com/vynulldev/vynull/nfs"
 	"github.com/vynulldev/vynull/pdb"
 )
@@ -605,6 +606,34 @@ func main() {
 	}
 	if cfg.Web {
 		log.Printf("web UI enabled: http://%s/", displayAddr(cfg.Listen))
+	}
+	// MPRIS: mirror the audible deck to the desktop's media surfaces. Missing
+	// session bus (headless) is normal — debug-log and move on.
+	if cfg.MPRIS {
+		base := "http://" + displayAddr(cfg.Listen)
+		if _, err := mpris.Start(ctx, func() mpris.NowPlaying {
+			np := apiSrv.NowPlayingSnapshot()
+			out := mpris.NowPlaying{
+				Playing:      np.Playing,
+				DeviceNumber: np.DeviceNumber,
+				TrackID:      np.TrackID,
+				Title:        np.Title,
+				Artist:       np.Artist,
+				DurationMs:   np.DurationMs,
+			}
+			if np.ArtworkURL != "" {
+				out.ArtURL = base + np.ArtworkURL
+			}
+			// Position from the beat counter: beats elapsed over tempo.
+			if np.BeatInTrack > 0 && np.BPM > 0 {
+				out.PositionMs = uint32(float64(np.BeatInTrack-1) / np.BPM * 60000)
+			}
+			return out
+		}, time.Second); err != nil {
+			dlog.Debugf("mpris: disabled: %v", err)
+		} else {
+			log.Printf("mpris: publishing now-playing on the session bus")
+		}
 	}
 	srvWg.Add(1)
 	go func() {
