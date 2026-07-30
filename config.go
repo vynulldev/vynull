@@ -197,7 +197,9 @@ var flagGroups = []flagGroup{
 // existing tooling (godoc, completions) still recognises the layout.
 func printGroupedUsage() {
 	w := flag.CommandLine.Output()
-	fmt.Fprintf(w, "Usage: %s [flags]\n\n", os.Args[0])
+	fmt.Fprintf(w, "Usage: %s [flags]           start the server\n", os.Args[0])
+	fmt.Fprintf(w, "       %s <command> [args]  run a client command against a running server\n\n", os.Args[0])
+	printCommandsUsage(w)
 
 	seen := map[string]bool{}
 	for _, g := range flagGroups {

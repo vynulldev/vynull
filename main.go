@@ -35,6 +35,11 @@ import (
 )
 
 func main() {
+	// Subcommands (vynull search/add/load/...) are thin HTTP clients for a
+	// running server; they run and exit before any server flag parsing.
+	if runCLI(os.Args[1:]) {
+		return
+	}
 	cfg := parseFlags()
 
 	// Apply --log-level before anything else so startup messages obey it.

@@ -193,6 +193,28 @@ Create a rekordbox-compatible USB structure from a music directory:
 ./vynull --generate /media/usb --music-dir /path/to/music
 ```
 
+## CLI Subcommands
+
+With a server running, the same binary doubles as a shell client for it —
+handy for scripting (fzf/rofi pickers, watch-folder cron jobs) without
+touching curl:
+
+```bash
+vynull search caribou            # list matching tracks (ID, BPM, key, ...)
+vynull search --json | jq ...    # machine-readable, for pipelines
+vynull add ~/Music/new-crate     # add files or folders; analysis runs in background
+vynull load 42 2                 # load track 42 on deck 2
+vynull load "encounter" 2        # or by search — must match exactly one track
+vynull players                   # who's on the link and what they're playing
+vynull playlists                 # playlists with counts
+vynull status                    # server, analysis, and link state
+```
+
+All subcommands talk to `http://127.0.0.1:9443` by default; point them
+elsewhere with `--addr host:port` or `VYNULL_ADDR`. Listing commands take
+`--json`. Paths passed to `add` are resolved on the server's filesystem, so
+the client assumes the same host (or a shared mount).
+
 ## Command-Line Flags
 
 | Flag | Default | Description |
