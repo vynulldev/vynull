@@ -610,6 +610,13 @@ func (s *Server) handleNowPlaying(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, nowPlayingFrom(s.getPlayers()))
 }
 
+// NowPlayingSnapshot returns the audible deck's now-playing state — the
+// same projection /api/nowplaying serves — for in-process consumers (the
+// MPRIS publisher).
+func (s *Server) NowPlayingSnapshot() NowPlaying {
+	return nowPlayingFrom(s.getPlayers())
+}
+
 // nowPlayingFrom projects the selected player into a NowPlaying.
 func nowPlayingFrom(players []PlayerInfo) NowPlaying {
 	p := selectNowPlaying(players)
