@@ -18,6 +18,17 @@ var webOverlayHTML []byte
 //go:embed web/favicon.svg
 var webFaviconSVG []byte
 
+// PWA manifest + icons: lets browsers install the web UI as a standalone
+// app (fullscreen from a home-screen icon on phones/tablets, its own window
+// on desktop). No service worker on purpose — the UI is meaningless without
+// the live server, so offline caching would only mislead.
+//
+//go:embed web/manifest.json
+var webManifestJSON []byte
+
+//go:embed web/icon-192.png web/icon-512.png
+var webIconsFS embed.FS
+
 // webFontsFS holds the self-hosted woff2 fonts (Geist Mono + VT323), served at
 // /fonts/. Bundled into the binary so the UI needs no external font CDN —
 // important since it usually runs offline on the CDJ link-local network.
@@ -44,6 +55,21 @@ func RegisterWebUI(mux *http.ServeMux) {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		w.Write(webOverlayHTML)
 	})
+
+	mux.HandleFunc("/manifest.json", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/manifest+json")
+		w.Header().Set("Cache-Control", "public, max-age=86400")
+		w.Write(webManifestJSON)
+	})
+	for _, name := range []string{"icon-192.png", "icon-512.png"} {
+		name := name
+		mux.HandleFunc("/"+name, func(w http.ResponseWriter, r *http.Request) {
+			data, _ := webIconsFS.ReadFile("web/" + name)
+			w.Header().Set("Content-Type", "image/png")
+			w.Header().Set("Cache-Control", "public, max-age=86400")
+			w.Write(data)
+		})
+	}
 
 	// App icon (vinyl + the null ∅), used as the browser-tab favicon.
 	mux.HandleFunc("/favicon.svg", func(w http.ResponseWriter, r *http.Request) {
