@@ -21,8 +21,11 @@ import (
 
 type rekordboxXMLImporter struct{}
 
-func (rekordboxXMLImporter) Label() string           { return "rekordbox XML" }
-func (rekordboxXMLImporter) Handles(p string) bool   { return hasExt(p, ".xml") }
+func (rekordboxXMLImporter) Label() string { return "rekordbox XML" }
+func (rekordboxXMLImporter) Handles(p string) bool {
+	// .xml is shared with VirtualDJ's database.xml, so match on the root element.
+	return hasExt(p, ".xml") && xmlRootIs(p, "DJ_PLAYLISTS")
+}
 func (rekordboxXMLImporter) RequiresKey(string) bool { return false }
 
 func (rekordboxXMLImporter) Import(lib *Library, o ImportOptions) (*ImportBundle, error) {
