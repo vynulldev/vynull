@@ -26,7 +26,14 @@ const AnalysisRate = 44100
 // only encoder — old V1-encoded caches (saved as 17) and the older
 // experimental V2 caches (saved as 2017 behind --pwv4-v2) both invalidate
 // here, so the next run re-analyzes once and converges on a single format.
-const cacheVersion = 25
+// Bumped to 26 for the beat-grid phase improvements (windowed clarity-weighted
+// phase, gated half-beat flip, codec-aware lossless latency): the values in a
+// v25 cache are still readable but its grids predate those fixes, so one
+// re-analysis pass upgrades every library instead of only newly-added tracks.
+// Bumped to 27 for integer-snap BPM verification: ~1/3 of a real library
+// detected a fraction off the true integer tempo (and gridded at the wrong
+// period), so v26 BPMs and grids must re-analyze.
+const cacheVersion = 27
 
 // PWV4Override and PWV5Override, when non-nil, replace every track's color
 // preview / detail waveform at serve time. Set via the --pwv4-override /
@@ -162,6 +169,19 @@ func (s *Store) Set(trackID uint32, r *Result) {
 	if s.cacheDir != "" && filePath != "" {
 		s.saveToDisk(filePath, r)
 	}
+}
+
+// Remove drops the in-memory result and path mapping for a track, for use
+// when the track is deleted from the library. The on-disk cache entry is
+// deliberately kept: it is keyed by file path (derived from the audio
+// content, not track state), so re-adding the same file later reuses it
+// instead of re-analyzing. Without this, a deleted track's Result (waveform
+// blobs and all, hundreds of KB) stayed resident until restart.
+func (s *Store) Remove(trackID uint32) {
+	s.mu.Lock()
+	delete(s.results, trackID)
+	delete(s.pathMap, trackID)
+	s.mu.Unlock()
 }
 
 // Status returns a human-readable status line for the monitor UI.
@@ -373,7 +393,8 @@ func AnalyzeTrack(filePath string) (*Result, error) {
 	}
 
 	// ---- DSP (brand-neutral) ----
-	beatResult := DetectBeats(samples, AnalysisRate)
+	// Compensate the lossy encoder delay so lossless grids are not shifted late.
+	beatResult := DetectBeatsWithEncoderDelay(samples, AnalysisRate, EncoderDelayMs(filePath))
 	camelot, standard := DetectKey(samples, AnalysisRate)
 	artwork := ExtractArtwork(filePath)
 	durationSec := float64(len(samples)) / float64(AnalysisRate)

@@ -4,6 +4,7 @@ package dbserver
 
 import (
 	"fmt"
+	"github.com/vynulldev/vynull/internal/dlog"
 	"log"
 	"path/filepath"
 	"strings"
@@ -172,7 +173,7 @@ func (h *Handler) storeAnalysisResult(trackID uint32, r *analysis.Result) {
 // Handle dispatches a message to the appropriate handler and returns
 // zero or more response messages.
 func (h *Handler) Handle(msg *proto.DBMessage) []*proto.DBMessage {
-	log.Printf("dbserver msg type=0x%04x txid=%08x args=%d", msg.Type, msg.TxID, len(msg.Args))
+	dlog.Tracef("dbserver msg type=0x%04x txid=%08x args=%d", msg.Type, msg.TxID, len(msg.Args))
 
 	switch msg.Type {
 	case proto.DBMsgSetup:
@@ -216,13 +217,13 @@ func (h *Handler) Handle(msg *proto.DBMessage) []*proto.DBMessage {
 		// Respond with [0x1602, 0]. Leaving it
 		// unhandled appears to make the deck stall before entering
 		// some categories (SEARCH keyboard not opening in particular).
-		log.Printf("dbserver: 0x1602 preflight ack")
+		dlog.Debugf("dbserver: 0x1602 preflight ack")
 		return []*proto.DBMessage{{
 			TxID: msg.TxID, Type: proto.DBMsgSuccess,
 			Args: []proto.DBArg{proto.ArgI32(uint32(msg.Type)), proto.ArgI32(0)},
 		}}
 	case 0x3001: // metadata notification (CDJ sends ~1min after loading); no response expected
-		log.Printf("dbserver: 0x3001 notification (no response)")
+		dlog.Debugf("dbserver: 0x3001 notification (no response)")
 		return nil
 	case proto.DBMsgGetTracks:
 		return h.handleGetTracks(msg)
@@ -398,7 +399,7 @@ func (h *Handler) handleSetup(msg *proto.DBMessage) []*proto.DBMessage {
 	for i, a := range msg.Args {
 		args += fmt.Sprintf(" arg[%d]=tag0x%02x/%d", i, a.Tag, a.Int())
 	}
-	log.Printf("dbserver setup RECV: txid=0x%08x argc=%d%s remarshal=[% x]",
+	dlog.Tracef("dbserver setup RECV: txid=0x%08x argc=%d%s remarshal=[% x]",
 		msg.TxID, len(msg.Args), args, proto.MarshalDBMessage(msg))
 	// Response must have TWO int32 args: [0, server_player_number]
 	return []*proto.DBMessage{{
@@ -412,7 +413,7 @@ func (h *Handler) handleSetup(msg *proto.DBMessage) []*proto.DBMessage {
 }
 
 func (h *Handler) handleMediaInfo(msg *proto.DBMessage) []*proto.DBMessage {
-	log.Printf("dbserver: media info (0x3007)")
+	dlog.Debugf("dbserver: media info (0x3007)")
 	// Respond: success with [echo_type, 0] — matches the CDJ
 	return []*proto.DBMessage{{
 		TxID: msg.TxID,
@@ -422,7 +423,7 @@ func (h *Handler) handleMediaInfo(msg *proto.DBMessage) []*proto.DBMessage {
 }
 
 func (h *Handler) handleNXS2Extension(msg *proto.DBMessage) []*proto.DBMessage {
-	log.Printf("dbserver: NXS2 extension (0x3e03)")
+	dlog.Debugf("dbserver: NXS2 extension (0x3e03)")
 	// Respond: type 0x4b02 with [echo_type, 0, 2, ""] — matches the CDJ
 	return []*proto.DBMessage{{
 		TxID: msg.TxID,
@@ -470,7 +471,7 @@ func (h *Handler) rootMenu() []*menuItem {
 }
 
 func (h *Handler) handleRootMenu(msg *proto.DBMessage) []*proto.DBMessage {
-	log.Printf("dbserver: root menu (0x1000)")
+	dlog.Debugf("dbserver: root menu (0x1000)")
 	// The deck is back at the root menu, so any "most recent category/detail
 	// list" context is stale. Clear it — otherwise the follow-up root render
 	// (menu=1/7) can match lastCategoryItems by count and show that stale
@@ -479,7 +480,7 @@ func (h *Handler) handleRootMenu(msg *proto.DBMessage) []*proto.DBMessage {
 	// so browsing the menu after INFO rendered the track info.
 	h.lastCategoryItems = nil
 	items := h.rootMenu()
-	log.Printf("dbserver: root menu returning %d categories", len(items))
+	dlog.Debugf("dbserver: root menu returning %d categories", len(items))
 	return []*proto.DBMessage{{
 		TxID: msg.TxID,
 		Type: proto.DBMsgSuccess,

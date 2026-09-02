@@ -4,7 +4,9 @@ package analysis
 
 import (
 	"math"
+	"path/filepath"
 	"sort"
+	"strings"
 )
 
 // BeatResult holds the detected BPM and actual beat positions.
@@ -12,6 +14,11 @@ type BeatResult struct {
 	BPM      float64   // detected tempo
 	Beats    []float64 // beat positions in milliseconds
 	Downbeat float64   // first downbeat (beat 1) in milliseconds
+
+	// KickRatio is a diagnostic: the low-band (kick/bass) onset energy summed on
+	// the half-beat-offset comb divided by that on the chosen grid. >1 means the
+	// off-phase carries more kick energy — a candidate half-beat flip.
+	KickRatio float64
 }
 
 // tempoPriorCenter / tempoPriorSigma define the perceptual tempo prior used to
@@ -31,10 +38,19 @@ func tempoPrior(bpm float64) float64 {
 	return math.Exp(-0.5 * x * x)
 }
 
-// DetectBeats finds individual beat positions and computes BPM from them.
-// Uses onset peak detection with adaptive threshold, then computes BPM
-// from the median inter-beat interval.
+// DetectBeats finds individual beat positions and computes BPM from them, using
+// the lossy-codec latency compensation. Callers that know the source format
+// should prefer DetectBeatsWithEncoderDelay (with EncoderDelayMs) so lossless
+// tracks are not over-compensated for an encoder delay they do not have.
 func DetectBeats(samples []float32, sampleRate int) *BeatResult {
+	return DetectBeatsWithEncoderDelay(samples, sampleRate, LossyEncoderDelayMs)
+}
+
+// DetectBeatsWithEncoderDelay is DetectBeats with an explicit lossy encoder-delay
+// compensation (ms) added to the phase latency. Pass EncoderDelayMs(path), or 0
+// for a lossless source. Uses onset peak detection with an adaptive threshold,
+// then computes BPM from the median inter-beat interval.
+func DetectBeatsWithEncoderDelay(samples []float32, sampleRate int, encoderDelayMs float64) *BeatResult {
 	if len(samples) < sampleRate*2 {
 		return &BeatResult{}
 	}
@@ -301,6 +317,22 @@ func DetectBeats(samples []float32, sampleRate int) *BeatResult {
 
 	bpm = math.Round(bpm*100) / 100
 
+	// The phase onset envelope (multi-band when enabled) is shared by the
+	// snap verification here and the tempogram phase step below; computing it
+	// once keeps the snap step free on the tracks it doesn't change.
+	phaseOnset, phaseOnsetMs := onset, msPerFrame
+	if UseTempogramPhase && UseMultiBandOnset {
+		if mb, mbMs := multiBandOnset(samples, sampleRate); mb != nil {
+			phaseOnset, phaseOnsetMs = mb, mbMs
+		}
+	}
+
+	// Integer-snap verification BEFORE any phase work, so the grid and
+	// downbeat are fit at the corrected tempo rather than patched after.
+	if SnapVerify && UseTempogramPhase {
+		bpm = snapVerifyBPM(phaseOnset, phaseOnsetMs, bpm)
+	}
+
 	// Now build a refined beat grid by snapping peaks to a regular grid.
 	// Use the detected peaks to find the best phase alignment.
 	msPerBeat := 60000.0 / bpm
@@ -552,14 +584,15 @@ func DetectBeats(samples []float32, sampleRate int) *BeatResult {
 	// peak/DP phase, which only ever aligned to onset peaks in a fixed band
 	// and matched rekordbox's grid ~30% of the time.
 	if UseTempogramPhase {
-		phaseOnset, phaseOnsetMs := onset, msPerFrame
-		if UseMultiBandOnset {
-			if mb, mbMs := multiBandOnset(samples, sampleRate); mb != nil {
-				phaseOnset, phaseOnsetMs = mb, mbMs
-			}
+		// Combine per-window phasors (WindowedPhase, the default) so the sharpest,
+		// cleanest sections dominate; fall back to the whole-track tempogram sum.
+		// phaseOnset was computed above, before the snap verification.
+		tp, ok := tempogramPhase(phaseOnset, phaseOnsetMs, msPerBeat)
+		if WindowedPhase {
+			tp, ok = windowedTempogramPhase(phaseOnset, phaseOnsetMs, msPerBeat, WindowSec, AmpWeight, ClarityWeight)
 		}
-		if tp, ok := tempogramPhase(phaseOnset, phaseOnsetMs, msPerBeat); ok {
-			bestPhase = math.Mod(tp+TempogramLatencyMs, msPerBeat)
+		if ok {
+			bestPhase = math.Mod(tp+TempogramLatencyMs+encoderDelayMs, msPerBeat)
 			if bestPhase < 0 {
 				bestPhase += msPerBeat
 			}
@@ -579,11 +612,16 @@ func DetectBeats(samples []float32, sampleRate int) *BeatResult {
 	// BPM rounding: snap to the nearest "nice" BPM value if within 0.1 BPM.
 	// This prevents cumulative drift from sub-BPM precision errors.
 	// Applied AFTER phase detection to avoid changing the DP tracker's period.
+	// Skipped when snap verification ran: it already scored these candidates
+	// by tempogram coherence, and a fractional tempo it deliberately kept
+	// must not be blind-rounded here.
 	roundedBPM := bpm
-	if r := math.Round(bpm); math.Abs(bpm-r) < 0.15 {
-		roundedBPM = r
-	} else if r := math.Round(bpm*2) / 2; math.Abs(bpm-r) < 0.05 {
-		roundedBPM = r
+	if !(SnapVerify && UseTempogramPhase) {
+		if r := math.Round(bpm); math.Abs(bpm-r) < 0.15 {
+			roundedBPM = r
+		} else if r := math.Round(bpm*2) / 2; math.Abs(bpm-r) < 0.05 {
+			roundedBPM = r
+		}
 	}
 
 	// If BPM was rounded, rebuild the grid with the rounded interval
@@ -603,21 +641,82 @@ func DetectBeats(samples []float32, sampleRate int) *BeatResult {
 		msPerBeat = roundedInterval
 	}
 
+	// Half-beat disambiguation: the tempogram phase is unique mod one beat, but on
+	// tracks with a strong off-beat (bass/hat anti-phase to the kick) it can lock
+	// to the off-beat while rekordbox anchors on the kick. Compare the low-band
+	// (kick/bass) onset energy on the chosen grid vs the half-beat-offset comb;
+	// when the offset comb carries HalfBeatGate× more, flip the grid by P/2. The
+	// gate keeps weak/ambiguous kicks (net-negative unconditionally) from firing.
+	gridPhase := math.Mod(beats[0], msPerBeat)
+	if gridPhase < 0 {
+		gridPhase += msPerBeat
+	}
+	eOn := combEnergy(onset, msPerFrame, gridPhase, msPerBeat)
+	eHalf := combEnergy(onset, msPerFrame, gridPhase+msPerBeat/2, msPerBeat)
+	kickRatio := eHalf / (eOn + 1e-9)
+	if HalfBeatGate > 0 && kickRatio > HalfBeatGate {
+		beats = buildGrid(math.Mod(gridPhase+msPerBeat/2, msPerBeat), msPerBeat, durationMs)
+	}
+
 	// Find downbeat (beat 1 of 4) using accent detection.
 	downbeat := findDownbeat(beats)
 
 	return &BeatResult{
-		BPM:      bpm,
-		Beats:    beats,
-		Downbeat: downbeat,
+		BPM:       bpm,
+		Beats:     beats,
+		Downbeat:  downbeat,
+		KickRatio: kickRatio,
 	}
 }
 
+// combEnergy sums the onset envelope on the comb of beat positions starting at
+// phaseMs with the given period, peak-picking a ±1-frame window at each beat to
+// tolerate sub-frame jitter.
+func combEnergy(onset []float64, msPerFrame, phaseMs, periodMs float64) float64 {
+	if periodMs <= 0 || msPerFrame <= 0 || len(onset) == 0 {
+		return 0
+	}
+	dur := float64(len(onset)) * msPerFrame
+	start := math.Mod(phaseMs, periodMs)
+	if start < 0 {
+		start += periodMs
+	}
+	var sum float64
+	for t := start; t < dur; t += periodMs {
+		f := int(math.Round(t / msPerFrame))
+		best := 0.0
+		for d := -1; d <= 1; d++ {
+			if i := f + d; i >= 0 && i < len(onset) && onset[i] > best {
+				best = onset[i]
+			}
+		}
+		sum += best
+	}
+	return sum
+}
+
+// buildGrid extrapolates a constant-period beat grid from a phase back to 0 and
+// out to durationMs.
+func buildGrid(phaseMs, periodMs, durationMs float64) []float64 {
+	sp := phaseMs
+	for sp-periodMs >= 0 {
+		sp -= periodMs
+	}
+	var beats []float64
+	for t := sp; t < durationMs; t += periodMs {
+		beats = append(beats, math.Round(t*10)/10)
+	}
+	return beats
+}
+
 // Tempogram-phase calibration knobs, tuned to reproduce rekordbox's grids.
-// Validated against imported rekordbox grids (n=400, near-exact-BPM subset
-// n=208):
+// Measured as the share of tracks whose grid phase matches rekordbox within
+// 50ms, each step building on the previous one:
 //
-//	peak/DP 30% → tempogram 34% → multiband 42% → +band-norm 61%
+//	peak/DP 30% → tempogram 34% → multiband 42% → +band-norm 61% → +windowed 66%
+//
+// The final step (WindowedPhase) replaces the whole-track tempogram sum with a
+// per-window clarity-weighted combine; see that var and windowedTempogramPhase.
 //
 // UseBandNorm is rekordbox's band "combination": adaptive per-band normalization
 // (divide each band's flux by its own running EMA level, BandNormAlpha=0.99),
@@ -625,14 +724,92 @@ func DetectBeats(samples []float32, sampleRate int) *BeatResult {
 // bands is what makes the full 25-band set usable; a raw sum is dominated by the
 // bass and scores worse than a single band. MultiBandMaxHz is only the cutoff
 // for the non-normalized fallback path. TempogramLatencyMs cancels the STFT
-// framing+flux+EMA latency, centering the residual bias.
+// framing+flux+EMA latency (format-independent), centering the residual bias.
 var (
-	UseTempogramPhase  = true
-	UseMultiBandOnset  = true
-	UseBandNorm        = true
-	BandNormAlpha      = 0.99
-	MultiBandMaxHz     = 4096.0
-	TempogramLatencyMs = 55.0
+	UseTempogramPhase = true
+	UseMultiBandOnset = true
+	UseBandNorm       = true
+	BandNormAlpha     = 0.99
+	MultiBandMaxHz    = 4096.0
+
+	// TempogramLatencyMs is the pipeline group delay (STFT framing + flux + EMA),
+	// which is codec-independent. LossyEncoderDelayMs is added on top for lossy
+	// codecs: rekordbox grids on the raw decoded stream INCLUDING the ~1105-sample
+	// (25ms at 44.1kHz) MP3/AAC encoder delay, while our ffmpeg decode strips it,
+	// so a lossy track's grid must be shifted back by that delay to match
+	// rekordbox. Lossless (FLAC/WAV/AIFF) has no encoder delay and adds 0. The two
+	// terms were separated by calibrating the pipeline delay on lossless (the clean
+	// case) and confirming lossy = pipeline + encoder delay reproduces the old
+	// single 55ms constant. See EncoderDelayMs and DetectBeatsWithEncoderDelay.
+	TempogramLatencyMs  = 30.0
+	LossyEncoderDelayMs = 25.0
+
+	// HalfBeatGate, when > 0, flips the grid by half a beat if the half-beat
+	// comb carries more than this multiple of the on-grid kick/bass onset energy
+	// (BeatResult.KickRatio). This resolves tracks where the tempogram locked to
+	// a strong off-beat instead of rekordbox's kick. 2.0 sits on a flat 1.5-2.0
+	// plateau, re-confirmed best alongside the windowed phase; it recovers part of
+	// the half-beat tail the sharper windowed phase introduces.
+	// The gate can only ever help so much: the kick ratio is a weak predictor
+	// (half-beat-off tracks span the whole range of ratios, including tracks whose
+	// kick evidence points the wrong way), so most of the tail is a genuine
+	// per-track convention gap the kick cannot resolve. 0 disables it.
+	HalfBeatGate = 2.0
+
+	// WindowedPhase makes the phase estimator combine per-window beat phasors
+	// weighted by AmpWeight/ClarityWeight (see windowedTempogramPhase) instead of
+	// one whole-track tempogram sum, so the sharpest, cleanest windows dominate and
+	// loud-but-messy sections (kick-less intros, breakdowns) stop dragging the
+	// estimate. Tuned (ampW=3, clarW=1, 4s windows) and validated against
+	// rekordbox's grids on a held-out split: phase alignment <50ms 60.6% -> 65.7%
+	// and the tight <20ms metric 31.8% -> 37.6%, at the cost of a ~1pt larger
+	// half-beat tail that the gate partly offsets.
+	WindowedPhase = true
+	WindowSec     = 4.0
+	AmpWeight     = 3.0
+	ClarityWeight = 1.0
+
+	// SnapVerify enables coherence refinement + integer snap of the detected
+	// BPM (see snapVerifyBPM). The autocorrelation lag grid is coarse
+	// (~2.9ms at 44.1k/128) and parabolic peak interpolation lands 0.1-0.5
+	// BPM off the true tempo often enough that ~1/3 of a real library came
+	// out fractional (120.85 for a 121 track), which also computes the grid
+	// phase at the wrong period: ~0.2 BPM of error drifts the grid a full
+	// beat over a typical track. The detection is first refined by scanning
+	// tempogram coherence over ±SnapWindowBPM in SnapScanStep steps, then
+	// the nearest integer/half-integer to the refined tempo competes with a
+	// bias (SnapIntBias/SnapHalfBias). The bias is deliberately strong:
+	// tracks with a mid-track edit or phase jump split their coherence into
+	// side lobes either side of the true tempo (the integer sits in a local
+	// dip while a lobe 0.1 off wins the scan), so the integer must lose by
+	// more than the lobe effect before a fractional result is kept. A
+	// genuinely fractional tempo collapses the integer's coherence entirely
+	// (the grid drifts a beat or more across the track) and still wins.
+	SnapVerify    = true
+	SnapWindowBPM = 0.55
+	SnapScanStep  = 0.03
+	SnapIntBias   = 1.5
+	SnapHalfBias  = 1.4
+
+	// SnapFracCoherence gates the two decision modes in snapVerifyBPM: at or
+	// above it the coherence comparison rules and a genuinely fractional
+	// tempo can keep its refined value; below it the integer prior rules.
+	// The gate is deliberately near-perfect: a real fractional track (one
+	// unbroken constant grid) measured 0.98, while phase-jump interference
+	// lobes reached 0.67-0.7 on tracks that are actually integer — so only
+	// coherence a lobe cannot fake overrules the prior. SnapNearInt is the
+	// prior-mode snap radius: within it the nearest integer wins without a
+	// vote (coherence votes on lobe-noise tracks flip ±1 BPM on a coin
+	// toss); outside it, in the ambiguous x.4-x.6 band, the flanking
+	// integers vote and a half-integer needs ≥ SnapWeakHalfMin absolute
+	// coherence plus double the best integer to take it instead. Before
+	// any of that, a flanking integer at ≥ SnapStrongInt coherence AND
+	// triple its rival's overrides proximity outright — the front-end can
+	// land a full BPM off a clean track's true tempo.
+	SnapFracCoherence = 0.9
+	SnapNearInt       = 0.35
+	SnapWeakHalfMin   = 0.5
+	SnapStrongInt     = 0.5
 )
 
 // rbBandEdgesHz is rekordbox's 25-band filterbank edge table (ascending Hz),
@@ -733,6 +910,232 @@ func multiBandOnset(samples []float32, sampleRate int) ([]float64, float64) {
 	return onset, float64(hop) / float64(sampleRate) * 1000.0
 }
 
+// windowedTempogramPhase is a robust variant of tempogramPhase: instead of one
+// complex sum over the whole track (which weights every section by loudness, so
+// a loud but rhythmically messy breakdown drags the estimate), it splits the
+// onset into overlapping windows, takes each window's beat-period phasor, and
+// combines the UNIT phasors weighted by beat-clarity (|z|/Σe — how concentrated
+// that window's energy is at the beat period). Clean four-on-the-floor windows
+// dominate; kick-less or syncopated windows are discounted. ampW/clarW are the
+// exponents on phasor magnitude and clarity (ampW=1,clarW=0 reduces to the global
+// sum). All windows share the global frame index n, so their phases are directly
+// comparable and no unwrapping is needed.
+func windowedTempogramPhase(onset []float64, msPerFrame, msPerBeat, winSec, ampW, clarW float64) (float64, bool) {
+	period := msPerBeat / msPerFrame
+	if period <= 1 || len(onset) < int(period*2) {
+		return 0, false
+	}
+	w := 2 * math.Pi / period
+	winFrames := int(winSec * 1000 / msPerFrame)
+	if min := int(period * 2); winFrames < min {
+		winFrames = min
+	}
+	hop := winFrames / 2
+	if hop < 1 {
+		hop = 1
+	}
+	var Zr, Zi float64
+	for start := 0; start+winFrames <= len(onset); start += hop {
+		var zr, zi, esum float64
+		for n := start; n < start+winFrames; n++ {
+			e := onset[n]
+			zr += e * math.Cos(w*float64(n))
+			zi += e * math.Sin(w*float64(n))
+			esum += e
+		}
+		mag := math.Hypot(zr, zi)
+		if mag < 1e-12 || esum < 1e-12 {
+			continue
+		}
+		weight := math.Pow(mag, ampW) * math.Pow(mag/esum, clarW)
+		Zr += weight * zr / mag
+		Zi += weight * zi / mag
+	}
+	if Zr == 0 && Zi == 0 {
+		return 0, false
+	}
+	n0 := math.Mod(math.Atan2(Zi, Zr)/w, period)
+	if n0 < 0 {
+		n0 += period
+	}
+	return n0 * msPerFrame, true
+}
+
+// snapCoherence scores how well a candidate beat period fits the onset
+// envelope across the whole track: per-window unit phasors at the period,
+// combined with clarity-only weights (|z|/Σe, bounded [0,1]), returning the
+// mean resultant length in [0,1]. windowedTempogramPhase's amplitude-cubed
+// weighting is deliberately NOT used here: it lets a single loud window (or
+// the band-norm EMA warmup spike in the first window) dominate the sum, which
+// is what you want for picking the PHASE from the sharpest section but blinds
+// the metric to cross-window rotation. With bounded weights the contrast is
+// sharp: at the true period the unit phasors agree track-wide and R → 1; a
+// 0.2 BPM error rotates them through most of a full turn over a typical
+// track and R collapses. Peak width is roughly 60/durSec BPM.
+func snapCoherence(onset []float64, msPerFrame, msPerBeat float64) (float64, bool) {
+	period := msPerBeat / msPerFrame
+	if period <= 1 || len(onset) < int(period*2) {
+		return 0, false
+	}
+	w := 2 * math.Pi / period
+	winFrames := int(WindowSec * 1000 / msPerFrame)
+	if min := int(period * 2); winFrames < min {
+		winFrames = min
+	}
+	hop := winFrames / 2
+	if hop < 1 {
+		hop = 1
+	}
+	var Zr, Zi, wsum float64
+	for start := 0; start+winFrames <= len(onset); start += hop {
+		var zr, zi, esum float64
+		for n := start; n < start+winFrames; n++ {
+			e := onset[n]
+			zr += e * math.Cos(w*float64(n))
+			zi += e * math.Sin(w*float64(n))
+			esum += e
+		}
+		mag := math.Hypot(zr, zi)
+		if mag < 1e-12 || esum < 1e-12 {
+			continue
+		}
+		clar := mag / esum
+		Zr += clar * zr / mag
+		Zi += clar * zi / mag
+		wsum += clar
+	}
+	if wsum < 1e-12 {
+		return 0, false
+	}
+	return math.Hypot(Zr, Zi) / wsum, true
+}
+
+// snapVerifyBPM refines the detected tempo by tempogram coherence and snaps
+// it to an integer (or half-integer) when that is what the audio supports.
+// Dance music is produced at integer BPM almost without exception, and when
+// the detector lands 0.1-0.5 off a whole number the wrong period also poisons
+// the downstream grid: the tempogram phase is computed at a period that
+// drifts against the track, so the beat grid and downbeat land wrong too.
+//
+// Step 1 refines: the autocorrelation lag grid is coarse (~0.8 BPM per lag at
+// 125 BPM) and parabolic interpolation between lags lands up to ~0.5 BPM off,
+// so the true tempo may not be near the detection at all. Coherence is sharp
+// — the peak width is roughly 60/durSec BPM, ~0.16 for a six-minute track —
+// so a fine scan over ±SnapWindowBPM localizes the true period far better
+// than the interpolation did.
+//
+// Step 2 snaps. The coherence landscape of real tracks taught this function
+// humility: a phase discontinuity (a breakdown whose beat re-enters off the
+// extrapolated grid) makes the track's beat-coherent segments CANCEL exactly
+// at the true tempo — a sharp null at the integer with symmetric side lobes —
+// and a track with one long clean segment plus a short tail can lobe well
+// above 0.5. Coherence comparisons between candidates are therefore noise on
+// such tracks, and only near-perfect track-wide coherence (a single unbroken
+// grid, ≥ SnapFracCoherence) is allowed to overrule the integer prior:
+//
+//   - refCoh ≥ SnapFracCoherence: biased comparison. Every integer and
+//     half-integer in the scan range (plus the flanking integers) competes
+//     against the refined apex with SnapIntBias/SnapHalfBias; a genuinely
+//     fractional tempo (0.98 observed on a real one) keeps a decisive edge
+//     and survives with its refined value.
+//   - otherwise, the integer prior rules. Within SnapNearInt of an integer
+//     the detection snaps to it outright — no vote, because a coherence vote
+//     on a lobe-noise track flips ±1 BPM on a coin toss. Only in the
+//     genuinely ambiguous mid-band (a x.4-x.6 detection) do the flanking
+//     integers vote by coherence, and a half-integer may take it instead
+//     only on strong absolute evidence (≥ SnapWeakHalfMin and twice the
+//     best integer).
+func snapVerifyBPM(onset []float64, msPerFrame, bpm float64) float64 {
+	coh := func(b float64) float64 {
+		if b <= 0 {
+			return -1
+		}
+		c, ok := snapCoherence(onset, msPerFrame, 60000.0/b)
+		if !ok {
+			return -1
+		}
+		return c
+	}
+	refined, refCoh := bpm, coh(bpm)
+	if refCoh < 0 {
+		return bpm
+	}
+	for d := -SnapWindowBPM; d <= SnapWindowBPM+1e-9; d += SnapScanStep {
+		if c := coh(bpm + d); c > refCoh {
+			refined, refCoh = bpm+d, c
+		}
+	}
+	// Parabolic interpolation of the scan apex: when a genuinely fractional
+	// tempo wins below, its value should be the peak's true position, not
+	// the nearest SnapScanStep grid point.
+	if cm, cp := coh(refined-SnapScanStep), coh(refined+SnapScanStep); cm >= 0 && cp >= 0 {
+		if denom := cm - 2*refCoh + cp; math.Abs(denom) > 1e-12 {
+			if d := 0.5 * (cm - cp) / denom; math.Abs(d) < 1 {
+				refined += d * SnapScanStep
+			}
+		}
+	}
+	if refCoh >= SnapFracCoherence {
+		// Near-perfect track-wide coherence: the apex is trustworthy, so the
+		// biased comparison decides. Every integer and half-integer in the
+		// scan range competes, plus the flanking integers even when the
+		// detection error pushes them outside the window — if the track
+		// really is on one of them, its coherence says so regardless of
+		// where the window sat.
+		lo, hi := bpm-SnapWindowBPM, bpm+SnapWindowBPM
+		best, bestScore := math.Round(refined*100)/100, refCoh
+		try := func(c, bias float64) {
+			if math.Abs(c-best) < 0.001 {
+				return
+			}
+			if s := coh(c) * bias; s > bestScore {
+				best, bestScore = c, s
+			}
+		}
+		for v := math.Ceil(lo); v <= hi+1e-9; v++ {
+			try(v, SnapIntBias)
+		}
+		try(math.Floor(bpm), SnapIntBias)
+		try(math.Ceil(bpm), SnapIntBias)
+		for v := math.Ceil(lo*2) / 2; v <= hi+1e-9; v += 0.5 {
+			if v != math.Trunc(v) { // integers already competed at the higher bias
+				try(v, SnapHalfBias)
+			}
+		}
+		return best
+	}
+	// Integer prior. The front-end can land up to a full BPM off the true
+	// tempo, so a flanking integer with decisive absolute coherence
+	// overrides plain proximity first (a clean true-132 track detected at
+	// 131.35 must not snap to 131). Lobe noise cannot fake this: observed
+	// integer coherence on phase-jump tracks tops out around 0.4.
+	fl, ce := math.Floor(bpm), math.Ceil(bpm)
+	cf, cc := coh(fl), coh(ce)
+	if cf >= SnapStrongInt && cf >= 3*cc {
+		return fl
+	}
+	if cc >= SnapStrongInt && cc >= 3*cf {
+		return ce
+	}
+	// Near an integer: snap to it, full stop.
+	if nearest := math.Round(bpm); math.Abs(bpm-nearest) <= SnapNearInt {
+		return nearest
+	}
+	// Ambiguous mid-band: the flanking integers vote by coherence.
+	bestInt, bestIntCoh := fl, cf
+	if cc > bestIntCoh {
+		bestInt, bestIntCoh = ce, cc
+	}
+	// A x.5 tempo is rare but real; overriding the prior needs strong
+	// absolute evidence, not a win over lobe noise.
+	if half := math.Floor(bpm) + 0.5; half > math.Floor(bpm) && half < math.Ceil(bpm) {
+		if c := coh(half); c >= SnapWeakHalfMin && c >= 2*bestIntCoh {
+			return half
+		}
+	}
+	return bestInt
+}
+
 // tempogramPhase returns the first-beat sub-beat offset (ms, in [0,msPerBeat))
 // as the argument of the onset envelope's complex DFT bin at the beat period.
 // Modeling the envelope's beat component as A·cos(ω·n − ψ), the first beat sits
@@ -780,6 +1183,21 @@ func findDownbeat(beats []float64) float64 {
 		return beats[0]
 	}
 	return 0
+}
+
+// losslessExts are the container extensions whose codecs carry no encoder delay,
+// so their decoded timeline matches rekordbox's grid reference directly.
+var losslessExts = map[string]bool{".flac": true, ".wav": true, ".aiff": true, ".aif": true}
+
+// EncoderDelayMs returns the encoder-delay latency compensation for a source file:
+// 0 for lossless containers (FLAC/WAV/AIFF), LossyEncoderDelayMs otherwise. Lossy
+// codecs (MP3/AAC/...) prepend an encoder delay that rekordbox grids on but our
+// decoder strips, so the grid must be shifted back by that delay to match.
+func EncoderDelayMs(path string) float64 {
+	if losslessExts[strings.ToLower(filepath.Ext(path))] {
+		return 0
+	}
+	return LossyEncoderDelayMs
 }
 
 // DetectBPM is a convenience wrapper that returns just the BPM.

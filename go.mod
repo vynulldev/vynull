@@ -6,6 +6,7 @@ require (
 	github.com/charmbracelet/bubbletea v1.3.10
 	github.com/charmbracelet/lipgloss v1.1.0
 	github.com/dhowden/tag v0.0.0-20240417053706-3d75831295e8
+	github.com/godbus/dbus/v5 v5.2.2
 	golang.org/x/image v0.43.0
 	gopkg.in/yaml.v3 v3.0.1
 )

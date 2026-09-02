@@ -4,7 +4,7 @@ package dbserver
 
 import (
 	"fmt"
-	"log"
+	"github.com/vynulldev/vynull/internal/dlog"
 	"strings"
 
 	"github.com/vynulldev/vynull/library"
@@ -20,7 +20,7 @@ import (
 
 func (h *Handler) handleNXS2MenuLoad(msg *proto.DBMessage) []*proto.DBMessage {
 	menu := dmstMenu(msg)
-	log.Printf("dbserver: NXS2 menu load 0x1010 menu=%d args=%d", menu, len(msg.Args))
+	dlog.Debugf("dbserver: NXS2 menu load 0x1010 menu=%d args=%d", menu, len(msg.Args))
 
 	// Populate the category if we can.
 	switch menu {
@@ -54,9 +54,9 @@ func (h *Handler) handleNXS2MenuLoad(msg *proto.DBMessage) []*proto.DBMessage {
 // The DMST menu byte identifies the category context.
 func (h *Handler) handleNXS2DrillDown(msg *proto.DBMessage) []*proto.DBMessage {
 	menu := dmstMenu(msg)
-	log.Printf("dbserver: NXS2 drill-down 0x%04x menu=%d args=%d", msg.Type, menu, len(msg.Args))
+	dlog.Debugf("dbserver: NXS2 drill-down 0x%04x menu=%d args=%d", msg.Type, menu, len(msg.Args))
 	for i, a := range msg.Args {
-		log.Printf("dbserver: NXS2 drill arg[%d] = 0x%08x (%d)", i, a.Int(), a.Int())
+		dlog.Tracef("dbserver: NXS2 drill arg[%d] = 0x%08x (%d)", i, a.Int(), a.Int())
 	}
 
 	var items []*menuItem
@@ -100,7 +100,7 @@ func (h *Handler) handleNXS2DrillDown(msg *proto.DBMessage) []*proto.DBMessage {
 // shape but the log line difference helps debugging which path fired.
 func (h *Handler) handleNXS2DrillOrSearchSetup(msg *proto.DBMessage) []*proto.DBMessage {
 	if len(msg.Args) <= 2 {
-		log.Printf("dbserver: SEARCH category setup (0x1012 with %d args)", len(msg.Args))
+		dlog.Debugf("dbserver: SEARCH category setup (0x1012 with %d args)", len(msg.Args))
 		// Echo the request type and a 0-item count. The deck takes this
 		// as the cue to open its on-screen keyboard; the first keystroke
 		// then arrives as a 0x1300 query.
@@ -131,7 +131,7 @@ func (h *Handler) handleSearch(msg *proto.DBMessage) []*proto.DBMessage {
 		// trimmed by DecodeUTF16BE.
 		query = proto.DecodeUTF16BE([]byte(msg.Args[3].Str))
 	}
-	log.Printf("dbserver: SEARCH query=%q", query)
+	dlog.Debugf("dbserver: SEARCH query=%q", query)
 
 	var items []*menuItem
 	if h.lib != nil && query != "" {
@@ -204,7 +204,7 @@ func (h *Handler) searchTrackItem(t *library.Track) *menuItem {
 // follow-up "give me tracks of colour N" drill (0x110d) can route
 // to handleGetTracksByColor.
 func (h *Handler) handleGetColors(msg *proto.DBMessage) []*proto.DBMessage {
-	log.Printf("dbserver: COLOR list (0x100d)")
+	dlog.Debugf("dbserver: COLOR list (0x100d)")
 	items := []*menuItem{
 		{ID: 0, Label1: "NO COLOR", ItemType: 0x13},
 		{ID: 1, Label1: "PINK", ItemType: 0x14},
@@ -229,7 +229,7 @@ func (h *Handler) handleGetTracksByColor(msg *proto.DBMessage) []*proto.DBMessag
 	if len(msg.Args) >= 3 {
 		colorID = msg.Args[2].Int()
 	}
-	log.Printf("dbserver: COLOR drill (0x110d) color=%d", colorID)
+	dlog.Debugf("dbserver: COLOR drill (0x110d) color=%d", colorID)
 
 	var matches []*library.Track
 	if h.lib != nil {
@@ -271,7 +271,7 @@ func (h *Handler) handleUndecodedStub(msg *proto.DBMessage) []*proto.DBMessage {
 	// request. Our previous bogus "success" reply was an unexpected extra
 	// message that corrupted the deck's load state (0x1c rejections after a
 	// couple of loads). Returning nil → the dispatch writes nothing.
-	log.Printf("dbserver: ignoring 0x%04x (no response, matching rekordbox) args=[%s]", msg.Type, strings.Join(argParts, " "))
+	dlog.Debugf("dbserver: ignoring 0x%04x (no response, matching rekordbox) args=[%s]", msg.Type, strings.Join(argParts, " "))
 	return nil
 }
 
@@ -303,7 +303,7 @@ func (h *Handler) handleSearchSelect(msg *proto.DBMessage) []*proto.DBMessage {
 	if len(msg.Args) >= 3 {
 		id = msg.Args[2].Int()
 	}
-	log.Printf("dbserver: 0x1200 search-select id=%d", id)
+	dlog.Debugf("dbserver: 0x1200 search-select id=%d", id)
 
 	var items []*menuItem
 	if h.lib != nil && id != 0 {
@@ -439,7 +439,7 @@ func (h *Handler) handleGetArtistsForLabel(msg *proto.DBMessage) []*proto.DBMess
 	sortItems(items[1:], sortTitle) // sort artists, keep [ALL] first
 
 	h.setPendingAll(msg, items)
-	log.Printf("dbserver: artists for label 0x%08x returning %d items", labelID, len(items))
+	dlog.Debugf("dbserver: artists for label 0x%08x returning %d items", labelID, len(items))
 	return []*proto.DBMessage{h.successWithCount(msg)}
 }
 
@@ -454,7 +454,7 @@ func (h *Handler) handleGetAlbumsForLabel(msg *proto.DBMessage) []*proto.DBMessa
 
 	items := h.getAlbumsForLabelArtist(labelID, artistID)
 	h.setPendingAll(msg, items)
-	log.Printf("dbserver: albums for label 0x%08x artist 0x%08x returning %d items", labelID, artistID, len(items))
+	dlog.Debugf("dbserver: albums for label 0x%08x artist 0x%08x returning %d items", labelID, artistID, len(items))
 	return []*proto.DBMessage{h.successWithCount(msg)}
 }
 
@@ -488,7 +488,7 @@ func (h *Handler) handleGetTracksByLabel(msg *proto.DBMessage) []*proto.DBMessag
 	}
 	items := h.tracksToStdItems(tracks)
 	h.setPendingAll(msg, items)
-	log.Printf("dbserver: tracks for label 0x%08x artist 0x%08x returning %d items", labelID, artistID, len(items))
+	dlog.Debugf("dbserver: tracks for label 0x%08x artist 0x%08x returning %d items", labelID, artistID, len(items))
 	return []*proto.DBMessage{h.successWithCount(msg)}
 }
 
@@ -519,7 +519,7 @@ func (h *Handler) handleGetKeyDistances(msg *proto.DBMessage) []*proto.DBMessage
 		})
 	}
 	h.setPendingAll(msg, items)
-	log.Printf("dbserver: key distances for %q returning %d groups", keyName, len(items))
+	dlog.Debugf("dbserver: key distances for %q returning %d groups", keyName, len(items))
 	return []*proto.DBMessage{h.successWithCount(msg)}
 }
 
@@ -555,7 +555,7 @@ func (h *Handler) handleGetTracksByKey(msg *proto.DBMessage) []*proto.DBMessage 
 	}
 	items := h.tracksToStdItems(tracks)
 	h.setPendingAll(msg, items)
-	log.Printf("dbserver: tracks for key %q dist=%d returning %d tracks", keyName, distance, len(items))
+	dlog.Debugf("dbserver: tracks for key %q dist=%d returning %d tracks", keyName, distance, len(items))
 	return []*proto.DBMessage{h.successWithCount(msg)}
 }
 
@@ -676,7 +676,7 @@ func (h *Handler) handleGetByArtist(msg *proto.DBMessage) []*proto.DBMessage {
 			}
 		}
 		h.pendingItems = items
-		log.Printf("dbserver: get by artist %d returning %d albums (PDB)", artistID, len(items))
+		dlog.Debugf("dbserver: get by artist %d returning %d albums (PDB)", artistID, len(items))
 		sortItems(items, sortTitle)
 		return []*proto.DBMessage{h.successWithCount(msg)}
 	}
@@ -711,7 +711,7 @@ func (h *Handler) handleGetByArtist(msg *proto.DBMessage) []*proto.DBMessage {
 		}
 	}
 	h.pendingItems = items
-	log.Printf("dbserver: get by artist %q returning %d albums", artistName, len(h.pendingItems))
+	dlog.Debugf("dbserver: get by artist %q returning %d albums", artistName, len(h.pendingItems))
 	return []*proto.DBMessage{h.successWithCount(msg)}
 }
 
@@ -741,7 +741,7 @@ func (h *Handler) handleGetTracksByAlbum(msg *proto.DBMessage) []*proto.DBMessag
 		}
 		sortItems(items, getSortOrder(msg))
 		h.pendingItems = items
-		log.Printf("dbserver: get tracks by album %d (PDB) returning %d tracks", albumID, len(items))
+		dlog.Debugf("dbserver: get tracks by album %d (PDB) returning %d tracks", albumID, len(items))
 		return []*proto.DBMessage{h.successWithCount(msg)}
 	}
 
@@ -758,7 +758,7 @@ func (h *Handler) handleGetTracksByAlbum(msg *proto.DBMessage) []*proto.DBMessag
 		matchTracks = h.lib.TracksByAlbum(albumName)
 	}
 	h.pendingItems = h.tracksToStdItems(matchTracks)
-	log.Printf("dbserver: get tracks by album (0x1202) returning %d tracks", len(h.pendingItems))
+	dlog.Debugf("dbserver: get tracks by album (0x1202) returning %d tracks", len(h.pendingItems))
 	return []*proto.DBMessage{h.successWithCount(msg)}
 }
 
@@ -779,7 +779,7 @@ func (h *Handler) handleGetByAlbum(msg *proto.DBMessage) []*proto.DBMessage {
 		}
 		sortItems(items, getSortOrder(msg))
 		h.pendingItems = items
-		log.Printf("dbserver: get by album %d (PDB) returning %d tracks", albumID, len(items))
+		dlog.Debugf("dbserver: get by album %d (PDB) returning %d tracks", albumID, len(items))
 		return []*proto.DBMessage{h.successWithCount(msg)}
 	}
 
@@ -796,7 +796,7 @@ func (h *Handler) handleGetByAlbum(msg *proto.DBMessage) []*proto.DBMessage {
 	}
 	tracks := h.lib.TracksByAlbum(albumName)
 	h.pendingItems = h.tracksToStdItems(tracks)
-	log.Printf("dbserver: get by album %q returning %d tracks", albumName, len(h.pendingItems))
+	dlog.Debugf("dbserver: get by album %q returning %d tracks", albumName, len(h.pendingItems))
 	return []*proto.DBMessage{h.successWithCount(msg)}
 }
 
@@ -820,6 +820,6 @@ func (h *Handler) handleGetByGenre(msg *proto.DBMessage) []*proto.DBMessage {
 	tracks := h.lib.TracksByGenre(genreName)
 	items := h.tracksToStdItems(tracks)
 	h.setPendingAll(msg, items)
-	log.Printf("dbserver: get by genre %q returning %d tracks", genreName, len(items))
+	dlog.Debugf("dbserver: get by genre %q returning %d tracks", genreName, len(items))
 	return []*proto.DBMessage{h.successWithCount(msg)}
 }

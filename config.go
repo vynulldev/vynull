@@ -42,6 +42,7 @@ type Config struct {
 	ImportSettings string // path to a PIONEER directory containing rekordbox .DAT files to import
 	ExportPlaylist string // with --generate, exports only this playlist (matched by name) — USB tree contains just that playlist
 	Web            bool   // if true, serve an HTML UI at the API listen address
+	MPRIS          bool   // publish now-playing on the D-Bus session bus (default true; no-op without a bus)
 	TUI            bool   // if true (default), show the interactive terminal monitor; false runs headless
 	Listen         string // API + web listen address (default: 127.0.0.1:9443; use 0.0.0.0:9443 to expose to LAN)
 	LogLevel       string // log verbosity: error|warn|info|debug|trace (default: info)
@@ -72,6 +73,7 @@ func parseFlags() Config {
 	flag.StringVar(&cfg.SettingsFile, "settings", "", "path to JSON CDJ settings config (default: <data-dir>/settings.json; created with defaults if missing; legacy settings.yaml is migrated automatically)")
 	flag.StringVar(&cfg.ImportSettings, "import-settings", "", "import rekordbox MYSETTING/MYSETTING2/DJMMYSETTING/DEVSETTING .DAT files from this directory into the JSON config and exit (point at a /PIONEER directory on a rekordbox USB)")
 	flag.StringVar(&cfg.ExportPlaylist, "export-playlist", "", "with --generate, export only this playlist (matched by name, case-insensitive). The resulting USB contains just the playlist's tracks and a single-playlist tree.")
+	flag.BoolVar(&cfg.MPRIS, "mpris", true, "publish the audible deck's now-playing as an MPRIS player on the D-Bus session bus (desktop media controls, playerctl, KDE Connect). Silently disabled when no session bus exists")
 	flag.BoolVar(&cfg.Web, "web", false, "serve an HTML UI alongside the existing JSON API (off by default)")
 	flag.BoolVar(&cfg.TUI, "tui", true, "show the interactive terminal monitor UI (on by default). Use --tui=false to run headless: no altscreen, logs stay on stdout — for systemd/nohup or non-TTY environments")
 	flag.StringVar(&cfg.Listen, "listen", "127.0.0.1:9443", "API + web listen address. Use 0.0.0.0:9443 to expose on all interfaces (e.g. for access from another device on the LAN)")
@@ -197,7 +199,9 @@ var flagGroups = []flagGroup{
 // existing tooling (godoc, completions) still recognises the layout.
 func printGroupedUsage() {
 	w := flag.CommandLine.Output()
-	fmt.Fprintf(w, "Usage: %s [flags]\n\n", os.Args[0])
+	fmt.Fprintf(w, "Usage: %s [flags]           start the server\n", os.Args[0])
+	fmt.Fprintf(w, "       %s <command> [args]  run a client command against a running server\n\n", os.Args[0])
+	printCommandsUsage(w)
 
 	seen := map[string]bool{}
 	for _, g := range flagGroups {

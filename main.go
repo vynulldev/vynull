@@ -5,6 +5,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"io"
 	"log"
 	"net"
 	"net/http"
@@ -29,11 +30,17 @@ import (
 	"github.com/vynulldev/vynull/library"
 	"github.com/vynulldev/vynull/link/prolink"
 	"github.com/vynulldev/vynull/mediadb"
+	"github.com/vynulldev/vynull/mpris"
 	"github.com/vynulldev/vynull/nfs"
 	"github.com/vynulldev/vynull/pdb"
 )
 
 func main() {
+	// Subcommands (vynull search/add/load/...) are thin HTTP clients for a
+	// running server; they run and exit before any server flag parsing.
+	if runCLI(os.Args[1:]) {
+		return
+	}
 	cfg := parseFlags()
 
 	// Apply --log-level before anything else so startup messages obey it.
@@ -106,6 +113,9 @@ func main() {
 	//   --log-file PATH  → append to that file (TUI or headless)
 	//   TUI (default)    → an auto temp file, since the TUI owns the terminal
 	//   headless         → stdout (no redirect)
+	// In TUI mode the last few thousand log lines are also kept in memory
+	// for the Logs tab, teed alongside the file writer.
+	var logRing *device.LogRing
 	if cfg.GenerateDir == "" {
 		var logFile *os.File
 		var err error
@@ -118,7 +128,12 @@ func main() {
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "warning: could not open log file: %v (logging to stdout)\n", err)
 		} else if logFile != nil {
-			log.SetOutput(logFile)
+			if cfg.TUI {
+				logRing = device.NewLogRing(2000)
+				log.SetOutput(io.MultiWriter(logFile, logRing))
+			} else {
+				log.SetOutput(logFile)
+			}
 			defer logFile.Close()
 			fmt.Printf("Logging to %s\n", logFile.Name())
 			// Mirror runtime crash output (panics from any goroutine
@@ -597,6 +612,34 @@ func main() {
 	if cfg.Web {
 		log.Printf("web UI enabled: http://%s/", displayAddr(cfg.Listen))
 	}
+	// MPRIS: mirror the audible deck to the desktop's media surfaces. Missing
+	// session bus (headless) is normal — debug-log and move on.
+	if cfg.MPRIS {
+		base := "http://" + displayAddr(cfg.Listen)
+		if _, err := mpris.Start(ctx, func() mpris.NowPlaying {
+			np := apiSrv.NowPlayingSnapshot()
+			out := mpris.NowPlaying{
+				Playing:      np.Playing,
+				DeviceNumber: np.DeviceNumber,
+				TrackID:      np.TrackID,
+				Title:        np.Title,
+				Artist:       np.Artist,
+				DurationMs:   np.DurationMs,
+			}
+			if np.ArtworkURL != "" {
+				out.ArtURL = base + np.ArtworkURL
+			}
+			// Position from the beat counter: beats elapsed over tempo.
+			if np.BeatInTrack > 0 && np.BPM > 0 {
+				out.PositionMs = uint32(float64(np.BeatInTrack-1) / np.BPM * 60000)
+			}
+			return out
+		}, time.Second); err != nil {
+			dlog.Debugf("mpris: disabled: %v", err)
+		} else {
+			log.Printf("mpris: publishing now-playing on the session bus")
+		}
+	}
 	srvWg.Add(1)
 	go func() {
 		defer srvWg.Done()
@@ -643,7 +686,9 @@ func main() {
 		// Launch the TUI on the main goroutine. It owns the terminal until
 		// the user presses 'q' or ctx is cancelled from elsewhere (SIGINT,
 		// service error). Bridge ctx → program.Quit so SIGINT unwinds cleanly.
-		tuiProgram := device.NewTUI(monitor, lib, cdjSettings, dev.Peers, dev.MixerSnapshot, displayAddr(cfg.Listen))
+		tuiProgram := device.NewTUI(monitor, lib, cdjSettings,
+			func() *device.PeerTracker { return dev.Peers }, // created inside dev.Start — resolve at render time
+			dev.MixerSnapshot, displayAddr(cfg.Listen), logRing)
 		go func() {
 			<-ctx.Done()
 			tuiProgram.Quit()

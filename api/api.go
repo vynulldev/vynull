@@ -610,6 +610,13 @@ func (s *Server) handleNowPlaying(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, nowPlayingFrom(s.getPlayers()))
 }
 
+// NowPlayingSnapshot returns the audible deck's now-playing state — the
+// same projection /api/nowplaying serves — for in-process consumers (the
+// MPRIS publisher).
+func (s *Server) NowPlayingSnapshot() NowPlaying {
+	return nowPlayingFrom(s.getPlayers())
+}
+
 // nowPlayingFrom projects the selected player into a NowPlaying.
 func nowPlayingFrom(players []PlayerInfo) NowPlaying {
 	p := selectNowPlaying(players)
@@ -690,6 +697,7 @@ type TrackInfo struct {
 	PlayCount      int      `json:"play_count,omitempty"`
 	Tags           []string `json:"tags,omitempty"`
 	ArtID          uint32   `json:"art_id,omitempty"`
+	ArtChecked     bool     `json:"art_checked,omitempty"` // false with art_id 0 = never probed; the web UI requests art optimistically to trigger lazy extraction
 	FileMissing    bool     `json:"file_missing,omitempty"`
 }
 
@@ -744,6 +752,7 @@ func (s *Server) libTrackToInfo(t *library.Track) TrackInfo {
 		ColorName:      trackColorNames[t.ColorID],
 		PlayCount:      t.PlayCount,
 		ArtID:          t.ArtID,
+		ArtChecked:     t.ArtChecked,
 		FileMissing:    t.FileMissing,
 	}
 	if !t.DateAdded.IsZero() {
@@ -792,8 +801,16 @@ func (s *Server) handleTracks(w http.ResponseWriter, r *http.Request) {
 			if s.Cues != nil {
 				s.Cues.DeleteAllForTrack(trackID)
 			}
+			// Free the in-memory analysis entry (it holds the waveform
+			// blobs) and any stale queue marker. The on-disk analysis
+			// cache is kept on purpose: it is keyed by file path, so
+			// re-adding the same file reuses it instead of re-analyzing.
+			if s.Analysis != nil {
+				s.Analysis.Remove(trackID)
+			}
+			s.queuedAnalyses.Delete(trackID)
 			s.Library.RemoveTrack(trackID)
-			log.Printf("api: deleted track %d (library + playlists + tags + cues)", trackID)
+			log.Printf("api: deleted track %d (library + playlists + tags + cues + analysis)", trackID)
 			writeJSON(w, struct{ OK bool }{true})
 			return
 		}
@@ -900,8 +917,14 @@ func (s *Server) handleLoadTrack(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Send the load track command
-	err := s.Device.LoadTrackOnCDJ(req.TrackID, req.DeviceNumber, targetIP)
+	// Send the load track command. The name rides along for the logs.
+	loadName := ""
+	if s.Library != nil {
+		if t := s.Library.Track(req.TrackID); t != nil {
+			loadName = t.Title
+		}
+	}
+	err := s.Device.LoadTrackOnCDJ(req.TrackID, loadName, req.DeviceNumber, targetIP)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -1952,6 +1975,10 @@ func (s *Server) tryQueueAnalysis(trackID uint32, filePath string) bool {
 	// here). SetPath above lets Get find the .gob now.
 	if r := s.Analysis.Get(trackID); r != nil {
 		s.queuedAnalyses.Delete(trackID)
+		// A cache hit skips the worker, so apply the worker's library-row
+		// writeback here — without this, a deleted-and-re-added track (whose
+		// cache entry survives, keyed by file path) keeps BPM/duration 0.
+		s.applyAnalysisToTrack(trackID, r)
 		return false
 	}
 	s.Analysis.IncPending()
@@ -1971,26 +1998,7 @@ func (s *Server) analysisWorker() {
 			continue
 		}
 		s.Analysis.Set(job.trackID, r)
-
-		if t := s.Library.Track(job.trackID); t != nil {
-			if t.BPM == 0 && r.BPM > 0 {
-				t.BPM = r.BPM
-			}
-			if t.Duration == 0 && r.Duration > 0 {
-				t.Duration = library.DurationSec(time.Duration(r.Duration) * time.Second)
-			}
-			if t.Key == "" && r.KeyCamelot != "" {
-				t.Key = r.KeyCamelot
-			}
-			// Estimate bitrate from file size and duration.
-			if t.Bitrate == 0 && t.FileSize > 0 && t.Duration > 0 {
-				t.Bitrate = int(t.FileSize * 8 / int64(t.Duration.Seconds()) / 1000)
-			}
-			s.Library.Save()
-		}
-		if r.Artwork != nil {
-			s.Library.Artwork.AddWithID(job.trackID, "image/jpeg", r.Artwork)
-		}
+		s.applyAnalysisToTrack(job.trackID, r)
 
 		// Update device track count.
 		if s.Device != nil {
@@ -1999,6 +2007,66 @@ func (s *Server) analysisWorker() {
 
 		s.Analysis.ClearStatus()
 		log.Printf("api: analyzed track %d: BPM=%.1f key=%s path=%s", job.trackID, r.BPM, r.KeyCamelot, job.filePath)
+	}
+}
+
+// applyAnalysisToTrack fills a library row's analysis-derived fields (BPM,
+// duration, key, bitrate, artwork) from a result. Fields are filled when
+// empty — user edits are never clobbered — and the library is saved only
+// when something actually changed, so callers can invoke it on every
+// analysis retrieval and it noops once the row is settled. BPM is the one
+// field that also UPDATES on re-analysis (unless user-overridden): the beat
+// grid served to decks always comes from the analysis result, so the row
+// must follow it or the UI would display one tempo and the deck play
+// another.
+//
+// This is the single writeback point for every api route that lands an
+// analysis result: the worker queue, the on-demand path, and a disk-cache
+// hit. Before this, only the worker wrote back, so a track deleted and
+// re-added (whose cache entry survives, keyed by file path) skipped the
+// worker and kept BPM/duration/key zeroed forever — and the web UI scales
+// the detail waveform by the row's duration, so the re-added track showed
+// no waveform at all.
+func (s *Server) applyAnalysisToTrack(trackID uint32, r *analysis.Result) {
+	if s.Library == nil || r == nil {
+		return
+	}
+	t := s.Library.Track(trackID)
+	if t == nil {
+		return
+	}
+	changed := false
+	if t.BPM == 0 && r.BPM > 0 {
+		t.BPM = r.BPM
+		changed = true
+	} else if t.DetectedBPM == 0 && r.BPM > 0 && t.BPM != r.BPM {
+		// Re-analysis produced a different tempo (e.g. a cacheVersion bump
+		// like the v27 integer-snap upgrade): adopt it unless the user
+		// overrode BPM (DetectedBPM != 0 marks an override snapshot). The
+		// played beat grid always comes from the analysis result, so
+		// leaving the row at the old value would display one BPM and play
+		// another.
+		t.BPM = r.BPM
+		changed = true
+	}
+	if t.Duration == 0 && r.Duration > 0 {
+		t.Duration = library.DurationSec(time.Duration(r.Duration) * time.Second)
+		changed = true
+	}
+	if t.Key == "" && r.KeyCamelot != "" {
+		t.Key = r.KeyCamelot
+		changed = true
+	}
+	// Estimate bitrate from file size and duration.
+	if t.Bitrate == 0 && t.FileSize > 0 && t.Duration > 0 {
+		t.Bitrate = int(t.FileSize * 8 / int64(t.Duration.Seconds()) / 1000)
+		changed = true
+	}
+	if changed {
+		s.Library.Save()
+	}
+	if r.Artwork != nil && s.Library.Artwork.Get(trackID) == nil {
+		s.Library.Artwork.AddWithID(trackID, "image/jpeg", r.Artwork)
 	}
 }
 
@@ -2050,6 +2118,7 @@ func (s *Server) getOrAnalyze(trackID uint32) *analysis.Result {
 		return nil
 	}
 	if r := s.Analysis.Get(trackID); r != nil {
+		s.applyAnalysisToTrack(trackID, r)
 		return r
 	}
 
@@ -2072,6 +2141,7 @@ func (s *Server) getOrAnalyze(trackID uint32) *analysis.Result {
 	// Analyze synchronously.
 	s.Analysis.SetPath(trackID, filePath)
 	if r := s.Analysis.Get(trackID); r != nil {
+		s.applyAnalysisToTrack(trackID, r)
 		return r // disk cache was valid after SetPath
 	}
 
@@ -2082,6 +2152,7 @@ func (s *Server) getOrAnalyze(trackID uint32) *analysis.Result {
 		return nil
 	}
 	s.Analysis.Set(trackID, r)
+	s.applyAnalysisToTrack(trackID, r)
 	log.Printf("api: analyzed track %d: BPM=%.1f key=%s path=%s", trackID, r.BPM, r.KeyCamelot, filePath)
 	return r
 }
@@ -2768,6 +2839,10 @@ func (s *Server) handleWaveformPNG(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	result := s.Analysis.Get(trackID)
+	// Heal the library row from the result (noop once filled): thumbnails are
+	// often the first thing to touch a re-added track's surviving cache entry,
+	// and the row's BPM/duration must follow for the rest of the UI to work.
+	s.applyAnalysisToTrack(trackID, result)
 	if result == nil {
 		s.tryQueueAnalysis(trackID, "")
 		w.Header().Set("Content-Type", "image/png")
@@ -2803,10 +2878,16 @@ func (s *Server) handleWaveformPNG(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "render failed: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
-	// Best-effort write to disk for next time.
+	// Best-effort write to disk for next time. Write-to-temp + rename so a
+	// concurrent request reading cachePath can never observe a partial file:
+	// lazy-loading <img> tags fan out many thumbnail requests at once, and a
+	// truncated PNG served here would be cached by the browser for a week.
 	if cachePath != "" {
 		_ = os.MkdirAll(filepath.Dir(cachePath), 0o755)
-		_ = os.WriteFile(cachePath, imgBytes, 0o644)
+		tmp := fmt.Sprintf("%s.tmp%d", cachePath, os.Getpid())
+		if err := os.WriteFile(tmp, imgBytes, 0o644); err == nil {
+			_ = os.Rename(tmp, cachePath)
+		}
 	}
 	w.Write(imgBytes)
 }

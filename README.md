@@ -6,7 +6,7 @@
 [![Go](https://img.shields.io/github/go-mod/go-version/vynulldev/vynull?color=ff7714)](go.mod)
 ![Platform](https://img.shields.io/badge/platform-linux%20x86--64%20%7C%20arm64-ff7714)
 
-Vynull is a virtual CDJ / rekordbox source and library manager for Linux. It serves music files to CDJs (DJM mixers are also seen on the link) over the Pro DJ Link protocol. Point it at your music collection and CDJs see it as a connected USB drive or rekordbox instance. Includes a browser-based library manager and one-click import from your existing rekordbox, Traktor, or VirtualDJ library.
+Vynull is a DJ library application for Linux that interfaces directly with Pioneer CDJ/XDJ hardware: load tracks from your PC straight onto the decks over Pro DJ Link, with no rekordbox, no USB sticks, and no export step. Players see your machine as a connected rekordbox instance (or a CDJ-USB source) and browse and load your music with waveforms, beat grids, and cues; DJM mixers are tracked on the link too. Vynull analyzes tracks itself, includes a browser-based library manager, and imports your existing rekordbox or Traktor library in one click.
 
 ## Before you start
 
@@ -43,6 +43,7 @@ Use it at your own risk, and back up your rekordbox library before importing any
 - **USB export** — write a rekordbox-compatible USB structure (PDB + ANLZ + settings) from the library
 - **Live monitor** TUI showing connected CDJs, playback state, track history, and analysis status
 - **External-source metadata** — when a deck plays a track from its own USB/SD (not from us), the monitor and web PLAYERS view show its real title, artist, key, cover art, waveform, and cue points, read from that player's rekordbox export and ANLZ over NFS, instead of a wrong local ID match
+- **MPRIS now-playing** — the audible deck published on the D-Bus session bus: GNOME/KDE media controls and lock screens, playerctl, status-bar widgets, and KDE Connect phone mirroring see what's playing (read-only; `--mpris=false` to disable)
 - **Now-playing overlay** for streaming — a transparent OBS browser source at `/overlay` showing the audible deck's track (artwork, title, artist, BPM/key), driven by the live link state
 
 ## Requirements
@@ -128,7 +129,7 @@ By default it listens on `127.0.0.1:9443`; use `--listen 0.0.0.0:9443` to reach
 it from another device on the LAN.
 
 ```bash
-sudo ./vynull --interface eth1 --mode rekordbox --web --listen 0.0.0.0:9443
+./vynull --interface eth1 --mode rekordbox --web --listen 0.0.0.0:9443
 # then open http://<this-machine>:9443/
 ```
 
@@ -174,7 +175,7 @@ else need no Python.
 Scan a music directory at startup:
 
 ```bash
-sudo ./vynull --interface eth1 --music-dir /path/to/music --lazy-analysis
+./vynull --interface eth1 --music-dir /path/to/music --lazy-analysis
 ```
 
 ### Rekordbox USB Mode
@@ -182,6 +183,7 @@ sudo ./vynull --interface eth1 --music-dir /path/to/music --lazy-analysis
 If you have an existing rekordbox-exported USB drive:
 
 ```bash
+# CDJ mode needs UDP 111 — see "Port 111 (CDJ mode only)" for sudo-free options
 sudo ./vynull --interface eth1 --music-dir /media/usb --mode cdj
 ```
 
@@ -192,6 +194,28 @@ Create a rekordbox-compatible USB structure from a music directory:
 ```bash
 ./vynull --generate /media/usb --music-dir /path/to/music
 ```
+
+## CLI Subcommands
+
+With a server running, the same binary doubles as a shell client for it —
+handy for scripting (fzf/rofi pickers, watch-folder cron jobs) without
+touching curl:
+
+```bash
+vynull search caribou            # list matching tracks (ID, BPM, key, ...)
+vynull search --json | jq ...    # machine-readable, for pipelines
+vynull add ~/Music/new-crate     # add files or folders; analysis runs in background
+vynull load 42 2                 # load track 42 on deck 2
+vynull load "encounter" 2        # or by search — must match exactly one track
+vynull players                   # who's on the link and what they're playing
+vynull playlists                 # playlists with counts
+vynull status                    # server, analysis, and link state
+```
+
+All subcommands talk to `http://127.0.0.1:9443` by default; point them
+elsewhere with `--addr host:port` or `VYNULL_ADDR`. Listing commands take
+`--json`. Paths passed to `add` are resolved on the server's filesystem, so
+the client assumes the same host (or a shared mount).
 
 ## Command-Line Flags
 
@@ -734,6 +758,27 @@ DEVSETTING layout (6 bytes): `[unknown, overview_type, waveform_color, unknown, 
 | AIFF | Yes | to MP3 |
 
 By default, all formats are served natively. FLAC/WAV/AIFF use the appropriate decoder ID in the track info response so the CDJ selects the correct decoder. Pass `--transcode` to convert lossless formats to MP3 if needed.
+
+## Troubleshooting
+
+General questions about the project live at
+[vynull.dev/#faq](https://vynull.dev/#faq). The three problems people hit
+most:
+
+- **Blank scrolling waveform on the CDJ** — known deck quirk with network
+  sources: toggle the deck's waveform-color setting once and it renders from
+  then on.
+- **Whole library re-analyzing after an upgrade** — expected, once per
+  release that improves the analysis (the cache version is bumped so existing
+  libraries get the improvements, not just new tracks). It runs in the
+  background as tracks are viewed or loaded.
+- **CDJs silently stop loading tracks** — usually two rekordbox sources on
+  the network (real rekordbox running alongside Vynull); the log warns when
+  this collision is detected. Close one of them.
+
+For anything else, run with `--log-level debug` (or `trace` for wire-level
+hex dumps) and attach the log to a bug report — the default level keeps logs
+quiet, so debug logs say a lot more.
 
 ## Acknowledgements
 

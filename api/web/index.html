@@ -5,6 +5,9 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="/manifest.json">
+<meta name="theme-color" content="#0c0c0f">
+<link rel="apple-touch-icon" href="/icon-192.png">
 <title>Vynull · DJ LINK</title>
 <style>
   /* Self-hosted fonts (no external CDN — works offline on the link-local net). */
@@ -1377,6 +1380,22 @@
   }
   .load-btn .arrow { color: var(--orange); margin-right: 4px; }
   .load-btn:hover .arrow { color: var(--black); }
+  /* Per-row "remove from playlist" × — only rendered when the active
+     source is a regular playlist (see renderLibrary's reorderMode). */
+  .pl-rm-btn {
+    background: transparent;
+    border: 1px solid var(--wire);
+    color: var(--text3);
+    width: 22px; height: 22px; padding: 0;
+    margin-right: 6px;
+    vertical-align: middle;
+    font-family: inherit;
+    font-size: 12px;
+    line-height: 1;
+    cursor: pointer;
+    transition: all .12s ease;
+  }
+  .pl-rm-btn:hover { background: var(--red); color: var(--black); border-color: var(--red); }
 
   .load-menu {
     position: fixed;
@@ -4032,17 +4051,52 @@ function autoFitColumns() {
 function waveThumbCSS() {
   return { w: Math.max(60, Math.round(libWaveColWidth() - 16)), h: Math.max(14, libraryRowHeight - 8) };
 }
+// trackIsAnalyzed memoizes "does this track have analysis" per allTracks
+// snapshot (the poll swaps in a fresh array whenever anything changes).
+let _analyzedMemoSrc = null, _analyzedMemo = null;
+function trackIsAnalyzed(tid) {
+  if (_analyzedMemoSrc !== allTracks) {
+    _analyzedMemo = new Set((allTracks || []).filter(t => t.bpm > 0).map(t => t.id));
+    _analyzedMemoSrc = allTracks;
+  }
+  return _analyzedMemo.has(Number(tid));
+}
 function waveThumbSrc(tid, bust) {
   const c = waveThumbCSS();
   const dpr = Math.min(3, window.devicePixelRatio || 1);
   const w = Math.min(2400, Math.round(c.w * dpr));
   const h = Math.min(240, Math.round(c.h * dpr));
-  return `/api/analysis/waveform-png/${tid}?type=detail&color=${effectiveWaveColor()}&overview=${overviewType()}&w=${w}&h=${h}` + (bust ? `&_=${Date.now()}` : '');
+  // &a=1 once the track is analyzed: the URL must CHANGE when analysis
+  // lands, or re-created <img> elements keep resurrecting the placeholder
+  // from the browser's per-document image cache (no-store notwithstanding)
+  // for as long as the table keeps rebuilding — which during a batch
+  // analysis is every poll tick.
+  const a = trackIsAnalyzed(tid) ? '&a=1' : '';
+  return `/api/analysis/waveform-png/${tid}?type=detail&color=${effectiveWaveColor()}&overview=${overviewType()}&w=${w}&h=${h}${a}` + (bust ? `&_=${Date.now()}` : '');
 }
 function updateThumbnailSrcs() {
   document.querySelectorAll('img[data-libtrack]').forEach(img => {
-    img.src = waveThumbSrc(img.getAttribute('data-libtrack'));
+    swapImgSrc(img, waveThumbSrc(img.getAttribute('data-libtrack')));
   });
+}
+
+// swapImgSrc replaces an <img> src without the black flash: setting .src
+// directly blanks the element while an uncached resource loads (exposing the
+// dark cell background — most visible on recently-added tracks whose PNG
+// isn't disk-cached at the new size yet, so the server renders live). Preload
+// through a detached Image and swap only once the bytes are in, so the old
+// frame stays up throughout. No-op when the URL is already current.
+function swapImgSrc(img, url) {
+  if (img.getAttribute('src') === url) return;
+  const pre = new Image();
+  pre.onload = () => {
+    // The row may have been re-rendered or retargeted while preloading.
+    if (document.body.contains(img)) {
+      img.src = url;
+    }
+  };
+  pre.onerror = () => {}; // keep the old frame on failure
+  pre.src = url;
 }
 // Debounced re-fetch of every visible waveform thumbnail at the new displayed
 // size — used when the row height or waveform column width changes.
@@ -5557,28 +5611,78 @@ function fmtPath(p) {
 // out so we don't stampede the server after a fresh page load.
 function thumbLoaded(img) {
   img.classList.replace('loading', 'loaded');
-  if (img.naturalWidth !== 1) return; // real waveform, done
+  if (img.naturalWidth !== 1) {
+    // Real waveform. If it arrived via a cache-busted self-heal URL, swap
+    // back to the natural URL (preload keeps the frame up): the natural URL
+    // was last fetched when it returned the no-store placeholder, so the
+    // browser has nothing cached under it — without this, the next table
+    // re-render (view switch) starts cache-cold and the freshly-analyzed
+    // track sits blank again waiting on a full round-trip. The swap request
+    // hits the server's disk-cached PNG, so it is one cheap fetch that
+    // makes every later re-render instant.
+    const tid = img.getAttribute('data-libtrack');
+    if (tid && /[?&]_=/.test(img.src)) {
+      swapImgSrc(img, waveThumbSrc(tid));
+    }
+    return;
+  }
+  scheduleThumbRetry(img);
+}
+
+// scheduleThumbRetry keeps a pending thumbnail's self-heal alive. Analysis
+// can sit behind a LONG queue (bulk add, or the one-time cacheVersion
+// re-analysis pass), so a short fixed retry budget silently gave up before
+// the track's turn came — and the thumbnail then never appeared without a
+// page refresh. Quick retries for the first minute (analysis normally wins
+// that race), then back off to ~30-45s for up to roughly two hours; the
+// placeholder responses being retried are no-store and cost the server
+// almost nothing.
+function scheduleThumbRetry(img) {
   const tries = parseInt(img.dataset.retries || '0', 10);
-  if (tries >= 60) return;            // ~6 minutes of retries, then give up
+  if (tries >= 250) return; // ~2h with backoff — permanently-failed analysis stops here
   img.dataset.retries = String(tries + 1);
-  const delayMs = 5000 + Math.floor(Math.random() * 3000);
+  const base = tries < 12 ? 5000 : 30000;
+  const delayMs = base + Math.floor(Math.random() * base * 0.6);
   const tid = img.getAttribute('data-libtrack');
   setTimeout(() => {
     if (!tid || !document.body.contains(img)) return;
+    // Direct src set on purpose: the retry chain rides the onload cycle
+    // (src -> onload -> thumbLoaded -> next retry), and the cell is showing
+    // the 1x1 placeholder anyway, so there is no frame to preserve.
     img.src = waveThumbSrc(tid, true);
   }, delayMs);
 }
 // `sort` is the accessor used by the comparator. `sortable: false` opts a
 // column out of header-click sorting (e.g. the waveform thumbnail).
+// artHTML renders a track's artwork <img>. The request is made optimistically
+// for tracks whose file has never been probed (art_id 0 with art_checked
+// unset): GET /api/artwork/{id} is what triggers the server's lazy ffmpeg
+// extraction, so the first view of a newly added track pulls the art out of
+// the file instead of waiting for a CDJ load to analyze it. Tracks already
+// probed and found artless (art_checked true) go straight to the placeholder,
+// so there is no repeated 404 traffic; onerror degrades to the placeholder
+// for the artless-probe and concurrent-probe cases.
+function artHTML(t, imgClass, fbClass, fbText) {
+  if (t.art_id > 0 || !t.art_checked) {
+    return `<img class="${imgClass}" loading="lazy" alt="" src="/api/artwork/${t.id}"` +
+      ` data-fb-class="${fbClass}" data-fb-text="${fbText}" onerror="artFallback(this)">`;
+  }
+  return `<div class="${fbClass}">${fbText}</div>`;
+}
+function artFallback(img) {
+  const d = document.createElement('div');
+  d.className = img.getAttribute('data-fb-class') || 'lib-art empty';
+  d.textContent = img.getAttribute('data-fb-text') || '';
+  img.replaceWith(d);
+}
+
 const LIBRARY_COLUMNS = [
   { key: 'art',      label: 'ART',    default: false, thClass: '',    tdClass: 'art-cell',
     sortable: false,
-    cell: t => t.art_id > 0
-      ? `<img class="lib-art" loading="lazy" alt="" src="/api/artwork/${t.id}">`
-      : `<div class="lib-art empty"></div>` },
+    cell: t => artHTML(t, 'lib-art', 'lib-art empty', '') },
   { key: 'waveform', label: 'WV',     default: true,  thClass: '',    tdClass: 'wave-cell',
     sortable: false,
-    cell: t => `<div class="wave-thumb"><img class="loading" data-libtrack="${t.id}" alt="" loading="lazy" src="${waveThumbSrc(t.id)}" onload="thumbLoaded(this)">${cueMarkerOverlay(t.id, t.duration)}</div>` },
+    cell: t => `<div class="wave-thumb"><img class="loading" data-libtrack="${t.id}" alt="" loading="lazy" src="${waveThumbSrc(t.id)}" onload="thumbLoaded(this)" onerror="scheduleThumbRetry(this)">${cueMarkerOverlay(t.id, t.duration)}</div>` },
   { key: 'id',       label: 'ID',     default: true,  thClass: 'num', tdClass: 'num',
     sort: t => t.id,
     cell: t => String(t.id).padStart(4, '0') },
@@ -5902,6 +6006,7 @@ function updateBulkBar() {
     <button id="bulk-tag-add">+ TAG…</button>
     <button id="bulk-tag-remove">− TAG…</button>
     <button id="bulk-playlist">+ PLAYLIST…</button>
+    ${activeRegularPlaylist() ? '<button id="bulk-pl-remove" title="Remove selected from this playlist">− PLAYLIST</button>' : ''}
     <button id="bulk-export">EXPORT…</button>
     <button class="danger" id="bulk-delete">DELETE</button>
     <span class="spacer"></span>
@@ -5913,6 +6018,8 @@ function updateBulkBar() {
   bar.querySelector('#bulk-tag-add').onclick = e => openBulkTagPicker(e.currentTarget, 'add');
   bar.querySelector('#bulk-tag-remove').onclick = e => openBulkTagPicker(e.currentTarget, 'remove');
   bar.querySelector('#bulk-playlist').onclick = e => openBulkPlaylistPicker(e.currentTarget);
+  const plRemove = bar.querySelector('#bulk-pl-remove');
+  if (plRemove) plRemove.onclick = bulkRemoveFromPlaylist;
   bar.querySelector('#bulk-export').onclick = () => {
     const sel = Array.from(bulkSelectedIDs);
     openExportModal('selection:' + sel.join(','), `${sel.length} SELECTED TRACK${sel.length === 1 ? '' : 'S'}`);
@@ -6172,9 +6279,7 @@ placeMobileSidebar();
 mobileMQ.addEventListener('change', placeMobileSidebar);
 
 function libCardHtml(t) {
-  const art = t.art_id > 0
-    ? `<img class="lib-art" loading="lazy" alt="" src="/api/artwork/${t.id}">`
-    : `<div class="lib-art placeholder">♪</div>`;
+  const art = artHTML(t, 'lib-art', 'lib-art placeholder', '♪');
   const facts = [];
   if (t.bpm) facts.push((+t.bpm).toFixed(1));
   if (t.key) facts.push(t.key);
@@ -6279,6 +6384,9 @@ function renderLibrary(tracks) {
   // row at once — now that the cap is gone every filtered row is rendered,
   // so this matches the full filtered total shown in the stats chip.
   const head2 = `<th class="sel-col"><input type="checkbox" id="lib-sel-all" title="Select all"></th>` + head + '<th></th>';
+  // Source-aware row extras: when viewing a regular playlist, rows can be
+  // drag-reordered and get a per-row × that removes them from the playlist.
+  const reorderMode = activeRegularPlaylist();
   const body = visible.map(t => {
     const cells = cols.map(c => `<td class="${c.tdClass || ''}">${c.cell(t)}</td>`).join('');
     const bulkSelected = bulkSelectedIDs.has(t.id);
@@ -6286,6 +6394,7 @@ function renderLibrary(tracks) {
       `<td class="sel-col"><input type="checkbox" data-sel-row="${t.id}" ${bulkSelected ? 'checked' : ''}></td>` +
       cells +
       `<td class="load-cell">
+        ${reorderMode ? `<button class="pl-rm-btn" data-pl-remove="${t.id}" title="Remove from playlist">×</button>` : ''}
         <button class="load-btn ${currentPlayers.length === 0 ? '' : 'ready'}" data-track="${t.id}">
           <span class="arrow">▶</span>LOAD
         </button>
@@ -6305,6 +6414,16 @@ function renderLibrary(tracks) {
   attachColResizers(el);    // draggable header edges
   el.querySelectorAll('.load-btn').forEach(btn => {
     btn.addEventListener('click', e => handleLoadClick(e, btn));
+  });
+  // Per-row × (playlist view only) → drop the track from this playlist.
+  // Looks the index up by ID so an active search/sort can't misalign it.
+  el.querySelectorAll('[data-pl-remove]').forEach(btn => {
+    btn.addEventListener('click', e => {
+      e.stopPropagation();
+      const tid = parseInt(btn.getAttribute('data-pl-remove'), 10);
+      const idx = plSelectedTracks.findIndex(t => t.id === tid);
+      if (idx !== -1) removePlaylistTrack(idx);
+    });
   });
   // Bulk-selection checkboxes (per-row + the header sel-all) — wires
   // toggleBulkSelection on change so the bottom bulk-action bar shows.
@@ -6374,11 +6493,6 @@ function renderLibrary(tracks) {
   // playlist, dragging a row reorders within that playlist; otherwise
   // (Collection, or a smart playlist) the drag pops up the floating
   // playlist drop overlay so the user can add the track elsewhere.
-  const reorderMode = (typeof selectedSource === 'number')
-    && (() => {
-      const sel = playlistsCache.find(p => p.id === selectedSource);
-      return !!sel && !sel.is_folder && !sel.is_smart;
-    })();
   el.querySelectorAll('tr[data-track-row]').forEach((row, rowIdx) => {
     const tid = parseInt(row.getAttribute('data-track-row'), 10);
     row.addEventListener('click', (e) => {
@@ -7626,9 +7740,7 @@ function renderDetail(t, cues, wave, phrases, analysis) {
   // Tags section is re-rendered into <div id="tags-host"> after mutations.
   const tagsHTML = '<div id="tags-host"></div>';
 
-  const detailArt = t.art_id > 0
-    ? `<img class="detail-art" loading="lazy" alt="" src="/api/artwork/${t.id}">`
-    : `<div class="detail-art empty"></div>`;
+  const detailArt = artHTML(t, 'detail-art', 'detail-art empty', '');
   document.getElementById('detail-body').innerHTML = `
     <div class="detail-track-head">
       ${detailArt}
@@ -11305,15 +11417,39 @@ async function removePlaylistTrack(idx) {
   await postPlaylistTrackIDs(plSelectedID, ids);
 }
 
+// True when the active library source is a regular (non-smart, non-folder)
+// playlist — membership is user-managed, so rows can be reordered/removed.
+function activeRegularPlaylist() {
+  if (typeof selectedSource !== 'number') return false;
+  const sel = playlistsCache.find(p => p.id === selectedSource);
+  return !!sel && !sel.is_folder && !sel.is_smart;
+}
+
+// Bulk-bar "− PLAYLIST": drop every selected track from the current
+// playlist. Library rows, tags, cues, and other playlists are untouched.
+async function bulkRemoveFromPlaylist() {
+  if (plSelectedID == null) return;
+  const drop = new Set(plSelectedTracks.filter(t => bulkSelectedIDs.has(t.id)).map(t => t.id));
+  if (drop.size === 0) { toast('SELECTION IS NOT IN THIS PLAYLIST', 'error'); return; }
+  const keep = plSelectedTracks.map(t => t.id).filter(id => !drop.has(id));
+  const n = plSelectedTracks.length - keep.length;
+  if (!await postPlaylistTrackIDs(plSelectedID, keep)) return;
+  // Deselect just the removed tracks — a cross-source selection survives.
+  drop.forEach(id => bulkSelectedIDs.delete(id));
+  updateBulkBar();
+  toast(`REMOVED ${n} TRACK${n === 1 ? '' : 'S'} FROM PLAYLIST`, 'success');
+}
+
 async function postPlaylistTrackIDs(playlistID, trackIDs) {
   const r = await fetch(`/api/playlists/${playlistID}/tracks`, {
     method: 'POST', headers: {'Content-Type':'application/json'},
     body: JSON.stringify({ track_ids: trackIDs }),
   });
-  if (!r.ok) { toast('UPDATE FAILED', 'error'); return; }
+  if (!r.ok) { toast('UPDATE FAILED', 'error'); return false; }
   await loadPlaylistTracks(playlistID);
   // Also refresh the cache so the track count in the tree updates.
   await loadPlaylists(true);
+  return true;
 }
 
 // Add-tracks picker — a modal that lists every library track, filterable
