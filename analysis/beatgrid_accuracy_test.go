@@ -76,7 +76,9 @@ func TestBeatGridAccuracy(t *testing.T) {
 	envF("VYNULL_BEAT_REF_CLARW", &ClarityWeight)
 	envF("VYNULL_BEAT_REF_GATE", &HalfBeatGate)
 	envF("VYNULL_BEAT_REF_LATENCY", &TempogramLatencyMs)
-	t.Logf("windowed=%v winSec=%.1f ampW=%.1f clarW=%.1f gate=%.1f", WindowedPhase, WindowSec, AmpWeight, ClarityWeight, HalfBeatGate)
+	envF("VYNULL_BEAT_REF_WARMUP", &BandNormWarmupSec)
+	envF("VYNULL_BEAT_REF_EARLYTAU", &PhaseEarlyTauSec)
+	t.Logf("windowed=%v winSec=%.1f ampW=%.1f clarW=%.1f gate=%.1f warmup=%.1f earlyTau=%.1f", WindowedPhase, WindowSec, AmpWeight, ClarityWeight, HalfBeatGate, BandNormWarmupSec, PhaseEarlyTauSec)
 
 	type result struct {
 		name    string

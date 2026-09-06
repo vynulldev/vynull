@@ -36,7 +36,10 @@ const AnalysisRate = 44100
 // Bumped to 28 for the PWV4 7-bit band clamp: cached colour previews may
 // carry >127 in d2-d5, which real rekordbox never emits and which restarts
 // an XDJ-AZ on load, so v27 waveforms must re-encode.
-const cacheVersion = 28
+// Bumped to 29 for the TempogramLatencyMs re-trim (30 -> 34ms): every grid
+// shifts +4ms, substantially raising sub-10ms agreement with rekordbox's
+// grids, so v28 grids re-analyze to pick up the corrected phase.
+const cacheVersion = 29
 
 // PWV4Override and PWV5Override, when non-nil, replace every track's color
 // preview / detail waveform at serve time. Set via the --pwv4-override /

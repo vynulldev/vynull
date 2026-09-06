@@ -732,6 +732,15 @@ var (
 	BandNormAlpha     = 0.99
 	MultiBandMaxHz    = 4096.0
 
+	// BandNormWarmupSec seeds each band's normalization EMA with its average
+	// magnitude over this many leading seconds, instead of letting it warm up
+	// from zero. From zero, the first ~1.2s of flux frames are divided by a
+	// near-zero running level and come out inflated ~100x; window 0's phasor
+	// magnitude then dominates windowedTempogramPhase's amplitude-cubed combine
+	// on many tracks, effectively reducing "windowed" to "window 0 only".
+	// 0 keeps the legacy from-zero warmup.
+	BandNormWarmupSec = 0.0
+
 	// TempogramLatencyMs is the pipeline group delay (STFT framing + flux + EMA),
 	// which is codec-independent. LossyEncoderDelayMs is added on top for lossy
 	// codecs: rekordbox grids on the raw decoded stream INCLUDING the ~1105-sample
@@ -741,7 +750,12 @@ var (
 	// terms were separated by calibrating the pipeline delay on lossless (the clean
 	// case) and confirming lossy = pipeline + encoder delay reproduces the old
 	// single 55ms constant. See EncoderDelayMs and DetectBeatsWithEncoderDelay.
-	TempogramLatencyMs  = 30.0
+	// 34 = the earlier 30ms calibration re-trimmed +4ms against a library of
+	// imported rekordbox grids: the well-aligned population sat ~9ms early
+	// while a long late tail held the MEAN bias positive — centering the error
+	// distribution's PEAK, not its mean, took <10ms alignment 23.9%->34.3%
+	// with <20/<50ms and the half-beat tail unchanged (held-out validated).
+	TempogramLatencyMs  = 34.0
 	LossyEncoderDelayMs = 25.0
 
 	// HalfBeatGate, when > 0, flips the grid by half a beat if the half-beat
@@ -768,6 +782,16 @@ var (
 	WindowSec     = 4.0
 	AmpWeight     = 3.0
 	ClarityWeight = 1.0
+
+	// PhaseEarlyTauSec, when > 0, multiplies each window's combine weight by
+	// exp(-startSec/tau): an explicit start-anchor. Rekordbox's grid phase is
+	// anchored near the track start — discovered via the EMA warmup spike,
+	// which accidentally gave window 0 a ~10^5x weight and OUTSCORED the honest
+	// windowed combine by 12pts (<50ms 73.9% vs 61.3% with the warmup seeded).
+	// The decay makes that anchoring deliberate: early clean windows dominate,
+	// but a silent or fade-in intro still falls through to later windows.
+	// 0 disables (pure clarity-weighted combine).
+	PhaseEarlyTauSec = 0.0
 
 	// SnapVerify enables coherence refinement + integer snap of the detected
 	// BPM (see snapVerifyBPM). The autocorrelation lag grid is coarse
@@ -868,6 +892,31 @@ func multiBandOnset(samples []float32, sampleRate int) ([]float64, float64) {
 	prevMag := make([]float64, nb)
 	bandMag := make([]float64, nb)
 	mean := make([]float64, nb) // per-band running level for adaptive normalization
+	if UseBandNorm && BandNormWarmupSec > 0 {
+		// Seed the EMA at each band's average level over the leading
+		// BandNormWarmupSec so the first flux frames are divided by a real
+		// level, not a near-zero warming-up one (see BandNormWarmupSec).
+		warm := int(BandNormWarmupSec * float64(sampleRate) / float64(hop))
+		if warm > n {
+			warm = n
+		}
+		for k := 0; k < warm && k < len(re); k++ {
+			lo := 1
+			for b := 0; b < nb; b++ {
+				var s float64
+				for bin := lo; bin < hiBin[b]; bin++ {
+					s += math.Sqrt(re[k][bin]*re[k][bin] + im[k][bin]*im[k][bin])
+				}
+				mean[b] += s
+				lo = hiBin[b]
+			}
+		}
+		if warm > 0 {
+			for b := range mean {
+				mean[b] /= float64(warm)
+			}
+		}
+	}
 	for k := 0; k < n && k < len(re); k++ {
 		lo := 1
 		for b := 0; b < nb; b++ {
@@ -948,6 +997,9 @@ func windowedTempogramPhase(onset []float64, msPerFrame, msPerBeat, winSec, ampW
 			continue
 		}
 		weight := math.Pow(mag, ampW) * math.Pow(mag/esum, clarW)
+		if PhaseEarlyTauSec > 0 {
+			weight *= math.Exp(-float64(start) * msPerFrame / 1000 / PhaseEarlyTauSec)
+		}
 		Zr += weight * zr / mag
 		Zi += weight * zi / mag
 	}
