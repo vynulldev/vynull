@@ -33,7 +33,10 @@ const AnalysisRate = 44100
 // Bumped to 27 for integer-snap BPM verification: ~1/3 of a real library
 // detected a fraction off the true integer tempo (and gridded at the wrong
 // period), so v26 BPMs and grids must re-analyze.
-const cacheVersion = 27
+// Bumped to 28 for the PWV4 7-bit band clamp: cached colour previews may
+// carry >127 in d2-d5, which real rekordbox never emits and which restarts
+// an XDJ-AZ on load, so v27 waveforms must re-encode.
+const cacheVersion = 28
 
 // PWV4Override and PWV5Override, when non-nil, replace every track's color
 // preview / detail waveform at serve time. Set via the --pwv4-override /
