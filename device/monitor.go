@@ -30,6 +30,22 @@ type PlayerState struct {
 	Key       string
 	External  bool   // track is loaded from a source other than us (USB/SD/another player)
 	Source    string // human label for that source, e.g. "USB · player 2" (empty when it's ours)
+
+	// BeatChangedAt is when Status.BeatInTrack last advanced (zero if never
+	// seen). BeatInTrack alone quantizes the playhead to whole beats; the age
+	// of the last advance is the sub-beat phase, which the API serves so the
+	// overlay's scrolling waveform can interpolate without snapping back to
+	// the beat boundary on every poll.
+	BeatChangedAt time.Time
+}
+
+// BeatTick records the arrival of a device's 0x28 beat packet. These fire
+// exactly on each beat, so the most recent tick is the precise time of the
+// beat that the next status packet's BeatInTrack increment refers to.
+func (m *PlayerMonitor) BeatTick(dev uint8, t time.Time) {
+	m.mu.Lock()
+	m.beatTick[dev] = t
+	m.mu.Unlock()
 }
 
 // externalSource reports whether a loaded track came from a source other than
@@ -72,10 +88,11 @@ type HistoryEntry struct {
 
 // PlayerMonitor tracks the state of all CDJs on the network.
 type PlayerMonitor struct {
-	mu      sync.RWMutex
-	players map[uint8]*PlayerState
-	pdb     *pdb.Database
-	lib     *library.Library
+	mu       sync.RWMutex
+	players  map[uint8]*PlayerState
+	pdb      *pdb.Database
+	lib      *library.Library
+	beatTick map[uint8]time.Time // arrival of each device's last 0x28 beat packet
 
 	// SelfDevice returns our own device number, used to tell tracks loaded from
 	// us apart from ones a deck loaded off a USB/SD or another player. Nil or 0
@@ -134,6 +151,7 @@ func NewPlayerMonitor(db *pdb.Database, lib *library.Library) *PlayerMonitor {
 		playMs:       make(map[uint8]float64),
 		playLastSeen: make(map[uint8]time.Time),
 		playCounted:  make(map[uint8]bool),
+		beatTick:     make(map[uint8]time.Time),
 	}
 }
 
@@ -411,18 +429,32 @@ func (m *PlayerMonitor) Update(status *proto.CDJStatus) {
 	m.mu.Lock()
 	var prevPlay uint8 = 0xff
 	var prevTID uint32
+	beatChangedAt := now
+	// Prefer the 0x28 beat packet's arrival as the anchor: it fires exactly
+	// on the beat, while this status packet arrives on its own ~200ms cadence
+	// somewhere after it. Only pair a recent tick — a stale one (paused deck,
+	// lost packet) would push the anchor into the past.
+	if tick, ok := m.beatTick[dev]; ok && now.Sub(tick) >= 0 && now.Sub(tick) < 700*time.Millisecond {
+		beatChangedAt = tick
+	}
 	if old := m.players[dev]; old != nil {
 		prevPlay = old.Status.PlayState
 		prevTID = old.Status.TrackID
+		// Same track, same beat counter: the beat hasn't advanced, keep the
+		// original timestamp so its age keeps growing between beats.
+		if old.Status.TrackID == status.TrackID && old.Status.BeatInTrack == status.BeatInTrack {
+			beatChangedAt = old.BeatChangedAt
+		}
 	}
 	m.players[dev] = &PlayerState{
-		Status:    status,
-		LastSeen:  now,
-		TrackName: trackName,
-		Artist:    artist,
-		Key:       key,
-		External:  external,
-		Source:    source,
+		Status:        status,
+		LastSeen:      now,
+		TrackName:     trackName,
+		Artist:        artist,
+		Key:           key,
+		External:      external,
+		Source:        source,
+		BeatChangedAt: beatChangedAt,
 	}
 	m.mu.Unlock()
 

@@ -229,16 +229,45 @@
   }
 
   // Sample a deck's position from its beat/bpm (or exact beat grid) each poll.
+  // beat_in_track alone quantizes the playhead to whole beats, and anchoring
+  // on it made every poll re-snap the waveform by the deck's current beat
+  // phase — smooth at 120 BPM (beat period divides the 1s poll) and visibly
+  // jumping at everything else. beat_age_ms is the server's sub-beat phase
+  // (anchored on the deck's 0x28 beat packets); small residual corrections
+  // are slewed instead of snapped so network jitter can't produce jumps.
+  const SLEW_MS_PER_SEC = 120, SNAP_MS = 1500;
+  const DEBUG = new URLSearchParams(location.search).has('debug');
+  function renderPos(pos, now) {
+    let p = pos.posMs + (now - pos.sampledAt) * pos.rate;
+    if (pos.err) {
+      const left = Math.max(0, Math.abs(pos.err) - SLEW_MS_PER_SEC * (now - pos.sampledAt) / 1000);
+      p -= Math.sign(pos.err) * left;
+    }
+    return p;
+  }
   function sampleDeck(p) {
     const dev = p.device_number;
     if (!dev || !p.track_id) { delete deckPos[dev]; return; }
-    ensureWave(dev, trackKey(p), p.waveform_url, p.duration_ms || 0);
+    const key = trackKey(p);
+    ensureWave(dev, key, p.waveform_url, p.duration_ms || 0);
     const w = deckWave[dev];
     const durMs = (w && w.durMs) || p.duration_ms || 0;
     let posMs = 0;
     if (w && w.beats && p.beat_in_track > 0 && p.beat_in_track <= w.beats.length) posMs = w.beats[p.beat_in_track - 1];
     else if (p.beat_in_track > 0 && p.bpm > 0) posMs = (p.beat_in_track - 1) * 60000 / p.bpm;
-    deckPos[dev] = { posMs, durMs, sampledAt: performance.now() };
+    const rate = 1 + (p.pitch_pct || 0) / 100; // track-ms advance per real ms
+    let age = p.beat_age_ms || 0;
+    if (p.bpm > 0) age = Math.min(age, 60000 / p.bpm); // stalled packets: hold at the next beat, don't run ahead
+    posMs += age * rate;
+    const now = performance.now();
+    const prev = deckPos[dev];
+    let err = 0;
+    if (prev && prev.key === key) {
+      const drift = posMs - renderPos(prev, now);
+      if (Math.abs(drift) < SNAP_MS) err = drift; // slew it; larger = seek/loop → snap
+      if (DEBUG) console.log(`[wave ${dev}] beat=${p.beat_in_track} age=${p.beat_age_ms | 0} drift=${drift.toFixed(1)}ms ${Math.abs(drift) < SNAP_MS ? 'slew' : 'SNAP'}`);
+    }
+    deckPos[dev] = { key, posMs, durMs, rate, err, sampledAt: now };
   }
 
   // --- scrolling waveform render (rAF) ---------------------------------------
@@ -250,7 +279,7 @@
     const ctx = cv.getContext('2d'), W = cv.width, H = cv.height;
     ctx.clearRect(0, 0, W, H);
     if (!w || !w.entries || !w.entries.length || !pos || !pos.durMs) return;
-    const posMs = pos.posMs + (now - pos.sampledAt); // 1x interpolation between polls
+    const posMs = renderPos(pos, now); // pitch-rate interpolation + slewed correction
     const cur = (posMs / 1000) * ENTRY_RATE;
     const epp = (WINDOW_SEC * ENTRY_RATE) / W; // entries per pixel
     const n = w.entries.length;
