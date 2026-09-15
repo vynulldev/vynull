@@ -260,6 +260,7 @@ type PlayerInfo struct {
 	OnAir         bool    `json:"on_air"`
 	BeatInBar     uint8   `json:"beat_in_bar"`               // 1-4 (0 = unknown), from CDJ status packet
 	BeatInTrack   uint32  `json:"beat_in_track,omitempty"`   // beats elapsed since track start (0 = unknown)
+	BeatAgeMs     uint32  `json:"beat_age_ms,omitempty"`     // ms since that beat fired — the sub-beat phase, so a client can place the playhead between beats
 	DurationMs    uint32  `json:"duration_ms,omitempty"`     // loaded track duration in ms (for playhead positioning)
 	PlayState     uint8   `json:"play_state,omitempty"`      // raw play-state byte from CDJ status
 	PlayStateName string  `json:"play_state_name,omitempty"` // human-readable form (PLAYING, PAUSED, CUED, ...)
@@ -568,6 +569,7 @@ func (s *Server) getPlayers() []PlayerInfo {
 			OnAir:         ps.Status.IsOnAir,
 			BeatInBar:     ps.Status.BeatInBar,
 			BeatInTrack:   ps.Status.BeatInTrack,
+			BeatAgeMs:     beatAgeMs(ps),
 			DurationMs:    durationMs,
 			PlayState:     ps.Status.PlayState,
 			PlayStateName: ps.Status.PlayStateString(),
@@ -580,6 +582,22 @@ func (s *Server) getPlayers() []PlayerInfo {
 		return out[i].DeviceNumber < out[j].DeviceNumber
 	})
 	return out
+}
+
+// beatAgeMs returns how long ago the playing deck's current beat fired, in
+// ms — the sub-beat playhead phase that BeatInTrack alone quantizes away.
+// Anchored on the deck's 0x28 beat packets when they're heard (exact), else
+// on the status packet that advanced the counter (~200ms granularity). 0 for
+// paused/unknown states, where age would just measure time since pause.
+func beatAgeMs(ps *device.PlayerState) uint32 {
+	if !ps.Status.IsPlaying || ps.Status.BeatInTrack == 0 || ps.BeatChangedAt.IsZero() {
+		return 0
+	}
+	a := time.Since(ps.BeatChangedAt)
+	if a <= 0 {
+		return 0
+	}
+	return uint32(a.Milliseconds())
 }
 
 // NowPlaying is the currently-audible track, for the streaming overlay: the
@@ -595,6 +613,8 @@ type NowPlaying struct {
 	Key          string  `json:"key,omitempty"`
 	DurationMs   uint32  `json:"duration_ms,omitempty"`
 	BeatInTrack  uint32  `json:"beat_in_track,omitempty"`
+	BeatAgeMs    uint32  `json:"beat_age_ms,omitempty"`
+	PitchPct     float64 `json:"pitch_pct,omitempty"`
 	// ArtworkURL is the cover-art endpoint for the audible track: the library
 	// endpoint for our own tracks, or the external endpoint (the source player's
 	// media over NFS) when a deck plays from its own USB/SD.
@@ -633,6 +653,8 @@ func nowPlayingFrom(players []PlayerInfo) NowPlaying {
 		Key:          p.Key,
 		DurationMs:   p.DurationMs,
 		BeatInTrack:  p.BeatInTrack,
+		BeatAgeMs:    p.BeatAgeMs,
+		PitchPct:     p.PitchPct,
 		ArtworkURL:   p.ArtworkURL,
 		WaveformURL:  p.WaveformURL,
 	}
