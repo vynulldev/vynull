@@ -209,15 +209,23 @@ func generateColorPreviewV2(samples []float32, sampleRate int) []byte {
 	// not part of the colour balance and keeps its own scale.
 	const lowScale = 130.0 // d2
 
+	// d2-d5 are 7-BIT fields: across ~2000 rekordbox-analyzed tracks they
+	// never exceed 127, and 25-35% of tracks max out at exactly 127, so
+	// rekordbox computes a linear value and saturates it there (d0/d1 use
+	// the full byte). The clamp is not cosmetic: values >127 in d3/d4/d5
+	// hard-RESTART an XDJ-AZ (fw 1.30, 4-deck view) when the track loads,
+	// while a CDJ-2000NXS2 renders them without complaint. See issue #37.
+	const bandMax = 127.0
+
 	for i := 0; i < analysis.ColorPreviewPoints; i++ {
 		var d1 uint8
 		if rmsNorm := rmsVals[i] / maxRMS; rmsNorm > 0 {
 			d1 = uint8(math.Min(math.Pow(rmsNorm, 0.3)*240, 255))
 		}
-		d2 := uint8(math.Min(lowRMS[i]*lowScale, 255))
-		d3 := uint8(math.Min(bassRMS[i]*analysis.PreviewBassScale, 255))
-		d4 := uint8(math.Min(midRMS[i]*analysis.PreviewMidScale, 255))
-		d5 := uint8(math.Min(trebleRMS[i]*analysis.PreviewTrebleScale, 255))
+		d2 := uint8(math.Min(lowRMS[i]*lowScale, bandMax))
+		d3 := uint8(math.Min(bassRMS[i]*analysis.PreviewBassScale, bandMax))
+		d4 := uint8(math.Min(midRMS[i]*analysis.PreviewMidScale, bandMax))
+		d5 := uint8(math.Min(trebleRMS[i]*analysis.PreviewTrebleScale, bandMax))
 
 		off := i * entrySize
 		buf[off+0] = 0 // d0: unknown — placeholder until characterised
