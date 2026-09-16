@@ -17,6 +17,7 @@ const (
 	TypeStatusCDJ       uint8 = 0x0a
 	TypeStatusQuery     uint8 = 0x10 // sent by CDJs, purpose unclear
 	TypeStatusRekordbox uint8 = 0x16 // rekordbox simple status (48 bytes)
+	TypeBeat            uint8 = 0x28 // per-beat broadcast on port 50001, sent exactly on each beat; device number at 0x21
 
 	// Slot types for media queries/responses.
 	SlotEmpty     uint8 = 0x00

@@ -617,6 +617,16 @@ func (d *VirtualDevice) listenBeats(ctx context.Context) {
 			continue
 		}
 		pktType := buf[0x0a]
+		// 0x28 fires exactly on each beat — the beat-accurate anchor for the
+		// playhead clock the API serves (status packets carry the beat COUNT
+		// but arrive on their own ~200ms cadence, so their arrival time says
+		// little about when the beat actually happened).
+		if pktType == proto.TypeBeat {
+			if n > 0x21 && d.Monitor != nil {
+				d.Monitor.BeatTick(buf[0x21], time.Now())
+			}
+			continue
+		}
 		if pktType != proto.TypeMixerChannels {
 			continue
 		}

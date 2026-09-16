@@ -5517,6 +5517,12 @@ function samplePlayerPosition(p) {
   }
   // Pitch_pct is what % above/below nominal speed the deck is set to.
   const rate = 1 + ((p.pitch_pct || 0) / 100);
+  // beat_age_ms is the server's sub-beat phase (time since that beat fired);
+  // without it the playhead quantizes to whole beats. Capped at one beat so
+  // stalled packets hold at the next beat instead of running ahead.
+  let age = p.beat_age_ms || 0;
+  if (bpm > 0) age = Math.min(age, 60000 / bpm);
+  posMs += age * rate;
   playerPosState.set(p.device_number, {
     posMs,
     durationMs,
