@@ -8,6 +8,14 @@
 
 Vynull is a DJ library application for Linux that interfaces directly with Pioneer CDJ/XDJ hardware: load tracks from your PC straight onto the decks over Pro DJ Link, with no rekordbox, no USB sticks, and no export step. Players see your machine as a connected rekordbox instance (or a CDJ-USB source) and browse and load your music with waveforms, beat grids, and cues; DJM mixers are tracked on the link too. Vynull analyzes tracks itself, includes a browser-based library manager, and imports your existing rekordbox or Traktor library in one click.
 
+![Vynull web UI — browser library manager with waveform thumbnails and tags](assets/screenshot-webui.webp)
+
+| ![Track detail — zoom waveform, beat grid, and cues](assets/screenshot-detail.webp) | ![Live players and mixer status](assets/screenshot-players.webp) |
+|:--:|:--:|
+| Track detail: zoom waveform, beat grid, cues | Live players & DJM mixer status |
+
+More screenshots, including the web UI themes, at [vynull.dev](https://vynull.dev/#screens).
+
 ## Before you start
 
 This is a hobby project. I built it to learn some Go, poke at my CDJs, and see how far I could get building something real with Claude — further than I expected, as it turns out. It speaks a protocol Pioneer never documented, which I only understand thanks to other people's reverse-engineering work (see [Acknowledgements](#acknowledgements)). Expect bugs and the occasional strange deck behaviour. It is not affiliated with Pioneer DJ / AlphaTheta.
