@@ -10,16 +10,16 @@ import (
 )
 
 func TestImporterRegistry(t *testing.T) {
+	// Extension-only formats (.xml resolves by content — see
+	// TestImporterForXMLDispatch — so it is not exercised with a fake path here).
 	cases := []struct {
 		path     string
 		label    string
 		needsKey bool
 	}{
 		{"/music/collection.nml", "Traktor NML", false},
-		{"/music/rekordbox.xml", "rekordbox XML", false},
 		{"/music/master.db", "rekordbox master.db", true},
 		{"/music/rekordbox_bak.zip", "rekordbox backup", true},
-		{"/music/RB.XML", "rekordbox XML", false}, // extension match is case-insensitive
 	}
 	for _, c := range cases {
 		imp := ImporterFor(c.path)

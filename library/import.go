@@ -3,6 +3,8 @@
 package library
 
 import (
+	"encoding/xml"
+	"os"
 	"path/filepath"
 	"strings"
 )
@@ -68,6 +70,7 @@ func Importers() []Importer {
 		rekordboxBackupImporter{},
 		rekordboxDBImporter{},
 		traktorImporter{},
+		virtualdjImporter{},
 	}
 }
 
@@ -83,4 +86,26 @@ func ImporterFor(path string) Importer {
 
 func hasExt(path, ext string) bool {
 	return strings.EqualFold(filepath.Ext(path), ext)
+}
+
+// xmlRootIs reports whether the XML file at path has the given root element
+// local name. It reads only up to the first start element, so it is cheap.
+// Used to tell same-extension formats apart — a rekordbox export
+// (DJ_PLAYLISTS) and a VirtualDJ database (VirtualDJ_Database) are both .xml.
+func xmlRootIs(path, name string) bool {
+	f, err := os.Open(path)
+	if err != nil {
+		return false
+	}
+	defer f.Close()
+	dec := xml.NewDecoder(f)
+	for {
+		tok, err := dec.Token()
+		if err != nil {
+			return false
+		}
+		if se, ok := tok.(xml.StartElement); ok {
+			return se.Name.Local == name
+		}
+	}
 }
