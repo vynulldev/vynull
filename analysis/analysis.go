@@ -114,6 +114,13 @@ type Store struct {
 	// "N tracks" figure in Status() (instead of the in-memory result count,
 	// which only covers analyzed/cache-loaded tracks). Set once at startup.
 	TotalTracksFn func() int
+
+	// Importer, when set, is tried before running our own DSP on a track:
+	// it returns pre-existing analysis (e.g. parsed from a served rekordbox
+	// USB's ANLZ files) or nil to fall through to AnalyzeTrack. An imported
+	// Result is cached like any other, so the import runs once per track.
+	// Set once at startup, before any analysis is requested.
+	Importer func(trackID uint32, filePath string) *Result
 }
 
 // NewStore creates an in-memory-only analysis store.
@@ -285,6 +292,17 @@ func (s *Store) AnalyzeInBackground(trackID uint32, filePath string, onDone func
 			delete(s.inflight, trackID)
 			s.inflightMu.Unlock()
 		}()
+
+		if s.Importer != nil {
+			if r := s.Importer(trackID, filePath); r != nil {
+				s.Set(trackID, r)
+				if onDone != nil {
+					onDone(r)
+				}
+				log.Printf("lazy-analysis: track %d imported from ANLZ (BPM=%.1f dur=%ds)", trackID, r.BPM, r.Duration)
+				return
+			}
+		}
 
 		log.Printf("lazy-analysis: analyzing track %d (%s)...", trackID, filepath.Base(filePath))
 		s.SetStatus(fmt.Sprintf("Analyzing: %s", filepath.Base(filePath)))
@@ -462,7 +480,14 @@ func AnalyzeAll(tracks []*pdb.Track, workers int, store *Store, progress func(do
 			defer wg.Done()
 			for j := range jobs {
 				t := j.track
-				result, err := AnalyzeTrack(t.FilePath)
+				var result *Result
+				var err error
+				if store.Importer != nil {
+					result = store.Importer(t.ID, t.FilePath)
+				}
+				if result == nil {
+					result, err = AnalyzeTrack(t.FilePath)
+				}
 				if err != nil {
 					log.Printf("analysis: %s: %v", t.FileName, err)
 				} else {

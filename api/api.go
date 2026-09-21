@@ -2011,7 +2011,14 @@ func (s *Server) tryQueueAnalysis(trackID uint32, filePath string) bool {
 func (s *Server) analysisWorker() {
 	for job := range s.analyzeCh {
 		s.Analysis.SetStatus(fmt.Sprintf("Analyzing: %s", filepath.Base(job.filePath)))
-		r, err := analysis.AnalyzeTrack(job.filePath)
+		var r *analysis.Result
+		var err error
+		if s.Analysis.Importer != nil {
+			r = s.Analysis.Importer(job.trackID, job.filePath)
+		}
+		if r == nil {
+			r, err = analysis.AnalyzeTrack(job.filePath)
+		}
 		s.Analysis.DecPending()
 		s.queuedAnalyses.Delete(job.trackID)
 		if err != nil {
@@ -2168,7 +2175,14 @@ func (s *Server) getOrAnalyze(trackID uint32) *analysis.Result {
 	}
 
 	log.Printf("api: on-demand analysis for track %d: %s", trackID, filePath)
-	r, err := analysis.AnalyzeTrack(filePath)
+	var r *analysis.Result
+	var err error
+	if s.Analysis.Importer != nil {
+		r = s.Analysis.Importer(trackID, filePath)
+	}
+	if r == nil {
+		r, err = analysis.AnalyzeTrack(filePath)
+	}
 	if err != nil {
 		log.Printf("api: on-demand analysis failed for track %d: %v", trackID, err)
 		return nil

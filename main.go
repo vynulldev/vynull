@@ -276,7 +276,55 @@ func main() {
 		}
 		return lib.TrackCount()
 	}
-	hasANLZ := false
+	cueStore := dbserver.NewCueStore(filepath.Join(cfg.DataDir, "cues"))
+
+	// A served rekordbox USB carries rekordbox's own analysis. Prefer its
+	// ANLZ files over re-running our DSP: the deck gets rekordbox's exact
+	// beat grids, waveforms and phrases (no grid-phase differences, no
+	// analysis wait on small hardware), and the track's hot/memory cues are
+	// pulled into the cue store the first time its analysis is requested.
+	// Our analyzer stays the fallback for tracks with missing or unreadable
+	// ANLZ files. Works in both eager (AnalyzeAll) and lazy modes.
+	if pdbDB != nil {
+		musicDir := cfg.MusicDir
+		analysisStore.Importer = func(trackID uint32, _ string) *analysis.Result {
+			t := pdbDB.TrackByID(trackID)
+			if t == nil || t.AnalyzePath == "" {
+				return nil
+			}
+			dat := filepath.Join(musicDir, filepath.FromSlash(t.AnalyzePath))
+			base := strings.TrimSuffix(dat, filepath.Ext(dat))
+			res := analysis.ParseANLZ(dat, base+".EXT", base+".2EX", float64(t.Tempo)/100, int(t.Duration))
+			if res == nil {
+				return nil
+			}
+			// ANLZ files carry no musical key; backfill from the PDB's.
+			if res.KeyCamelot == "" && t.Key != "" {
+				res.KeyCamelot, res.KeyStandard = analysis.KeyNamesFrom(t.Key)
+			}
+			// Import the track's cues alongside the analysis, once — the
+			// store persists them, and existing cues are never overwritten.
+			if len(cueStore.GetCues(trackID)) == 0 {
+				mem := 8
+				for _, c := range analysis.ParseANLZCues(base+".EXT", dat) {
+					num := uint16(c.HotCue)
+					if c.HotCue == 0 {
+						mem++
+						num = uint16(mem)
+					}
+					cue := &dbserver.CuePoint{Number: num, Type: 1, TimeMs: c.TimeMs, LoopMs: -1, Status: 1, ColorID: c.ColorID}
+					if c.IsLoop {
+						cue.Type = 2
+						if c.LoopMs > 0 {
+							cue.LoopMs = int32(c.LoopMs)
+						}
+					}
+					cueStore.SaveCue(trackID, cue, nil)
+				}
+			}
+			return res
+		}
+	}
 
 	if cfg.LazyAnalysis {
 		log.Printf("lazy-analysis mode: tracks will be analyzed on-demand (cache: %s)", cacheDir)
@@ -375,8 +423,6 @@ func main() {
 			log.Printf("loaded %d artworks from PIONEER/Artwork", artCount)
 		}
 	}
-	_ = hasANLZ
-
 	// Start the database server for track metadata queries.
 	// Build folder lookup for directory-based playlist browsing.
 	var folderLookup *pdb.FolderLookup
@@ -385,7 +431,6 @@ func main() {
 		log.Printf("folders: %d directories mapped", len(folderLookup.Nodes))
 	}
 
-	cueStore := dbserver.NewCueStore(filepath.Join(cfg.DataDir, "cues"))
 	tagStore := api.NewTagStore(filepath.Join(cfg.DataDir, "tags"))
 	playlistStore := api.NewPlaylistStore(filepath.Join(cfg.DataDir, "playlists"))
 	menuStore := api.NewMenuStore(filepath.Join(cfg.DataDir, "menu"))
