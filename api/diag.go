@@ -79,11 +79,35 @@ func (r *logRing) since(since uint64) []logEntry {
 	return out
 }
 
+// earlyRing is the ring created by CaptureLogs before the API server
+// exists; installLogTail adopts it so the DIAG view includes startup lines.
+var earlyRing *logRing
+
+// CaptureLogs points the process logger through the diag ring immediately,
+// so startup lines — library scan, pdb load, NFS/dbserver setup — appear
+// in the web UI's DIAG log tail instead of only in the terminal. Without
+// it the ring attaches at Server.Start, after all of that has printed
+// (the first community bug report arrived as photos of a terminal for
+// exactly the lines this captures). Call from main once the final log
+// destination (stderr / file / TUI tee) is configured. Idempotent.
+func CaptureLogs() {
+	if earlyRing == nil {
+		earlyRing = newLogRing(500, log.Writer())
+		log.SetOutput(earlyRing)
+	}
+}
+
 // installLogTail wires the package-level log output through a ring
 // buffer in addition to stderr so /api/diag/logs can serve recent
-// lines. Idempotent: subsequent calls reuse the existing ring.
+// lines. Adopts the CaptureLogs ring when one exists (the normal path —
+// main calls CaptureLogs at startup). Idempotent: subsequent calls reuse
+// the existing ring.
 func (s *Server) installLogTail() {
 	if s.logs != nil {
+		return
+	}
+	if earlyRing != nil {
+		s.logs = earlyRing
 		return
 	}
 	tee := log.Writer()

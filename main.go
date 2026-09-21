@@ -157,6 +157,12 @@ func main() {
 			}()
 		}
 	}
+	// Capture the log into the web UI's DIAG ring from here on, so startup
+	// lines (library scan, pdb load, NFS/dbserver setup) are visible in the
+	// browser — they're the first thing needed when debugging a setup
+	// remotely, and previously the ring only attached after they printed.
+	api.CaptureLogs()
+
 	log.Printf("started with args: %v", os.Args[1:])
 
 	var lib *library.Library
