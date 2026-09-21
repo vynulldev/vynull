@@ -76,6 +76,15 @@ func (h *Handler) lazyAnalyze(trackID uint32) *analysis.Result {
 		return analysis.ApplyOverrides(r)
 	}
 
+	// Synchronous import (a served rekordbox USB's ANLZ files): a fast file
+	// parse, so run it inline — the deck's load sequence requests beat grid,
+	// waveforms and cues milliseconds after metadata, and an async import
+	// loses that race on every first load.
+	if r := h.analysis.TryImport(trackID, filePath); r != nil {
+		h.storeAnalysisResult(trackID, r)
+		return analysis.ApplyOverrides(r)
+	}
+
 	// Start background analysis (deduplicated globally via the Store).
 	h.analysis.AnalyzeInBackground(trackID, filePath, func(r *analysis.Result) {
 		h.storeAnalysisResult(trackID, r)

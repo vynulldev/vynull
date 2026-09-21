@@ -1005,6 +1005,11 @@ func (h *Handler) handleGetNXS2CuePoints(msg *proto.DBMessage) []*proto.DBMessag
 		trackID = msg.Args[1].Int()
 	}
 
+	// A served rekordbox USB's cues are imported as a side effect of its
+	// ANLZ analysis import; make sure that has happened before reading the
+	// store, in case the deck asked for cues before any other track data.
+	h.lazyAnalyze(trackID)
+
 	var blob []byte
 	var cueCount uint32
 	if h.cues != nil {

@@ -321,6 +321,24 @@ func (s *Store) AnalyzeInBackground(trackID uint32, filePath string, onDone func
 	}()
 }
 
+// TryImport runs the Importer synchronously, storing and returning its
+// Result, or nil when no Importer is set or it has nothing for this track.
+// Unlike full analysis, an import is a fast file parse, so callers on a
+// request path (e.g. the dbserver answering a deck's load sequence) can
+// afford to run it inline instead of racing an async import — a deck
+// requests cues milliseconds after metadata, well inside an async window.
+func (s *Store) TryImport(trackID uint32, filePath string) *Result {
+	if s.Importer == nil {
+		return nil
+	}
+	r := s.Importer(trackID, filePath)
+	if r == nil {
+		return nil
+	}
+	s.Set(trackID, r)
+	return r
+}
+
 // SetPath associates a track ID with a file path for cache key generation.
 // Must be called before Get/Set for disk caching to work.
 func (s *Store) SetPath(trackID uint32, filePath string) {
