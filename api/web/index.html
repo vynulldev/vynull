@@ -9624,6 +9624,9 @@ function refreshLibraryView() {
       actions.innerHTML = `
         <button id="col-add" title="Browse for folders or audio files to import into the library">+ ADD FILES</button>
         <button id="pl-export">EXPORT…</button>`;
+    } else if (sel.read_only) {
+      // A served rekordbox USB's playlist — browse only, nothing to mutate.
+      actions.innerHTML = '';
     } else if (isFolder) {
       // Folder selected — only rename/delete makes sense (no tracks).
       actions.innerHTML = `
@@ -9805,13 +9808,15 @@ function renderPlaylistTree() {
       const count = p.is_folder
         ? ''
         : `<span class="count">${p.is_smart ? '~' : (p.track_ids || []).length}</span>`;
+      // read_only = a served rekordbox USB's playlist: shown like the rest
+      // (it's what the decks browse) but not draggable, with a USB badge.
       return `<div class="pl-node ${p.is_folder ? 'folder' : ''} ${p.is_smart ? 'smart' : ''} ${isSel ? 'selected' : ''}"
-                   draggable="true"
+                   draggable="${p.read_only ? 'false' : 'true'}"
                    data-pl-id="${p.id}" data-is-folder="${p.is_folder ? 1 : 0}" data-is-smart="${p.is_smart ? 1 : 0}"
                    style="padding-left: ${14 + depth * 14}px">
         <span class="icon">${icon}</span>
         <span class="name">${escape(p.name)}</span>
-        ${count}
+        ${p.read_only ? '<span class="count">USB</span>' : ''}${count}
       </div>` + (p.is_folder ? render(p.id, depth + 1) : '');
     }).join('');
   };

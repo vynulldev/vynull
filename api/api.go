@@ -4525,7 +4525,9 @@ func (s *Server) handlePlaylists(w http.ResponseWriter, r *http.Request) {
 
 	switch r.Method {
 	case "GET":
-		writeJSON(w, s.Playlists.All())
+		// User playlists plus, when serving a rekordbox USB, its playlist
+		// tree as read-only entries — the same tree the decks browse.
+		writeJSON(w, append(s.Playlists.All(), s.usbPlaylists()...))
 	case "POST":
 		// is_smart=true creates a smart playlist with the supplied rules
 		// (folders + smart are mutually exclusive — server rejects both
@@ -4592,6 +4594,26 @@ func (s *Server) handlePlaylistByID(w http.ResponseWriter, r *http.Request) {
 	fmt.Sscanf(parts[0], "%d", &id)
 	if id == 0 {
 		http.Error(w, "invalid playlist ID", http.StatusBadRequest)
+		return
+	}
+
+	// A served rekordbox USB's playlists (namespaced IDs): track listing
+	// only, everything else is read-only — they mirror the stick.
+	if id&usbPlaylistIDBit != 0 {
+		if r.Method == "GET" && len(parts) >= 2 && parts[1] == "tracks" {
+			ids := s.usbPlaylistTrackIDs(id)
+			out := make([]TrackInfo, 0, len(ids))
+			if s.Library != nil {
+				for _, tid := range ids {
+					if t := s.Library.Track(tid); t != nil {
+						out = append(out, s.libTrackToInfo(t))
+					}
+				}
+			}
+			writeJSON(w, out)
+			return
+		}
+		http.Error(w, "playlists on a served rekordbox USB are read-only", http.StatusForbidden)
 		return
 	}
 

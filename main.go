@@ -160,11 +160,27 @@ func main() {
 	log.Printf("started with args: %v", os.Args[1:])
 
 	var lib *library.Library
+	var pdbDB *pdb.Database
 	if cfg.MusicDir != "" {
+		// A rekordbox USB export carries its own database — prefer it over a
+		// filename/tag scan, and build the library FROM it so the web UI/API
+		// and the decks share one track-ID space (see library.FromPDB). With
+		// the old scan-first order the two sides numbered the same files
+		// independently: clicking track 10 on the web loaded a different
+		// track 10 on the deck. Also skips tag-scanning a library rekordbox
+		// already catalogued.
+		pdbPath := filepath.Join(cfg.MusicDir, "PIONEER", "rekordbox", "export.pdb")
 		var err error
-		lib, err = library.Scan(cfg.MusicDir)
-		if err != nil {
-			log.Fatalf("scanning music library: %v", err)
+		pdbDB, err = pdb.Open(pdbPath)
+		if err == nil {
+			log.Printf("pdb: loaded %d tracks from %s", len(pdbDB.Tracks), pdbPath)
+			lib = library.FromPDB(pdbDB.Tracks, cfg.MusicDir)
+		} else {
+			log.Printf("pdb: not available (%v), scanning tags", err)
+			lib, err = library.Scan(cfg.MusicDir)
+			if err != nil {
+				log.Fatalf("scanning music library: %v", err)
+			}
 		}
 	} else {
 		lib = library.New()
@@ -243,23 +259,10 @@ func main() {
 	log.Printf("using interface %s: ip=%s mac=%s broadcast=%s",
 		cfg.Interface, iface.IP, iface.MAC, iface.Broadcast)
 
-	// Try to load PDB database for real track IDs.
 	// NFS root: music dir if set, otherwise "/" for absolute path serving.
 	nfsRoot := cfg.MusicDir
 	if nfsRoot == "" {
 		nfsRoot = "/"
-	}
-
-	var pdbDB *pdb.Database
-	if cfg.MusicDir != "" {
-		pdbPath := filepath.Join(cfg.MusicDir, "PIONEER", "rekordbox", "export.pdb")
-		var err error
-		pdbDB, err = pdb.Open(pdbPath)
-		if err != nil {
-			log.Printf("pdb: not available (%v), using ID3 tags", err)
-		} else {
-			log.Printf("pdb: loaded %d tracks from %s", len(pdbDB.Tracks), pdbPath)
-		}
 	}
 
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
