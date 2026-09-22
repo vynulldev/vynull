@@ -35,7 +35,8 @@ type PlaylistInfo struct {
 	SortOrder int         `json:"sort_order"` // within parent; lower = first
 	TrackIDs  []uint32    `json:"track_ids"`  // ordered; empty for folders and smart playlists
 	IsSmart   bool        `json:"is_smart,omitempty"`
-	Rules     *SmartRules `json:"rules,omitempty"` // present when IsSmart
+	Rules     *SmartRules `json:"rules,omitempty"`     // present when IsSmart
+	ReadOnly  bool        `json:"read_only,omitempty"` // a served rekordbox USB's playlist — browse only, no mutation
 }
 
 // PlaylistStore persists user-defined playlists + folders to a single

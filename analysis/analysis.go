@@ -114,6 +114,13 @@ type Store struct {
 	// "N tracks" figure in Status() (instead of the in-memory result count,
 	// which only covers analyzed/cache-loaded tracks). Set once at startup.
 	TotalTracksFn func() int
+
+	// Importer, when set, is tried before running our own DSP on a track:
+	// it returns pre-existing analysis (e.g. parsed from a served rekordbox
+	// USB's ANLZ files) or nil to fall through to AnalyzeTrack. An imported
+	// Result is cached like any other, so the import runs once per track.
+	// Set once at startup, before any analysis is requested.
+	Importer func(trackID uint32, filePath string) *Result
 }
 
 // NewStore creates an in-memory-only analysis store.
@@ -286,6 +293,17 @@ func (s *Store) AnalyzeInBackground(trackID uint32, filePath string, onDone func
 			s.inflightMu.Unlock()
 		}()
 
+		if s.Importer != nil {
+			if r := s.Importer(trackID, filePath); r != nil {
+				s.Set(trackID, r)
+				if onDone != nil {
+					onDone(r)
+				}
+				log.Printf("lazy-analysis: track %d imported from ANLZ (BPM=%.1f dur=%ds)", trackID, r.BPM, r.Duration)
+				return
+			}
+		}
+
 		log.Printf("lazy-analysis: analyzing track %d (%s)...", trackID, filepath.Base(filePath))
 		s.SetStatus(fmt.Sprintf("Analyzing: %s", filepath.Base(filePath)))
 		r, err := AnalyzeTrack(filePath)
@@ -301,6 +319,24 @@ func (s *Store) AnalyzeInBackground(trackID uint32, filePath string, onDone func
 		log.Printf("lazy-analysis: track %d done (BPM=%.1f key=%s dur=%ds)",
 			trackID, r.BPM, r.KeyCamelot, r.Duration)
 	}()
+}
+
+// TryImport runs the Importer synchronously, storing and returning its
+// Result, or nil when no Importer is set or it has nothing for this track.
+// Unlike full analysis, an import is a fast file parse, so callers on a
+// request path (e.g. the dbserver answering a deck's load sequence) can
+// afford to run it inline instead of racing an async import — a deck
+// requests cues milliseconds after metadata, well inside an async window.
+func (s *Store) TryImport(trackID uint32, filePath string) *Result {
+	if s.Importer == nil {
+		return nil
+	}
+	r := s.Importer(trackID, filePath)
+	if r == nil {
+		return nil
+	}
+	s.Set(trackID, r)
+	return r
 }
 
 // SetPath associates a track ID with a file path for cache key generation.
@@ -462,7 +498,14 @@ func AnalyzeAll(tracks []*pdb.Track, workers int, store *Store, progress func(do
 			defer wg.Done()
 			for j := range jobs {
 				t := j.track
-				result, err := AnalyzeTrack(t.FilePath)
+				var result *Result
+				var err error
+				if store.Importer != nil {
+					result = store.Importer(t.ID, t.FilePath)
+				}
+				if result == nil {
+					result, err = AnalyzeTrack(t.FilePath)
+				}
 				if err != nil {
 					log.Printf("analysis: %s: %v", t.FileName, err)
 				} else {

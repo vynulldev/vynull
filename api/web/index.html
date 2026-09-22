@@ -3159,6 +3159,7 @@
     display: inline-flex;
     flex-wrap: wrap;
     gap: 4px;
+    position: relative; /* anchors the overflow .src-menu popover */
   }
   .diag-log-sources .src-pill {
     font-size: 10px;
@@ -3174,6 +3175,27 @@
   }
   .diag-log-sources .src-pill:hover { color: var(--text); border-color: var(--text3); }
   .diag-log-sources .src-pill.on    { color: var(--orange); border-color: var(--orange); background: rgba(255,140,0,0.06); }
+  /* Overflow menu for the lesser-used sources (mostly one-shot startup
+     prefixes) so the filter row stays one line. */
+  .src-pill.src-more { border-style: dashed; }
+  .src-pill.src-more.muted-some { color: var(--orange); border-color: var(--orange); }
+  .src-menu {
+    position: absolute;
+    top: calc(100% + 4px);
+    right: 0;
+    z-index: 20;
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 4px;
+    padding: 6px;
+    min-width: 150px;
+    background: var(--panel);
+    border: 1px solid var(--wire);
+    box-shadow: 0 8px 24px rgba(0,0,0,0.5);
+  }
+  .src-menu.hidden { display: none; }
+  .src-menu .src-pill { text-align: left; }
   .diag-log {
     margin: 0;
     height: 360px;
@@ -3698,27 +3720,66 @@ async function refreshDiagLog() {
   renderDiagLog();
 }
 
+// The sources that matter while debugging a live deck stay as always-
+// visible pills; everything else (mostly one-shot startup prefixes like
+// settings/portmapper/mpris) folds into a "more" menu so the filter row
+// stays one line. Since the DIAG ring started capturing startup lines,
+// a fresh session discovers 14+ prefixes.
+const DIAG_PRIMARY_SOURCES = ['dbserver', 'nfs', 'pdb', 'lazy-analysis', 'status', 'misc'];
+
 function renderDiagSources() {
   const wrap = document.getElementById('diag-log-sources');
   if (!wrap) return;
   const sources = Array.from(diagKnownSources).sort();
   // Only rebuild when the set of known sources changed (avoid losing
-  // click focus + the visual transition on every poll).
-  const cur = Array.from(wrap.querySelectorAll('.src-pill')).map(b => b.dataset.src);
-  if (cur.length === sources.length && cur.every((s, i) => s === sources[i])) return;
-  wrap.innerHTML = sources.map(s =>
-    `<button type="button" class="src-pill ${diagFilter.mutedSources.has(s) ? '' : 'on'}" data-src="${s}">${s}</button>`
-  ).join('');
-  wrap.querySelectorAll('.src-pill').forEach(b => {
+  // click focus, the visual transition, and the open menu on every poll).
+  const key = sources.join(',');
+  if (wrap.dataset.key === key) return;
+  wrap.dataset.key = key;
+  const primary = DIAG_PRIMARY_SOURCES.filter(s => diagKnownSources.has(s));
+  const overflow = sources.filter(s => !DIAG_PRIMARY_SOURCES.includes(s));
+  const pill = s =>
+    `<button type="button" class="src-pill ${diagFilter.mutedSources.has(s) ? '' : 'on'}" data-src="${s}">${s}</button>`;
+  wrap.innerHTML = primary.map(pill).join('') + (overflow.length
+    ? `<button type="button" class="src-pill src-more" id="src-more"></button>
+       <div class="src-menu hidden" id="src-menu">${overflow.map(pill).join('')}</div>`
+    : '');
+  wrap.querySelectorAll('.src-pill[data-src]').forEach(b => {
     b.addEventListener('click', () => {
       const s = b.dataset.src;
       if (diagFilter.mutedSources.has(s)) diagFilter.mutedSources.delete(s);
       else diagFilter.mutedSources.add(s);
       b.classList.toggle('on');
+      renderDiagMoreBadge();
       renderDiagLog();
     });
   });
+  const more = document.getElementById('src-more');
+  const menu = document.getElementById('src-menu');
+  if (more && menu) {
+    more.addEventListener('click', e => { e.stopPropagation(); menu.classList.toggle('hidden'); });
+    menu.addEventListener('click', e => e.stopPropagation()); // keep open while toggling several
+  }
+  renderDiagMoreBadge();
 }
+
+// Label the "more" button with the overflow count and how many of those
+// are muted — muted state must stay visible even when its pills are
+// folded away, or a hidden filter silently eats log lines.
+function renderDiagMoreBadge() {
+  const more = document.getElementById('src-more');
+  if (!more) return;
+  const overflow = Array.from(diagKnownSources).filter(s => !DIAG_PRIMARY_SOURCES.includes(s));
+  const muted = overflow.filter(s => diagFilter.mutedSources.has(s)).length;
+  more.textContent = muted ? `more (${overflow.length} · ${muted} off) ▾` : `more (${overflow.length}) ▾`;
+  more.classList.toggle('muted-some', muted > 0);
+}
+
+// Close the overflow menu on any outside click (registered once).
+document.addEventListener('click', () => {
+  const menu = document.getElementById('src-menu');
+  if (menu) menu.classList.add('hidden');
+});
 
 function renderDiagLog() {
   const el = document.getElementById('diag-log');
@@ -9624,6 +9685,9 @@ function refreshLibraryView() {
       actions.innerHTML = `
         <button id="col-add" title="Browse for folders or audio files to import into the library">+ ADD FILES</button>
         <button id="pl-export">EXPORT…</button>`;
+    } else if (sel.read_only) {
+      // A served rekordbox USB's playlist — browse only, nothing to mutate.
+      actions.innerHTML = '';
     } else if (isFolder) {
       // Folder selected — only rename/delete makes sense (no tracks).
       actions.innerHTML = `
@@ -9805,13 +9869,15 @@ function renderPlaylistTree() {
       const count = p.is_folder
         ? ''
         : `<span class="count">${p.is_smart ? '~' : (p.track_ids || []).length}</span>`;
+      // read_only = a served rekordbox USB's playlist: shown like the rest
+      // (it's what the decks browse) but not draggable, with a USB badge.
       return `<div class="pl-node ${p.is_folder ? 'folder' : ''} ${p.is_smart ? 'smart' : ''} ${isSel ? 'selected' : ''}"
-                   draggable="true"
+                   draggable="${p.read_only ? 'false' : 'true'}"
                    data-pl-id="${p.id}" data-is-folder="${p.is_folder ? 1 : 0}" data-is-smart="${p.is_smart ? 1 : 0}"
                    style="padding-left: ${14 + depth * 14}px">
         <span class="icon">${icon}</span>
         <span class="name">${escape(p.name)}</span>
-        ${count}
+        ${p.read_only ? '<span class="count">USB</span>' : ''}${count}
       </div>` + (p.is_folder ? render(p.id, depth + 1) : '');
     }).join('');
   };
