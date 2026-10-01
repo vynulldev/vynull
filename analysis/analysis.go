@@ -95,6 +95,14 @@ type Result struct {
 	GridEdited       bool      // user manually adjusted the beat grid — serve our blobs, not the on-disk ANLZ
 }
 
+// gridCarry is a user-edited beat grid rescued from a stale-version cache
+// entry, awaiting re-application after re-analysis (see loadFromDisk / Set).
+type gridCarry struct {
+	beats    []float64
+	bpm      float64
+	downbeat int
+}
+
 // Store holds analysis results keyed by track ID.
 // When cacheDir is set, results are persisted to disk using gob encoding,
 // keyed by a hash of the track's file path for stable cache identity.
@@ -117,6 +125,11 @@ type Store struct {
 	// "N tracks" figure in Status() (instead of the in-memory result count,
 	// which only covers analyzed/cache-loaded tracks). Set once at startup.
 	TotalTracksFn func() int
+
+	// gridCarry holds user-edited beat grids rescued from stale-version
+	// cache entries (keyed by file path), re-applied by Set after the
+	// track re-analyzes. Guarded by mu.
+	gridCarry map[string]gridCarry
 
 	// Importer, when set, is tried before running our own DSP on a track:
 	// it returns pre-existing analysis (e.g. parsed from a served rekordbox
@@ -171,11 +184,24 @@ func (s *Store) Get(trackID uint32) *Result {
 	return nil
 }
 
-// Set stores an analysis result for a track.
+// Set stores an analysis result for a track. If a user-edited beat grid was
+// carried over from a stale-version cache entry for this file (see
+// loadFromDisk), it is re-applied here: a cacheVersion bump refreshes the
+// waveforms but must never revert a grid the user fixed by hand.
 func (s *Store) Set(trackID uint32, r *Result) {
 	s.mu.Lock()
-	s.results[trackID] = r
 	filePath := s.pathMap[trackID]
+	if c, ok := s.gridCarry[filePath]; ok && r != nil && !r.GridEdited {
+		r.Beats = c.beats
+		r.BPM = c.bpm
+		r.DownbeatIndex = c.downbeat
+		r.GridEdited = true
+		r.BeatGrid = nil // regenerate blobs from the carried beats
+		r.BeatGridPQT2 = nil
+		delete(s.gridCarry, filePath)
+		log.Printf("analysis-cache: re-applied user-edited beat grid for track %d after re-analysis", trackID)
+	}
+	s.results[trackID] = r
 	s.mu.Unlock()
 
 	// Persist to disk.
@@ -420,6 +446,20 @@ func (s *Store) loadFromDisk(filePath string) *Result {
 		return nil
 	}
 	if r.CacheVersion != cacheVersion {
+		// A user-edited beat grid must survive the bump: stash it for Set()
+		// to re-apply after re-analysis, and keep the file on disk so the
+		// edit also survives a restart that happens before the track is
+		// re-analyzed (the stash is in-memory only).
+		if r.GridEdited {
+			s.mu.Lock()
+			if s.gridCarry == nil {
+				s.gridCarry = make(map[string]gridCarry)
+			}
+			s.gridCarry[filePath] = gridCarry{beats: r.Beats, bpm: r.BPM, downbeat: r.DownbeatIndex}
+			s.mu.Unlock()
+			log.Printf("analysis-cache: stale version %d (want %d) but grid is user-edited — re-analyzing %s, keeping the edited grid", r.CacheVersion, cacheVersion, filepath.Base(path))
+			return nil
+		}
 		log.Printf("analysis-cache: stale version %d (want %d), discarding %s", r.CacheVersion, cacheVersion, filepath.Base(path))
 		os.Remove(path)
 		return nil
