@@ -68,24 +68,28 @@ func ParseCueBlob(blob []byte, trackID uint32) (*CuePoint, error) {
 	return cue, nil
 }
 
-// MarshalCueBlob builds a 76-byte cue blob from a CuePoint.
-// This is the inverse of ParseCueBlob, used for API-created cues that
-// don't have a raw blob from the CDJ.
-//
-// Wire format offsets (little-endian):
-//
-//	0x00-0x03: header/magic (zeroed for synthesized blobs)
-//	0x04-0x05: cue number (uint16)
-//	0x06-0x07: type (uint16, 1=cue 2=loop)
-//	0x08-0x0b: (unknown)
-//	0x0c-0x0f: time_ms (uint32)
-//	0x10-0x17: (unknown)
-//	0x18-0x1b: status (uint32, 1=active)
-//	0x1c-0x1f: (unknown)
-//	0x20-0x23: loop_ms (int32, -1 if not loop)
-//	0x24-0x33: (unknown)
-//	0x34-0x37: color_id (uint32)
-//	0x38-0x4b: (unknown/padding)
+// NextFreeMemoryNumber returns the lowest unused cue number >= 9 for a
+// track — the internal numbering for memory cues (hot cues are 1-8). The
+// wire convention differs: decks mark memory cues with 0 in the blob's
+// number field, so deck saves are remapped on ingest (see the 0x2705
+// handler) and mapped back to 0 when serving (see MarshalCueBlob).
+func (cs *CueStore) NextFreeMemoryNumber(trackID uint32) uint16 {
+	cs.mu.RLock()
+	defer cs.mu.RUnlock()
+	used := make(map[uint16]bool)
+	for _, c := range cs.data[trackID] {
+		used[c.Number] = true
+	}
+	n := uint16(9)
+	for used[n] {
+		n++
+	}
+	return n
+}
+
+// MarshalCueBlob builds the cue blob served for a CuePoint — the inverse
+// of ParseCueBlob, used for cues that have no raw deck blob (API-created
+// or imported).
 func MarshalCueBlob(cue *CuePoint) []byte {
 	// Build a 124-byte NXS2 cue blob matching the layout rekordbox sends
 	// over dbserver (all 16 distinct picker colours covered).
@@ -109,7 +113,15 @@ func MarshalCueBlob(cue *CuePoint) []byte {
 	//   0x52-0x7b: zeros
 	blob := make([]byte, 124)
 	binary.LittleEndian.PutUint32(blob[0x00:], 124)
-	binary.LittleEndian.PutUint16(blob[0x04:], cue.Number)
+	// Wire convention: the number field carries the hot-cue pad (1-8);
+	// memory cues (our internal 9+) are marked 0, which is how decks and
+	// rekordbox distinguish them. Without this, synthesized memory cues
+	// went out as nonexistent hot pads 9+.
+	wireNum := cue.Number
+	if wireNum >= 9 {
+		wireNum = 0
+	}
+	binary.LittleEndian.PutUint16(blob[0x04:], wireNum)
 	binary.LittleEndian.PutUint16(blob[0x06:], cue.Type)
 	binary.LittleEndian.PutUint16(blob[0x0a:], 1000)
 	binary.LittleEndian.PutUint32(blob[0x0c:], cue.TimeMs)

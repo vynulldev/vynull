@@ -356,6 +356,16 @@ func (h *Handler) Handle(msg *proto.DBMessage) []*proto.DBMessage {
 				if err != nil {
 					log.Printf("dbserver: cue parse error: %v", err)
 				} else {
+					// Decks mark memory cues with number 0 on the wire; our
+					// store keys cues by number, so every deck-saved memory
+					// cue used to land on key 0 and overwrite the previous
+					// one. Remap to the internal memory range (9+). The raw
+					// blob is stored as-is — it already says 0, which is
+					// exactly what the deck must be served back.
+					if cue.Number == 0 {
+						cue.Number = h.cues.NextFreeMemoryNumber(trackID)
+						dlog.Debugf("dbserver: deck-saved memory cue → stored as #%d", cue.Number)
+					}
 					h.cues.SaveCue(trackID, cue, blob)
 				}
 			}

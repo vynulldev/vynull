@@ -3,9 +3,12 @@
 package dbserver
 
 import (
+	"encoding/binary"
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/vynulldev/vynull/proto"
 )
 
 // makeNXS2CueBlob builds a minimal 124-byte NXS2 cue blob with the given cue
@@ -65,5 +68,48 @@ func TestLoadAllRederivesCueColour(t *testing.T) {
 	cues := NewCueStore(dir).GetCues(7)
 	if len(cues) != 1 || cues[0].ColorID != 0x16 {
 		t.Fatalf("re-derived colour = %+v, want one cue with color_id 0x16", cues)
+	}
+}
+
+// TestDeckMemoryCueSavesDontOverwrite pins the 0x2705 memory-cue remap:
+// decks mark memory cues with number 0 on the wire, and the store keys
+// by number — without remapping to the internal 9+ range, every
+// deck-saved memory cue overwrote the previous one (field report).
+func TestDeckMemoryCueSavesDontOverwrite(t *testing.T) {
+	h := &Handler{cues: NewCueStore(t.TempDir())}
+	mk := func(timeMs uint32) []byte {
+		b := makeNXS2CueBlob(0, 0, 0x00, 0xff, 0x30) // number 0 = memory cue
+		binary.LittleEndian.PutUint32(b[0x0c:], timeMs)
+		return b
+	}
+	save := func(blob []byte) {
+		h.Handle(&proto.DBMessage{Type: 0x2705, Args: []proto.DBArg{
+			proto.ArgI32(0), proto.ArgI32(42), proto.ArgI32(0), proto.ArgI32(0), proto.ArgBlob(blob),
+		}})
+	}
+	save(mk(1000))
+	save(mk(5000))
+
+	cues := h.cues.GetCues(42)
+	if len(cues) != 2 {
+		t.Fatalf("got %d cues, want 2 (second memory cue overwrote the first)", len(cues))
+	}
+	nums := map[uint16]bool{cues[0].Number: true, cues[1].Number: true}
+	if !nums[9] || !nums[10] {
+		t.Fatalf("cue numbers = %v, want internal memory numbers 9 and 10", nums)
+	}
+}
+
+// TestMarshalCueBlobMemoryWireNumber pins the outbound half of the
+// convention: internal memory numbers (9+) go on the wire as 0 — the
+// deck's marker for a memory cue — while hot pads 1-8 keep their number.
+func TestMarshalCueBlobMemoryWireNumber(t *testing.T) {
+	mem := MarshalCueBlob(&CuePoint{Number: 9, Type: 1, TimeMs: 1234, LoopMs: -1, Status: 1})
+	if n := binary.LittleEndian.Uint16(mem[0x04:]); n != 0 {
+		t.Fatalf("memory cue wire number = %d, want 0", n)
+	}
+	hot := MarshalCueBlob(&CuePoint{Number: 3, Type: 1, TimeMs: 1234, LoopMs: -1, Status: 1})
+	if n := binary.LittleEndian.Uint16(hot[0x04:]); n != 3 {
+		t.Fatalf("hot cue wire number = %d, want 3", n)
 	}
 }
