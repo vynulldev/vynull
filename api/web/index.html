@@ -9901,8 +9901,13 @@ function wireLibraryToolbarActions() {
   if (colAdd) colAdd.onclick = () => openAddBrowserDialog(() => { lastTracksRev = -1; refresh(); });
   const editRules = document.getElementById('pl-edit-rules');
   if (editRules) editRules.onclick = () => openSmartEditor(plSelectedID);
+  // Wrap in a closure: assigning openExportModal directly as the handler
+  // passed the click EVENT as presetSource, which then went out as the
+  // export request's "source" field (an object where the API expects a
+  // string) — toolbar exports failed with a 400 while the bulk-select
+  // path, which passes a real string, worked.
   const exportBtn = document.getElementById('pl-export');
-  if (exportBtn) exportBtn.onclick = openExportModal;
+  if (exportBtn) exportBtn.onclick = () => openExportModal();
 }
 
 // ───────── USB EXPORT ─────────
@@ -9913,6 +9918,9 @@ function wireLibraryToolbarActions() {
 // presetSource/presetLabel override the implied library source — used by the
 // bulk-select bar to export just the checked tracks ('selection:<ids>').
 function openExportModal(presetSource, presetLabel) {
+  // Guard against event-object arguments from direct handler wiring, so a
+  // future `el.onclick = openExportModal` can't regress the request body.
+  if (typeof presetSource !== 'string') presetSource = null;
   const sel = (typeof selectedSource === 'number')
     ? playlistsCache.find(p => p.id === selectedSource)
     : null;
