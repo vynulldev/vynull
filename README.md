@@ -23,14 +23,15 @@ Use it at your own risk, and back up your rekordbox library before importing any
 - **Browse tracks** on CDJs by artist, album, genre, BPM, key, label, year, remixer, folder
 - **Import your library** — from **rekordbox** (`rekordbox.xml`, an encrypted `master.db`, or a full library-backup `.zip`) or **Traktor** (`collection.nml`). A rekordbox import brings tracks, MyTags (with categories), track colors, (smart) playlists, cue points (hot + memory, with colors/loops), ANLZ analysis (waveforms/beat grids/phrases), and artwork; a Traktor import brings tracks, playlists, and cues
 - **Smart playlists** — rekordbox rule sets imported and evaluated live (BPM/key/genre/date/tag/… conditions)
+- **Serve a rekordbox USB directly** — point `--music-dir` at an exported stick: its playlists appear on the decks and in the web UI, tracks keep rekordbox's own beat grids, waveforms and hot/memory cues, and the stick's database replaces the tag scan (web UI, decks and stick share one track-ID space)
 - **DJM mixer awareness** — surfaces DJM channel/master state on the link
 - **Native FLAC/WAV/AIFF playback** — CDJ decodes lossless formats directly over NFS
-- **Color waveforms** on the CDJ (PWV4 overview + PWV5 scrolling, generated via FFT spectral analysis); honors the CDJ "waveform color" setting (blue / RGB / 3-band) in both the deck and the web UI
-- **BPM detection** with dynamic programming beat tracker and multi-ratio correction
+- **Color waveforms** on the CDJ (PWV4 overview + PWV5 scrolling, generated with time-domain Butterworth filter banks calibrated against rekordbox's rendering); honors the CDJ "waveform color" setting (blue / RGB / 3-band) in both the deck and the web UI
+- **BPM detection** with autocorrelation + a perceptual tempo prior, coherence-verified integer/half-integer snap, and a DP beat tracker
 - **Key detection** using chromagram analysis (octaves 4-7, Krumhansl-Kessler profiles)
-- **Beat grid** generation with QM-DSP-inspired DP tracking, zero-phase scoring, and BPM rounding
+- **Beat grid** generation phase-locked via a multiband onset tempogram (modelled on rekordbox's reverse-engineered 25-band novelty), windowed clarity-weighted phase, and a gated half-beat correction
 - **Phrase/song structure** detection (PSSI format)
-- **Cue point management** — save/load via CDJ + add/edit/delete via HTTP API/web UI with color support
+- **Cue point management** — hot and memory cues: save/load from the CDJ, create either kind in the web UI (+ CUE / + MEM), add/edit/delete via HTTP API, with color support
 - **NFS v2 file server** streams audio to CDJs (with optional FLAC/WAV/AIFF to MP3 transcoding)
 - **Lazy analysis** mode for instant startup (tracks analyzed on-demand when CDJs request them); artwork is also extracted lazily
 - **Library mode** with no music directory required (add tracks dynamically via HTTP API)
@@ -177,14 +178,29 @@ Scan a music directory at startup:
 ./vynull --interface eth1 --music-dir /path/to/music --lazy-analysis
 ```
 
-### Rekordbox USB Mode
+### Serve a rekordbox USB
 
-If you have an existing rekordbox-exported USB drive:
+Point `--music-dir` at an existing rekordbox-exported USB drive and Vynull
+serves the stick's own database instead of scanning tags:
 
 ```bash
-# CDJ mode needs UDP 111 — see "Port 111 (CDJ mode only)" for sudo-free options
-sudo ./vynull --interface eth1 --music-dir /media/usb --mode cdj
+./vynull --interface eth1 --music-dir /media/usb
 ```
+
+Decks and the web UI get the stick's playlists, rekordbox's own beat
+grids, waveforms and hot/memory cues (our analyzer only runs for tracks
+with missing analysis), and everything shares the stick's track IDs. The
+stick's content is treated as read-only — its playlists can't be edited
+from the web UI.
+
+OneLibrary sticks work when exported with older-player compatibility:
+Vynull reads the classic `PIONEER/rekordbox/export.pdb` half of the
+dual-format layout (the encrypted OneLibrary database itself is not yet
+supported).
+
+The same works in CDJ mode (`--mode cdj`, appears as a CDJ-USB source
+instead of a rekordbox laptop) — that mode needs UDP 111; see "Port 111
+(CDJ mode only)" for sudo-free options.
 
 ### Generate USB Structure
 
