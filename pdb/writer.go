@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 	"unicode/utf16"
+	"unicode/utf8"
 )
 
 const (
@@ -1262,6 +1263,26 @@ func SanitizeFilename(s string) string {
 	return out
 }
 
+// truncateComponent caps a path component (a directory name like artist or
+// album) to maxLen bytes on a UTF-8 rune boundary. Unlike TruncateFilename
+// it does NOT preserve a trailing ".ext" — a dot in an artist/album name is
+// just a dot, not an extension — and it re-trims trailing spaces/dots the
+// cut may expose (FAT rejects those endings).
+func truncateComponent(s string, maxLen int) string {
+	if len(s) <= maxLen {
+		return s
+	}
+	cut := maxLen
+	for cut > 0 && !utf8.RuneStart(s[cut]) {
+		cut--
+	}
+	out := strings.TrimRight(s[:cut], " .")
+	if out == "" {
+		out = "_"
+	}
+	return out
+}
+
 // TruncateFilename shortens a filename to maxLen chars, preserving extension.
 func TruncateFilename(name string, maxLen int) string {
 	if len(name) <= maxLen {
@@ -1335,8 +1356,17 @@ func PrepareUSBLayout(tracks []*Track, srcDir, outDir string, copyFiles bool) er
 			album = "Unknown"
 		}
 
-		safeArtist := SanitizeFilename(artist)
-		safeAlbum := SanitizeFilename(album)
+		// Cap the artist and album directory components. A single component
+		// must stay under the filesystem limit (NAME_MAX 255 on Linux, lower
+		// on FAT), and rekordbox caps these names too. The export used to
+		// overflow with "file name too long" on a stick whose pdb decoded a
+		// corrupt artist tag into a 650-byte string (many names concatenated
+		// by a string-heap over-read — see the pdb reader); capping here
+		// keeps a malformed tag from ever producing an un-mkdir-able path,
+		// independent of the decode bug. 64 leaves ample headroom under the
+		// 126-char total-path budget below.
+		safeArtist := truncateComponent(SanitizeFilename(artist), 64)
+		safeAlbum := truncateComponent(SanitizeFilename(album), 64)
 
 		ext := filepath.Ext(t.FilePath)
 		baseName := strings.TrimSuffix(filepath.Base(t.FilePath), ext)
