@@ -9706,8 +9706,9 @@ function refreshLibraryView() {
         <button id="col-add" title="Browse for folders or audio files to import into the library">+ ADD FILES</button>
         <button id="pl-export">EXPORT…</button>`;
     } else if (sel.read_only) {
-      // A served rekordbox USB's playlist — browse only, nothing to mutate.
-      actions.innerHTML = '';
+      // A served rekordbox USB's playlist — no mutation, but EXPORT only
+      // reads tracks, so re-exporting a stick's playlist is fine.
+      actions.innerHTML = sel.is_folder ? '' : `<button id="pl-export">EXPORT…</button>`;
     } else if (isFolder) {
       // Folder selected — only rename/delete makes sense (no tracks).
       actions.innerHTML = `

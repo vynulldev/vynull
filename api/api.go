@@ -1560,16 +1560,11 @@ func (s *Server) handleExportPreview(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "bad source ID: "+err.Error(), http.StatusBadRequest)
 			return
 		}
-		if s.Playlists == nil {
-			http.Error(w, "playlist store not available", http.StatusServiceUnavailable)
-			return
-		}
-		pl := s.Playlists.Get(uint32(id))
-		if pl == nil {
+		_, trackIDs, ok := s.exportPlaylistSource(uint32(id))
+		if !ok {
 			http.Error(w, "playlist not found", http.StatusNotFound)
 			return
 		}
-		trackIDs := s.Playlists.TracksFor(pl.ID, s.Library, s.Tags)
 		for _, tid := range trackIDs {
 			if t := s.Library.Track(tid); t != nil {
 				tracks = append(tracks, t)
@@ -2749,6 +2744,10 @@ func (s *Server) handleExport(w http.ResponseWriter, r *http.Request) {
 	switch {
 	case src == "all":
 		sourceLabel = "COLLECTION"
+		// Resolve the full collection here rather than letting export.Run
+		// default it from opts.Library, so the response's track_count (and
+		// the web UI toast) reflect what was actually written instead of 0.
+		opts.Tracks = export.LibraryToTracks(s.Library)
 	case strings.HasPrefix(src, "playlist:") || strings.HasPrefix(src, "smart:"):
 		idStr := src[strings.IndexByte(src, ':')+1:]
 		id, err := strconv.ParseUint(idStr, 10, 32)
@@ -2756,23 +2755,18 @@ func (s *Server) handleExport(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "source ID must be a uint32: "+err.Error(), http.StatusBadRequest)
 			return
 		}
-		if s.Playlists == nil {
-			http.Error(w, "playlist store not available", http.StatusServiceUnavailable)
-			return
-		}
-		pl := s.Playlists.Get(uint32(id))
-		if pl == nil {
+		plName, trackIDs, ok := s.exportPlaylistSource(uint32(id))
+		if !ok {
 			http.Error(w, "playlist not found", http.StatusNotFound)
 			return
 		}
-		trackIDs := s.Playlists.TracksFor(pl.ID, s.Library, s.Tags)
 		if len(trackIDs) == 0 {
 			http.Error(w, "playlist has no tracks", http.StatusBadRequest)
 			return
 		}
 		opts.Tracks = export.FilterTracks(export.LibraryToTracks(s.Library), trackIDs)
-		opts.Playlists = export.SinglePlaylist(pl.Name, trackIDs)
-		sourceLabel = pl.Name
+		opts.Playlists = export.SinglePlaylist(plName, trackIDs)
+		sourceLabel = plName
 	case strings.HasPrefix(src, "selection:"):
 		trackIDs, err := parseSelectionIDs(src[len("selection:"):])
 		if err != nil {

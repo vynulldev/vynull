@@ -38,6 +38,37 @@ func (s *Server) usbPlaylists() []*PlaylistInfo {
 	return out
 }
 
+// exportPlaylistSource resolves a "playlist:<id>"/"smart:<id>" export
+// source to its name and ordered track IDs — from the user playlist
+// store, or, for namespaced IDs, from a served rekordbox USB's playlist
+// tree. USB playlists are read-only for MUTATION, but export only reads
+// tracks, so re-exporting a stick's playlist is allowed.
+func (s *Server) exportPlaylistSource(id uint32) (string, []uint32, bool) {
+	if id&usbPlaylistIDBit != 0 {
+		ids := s.usbPlaylistTrackIDs(id)
+		if ids == nil {
+			return "", nil, false
+		}
+		name := "USB playlist"
+		raw := id &^ usbPlaylistIDBit
+		for _, n := range s.PDB.PlaylistTree {
+			if n.ID == raw {
+				name = n.Name
+				break
+			}
+		}
+		return name, ids, true
+	}
+	if s.Playlists == nil {
+		return "", nil, false
+	}
+	pl := s.Playlists.Get(id)
+	if pl == nil {
+		return "", nil, false
+	}
+	return pl.Name, s.Playlists.TracksFor(pl.ID, s.Library, s.Tags), true
+}
+
 // usbPlaylistTrackIDs resolves a namespaced USB playlist ID to its ordered
 // track IDs, or nil when it doesn't exist.
 func (s *Server) usbPlaylistTrackIDs(id uint32) []uint32 {
