@@ -1237,11 +1237,29 @@ func le16put(b []byte, off int, v uint16) {
 
 // SanitizeFilename cleans a string for use in FAT32 paths.
 func SanitizeFilename(s string) string {
-	replacer := strings.NewReplacer(
-		"/", "_", "\\", "_", ":", "_", "*", "_",
-		"?", "_", "\"", "_", "<", "_", ">", "_", "|", "_",
-	)
-	return replacer.Replace(s)
+	var b strings.Builder
+	b.Grow(len(s))
+	for _, r := range s {
+		switch {
+		case r < 0x20 || r == 0x7f:
+			// Control characters. Real tags carry these — a NUL from a
+			// mangled UTF-16 tag (a corrupt apostrophe in an album name)
+			// made mkdir fail with EINVAL on a real library — and FAT
+			// rejects them all. Dropped rather than replaced: they were
+			// never meant to be visible characters.
+		case strings.ContainsRune(`/\:*?"<>|`, r):
+			b.WriteRune('_')
+		default:
+			b.WriteRune(r)
+		}
+	}
+	// FAT also rejects names ending in a dot or space; and a name that
+	// sanitized away to nothing still has to be a usable directory.
+	out := strings.TrimRight(b.String(), " .")
+	if out == "" {
+		out = "_"
+	}
+	return out
 }
 
 // TruncateFilename shortens a filename to maxLen chars, preserving extension.
