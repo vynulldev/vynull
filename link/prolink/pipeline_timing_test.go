@@ -11,6 +11,12 @@ import (
 	"github.com/vynulldev/vynull/analysis"
 )
 
+// TestAnalysisTiming profiles the full analysis-to-wire pipeline on one
+// real file (TEST_AUDIO_FILE): decode, beat/key detection, then every
+// encoder. It lives in prolink (not analysis) because it times the
+// encoders too and prolink already imports analysis; the file was named
+// bench_test.go historically, but it's a diagnostic profile table, not a
+// Go benchmark.
 func TestAnalysisTiming(t *testing.T) {
 	path := os.Getenv("TEST_AUDIO_FILE")
 	if path == "" {
