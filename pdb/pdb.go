@@ -299,21 +299,38 @@ func (db *Database) parseNamedTable(data []byte, pageSize, firstPage, lastPage i
 
 		switch subtype {
 		case 0x0060, 0x0064:
-			// Artist: subtype(2) + index(2) + ID(4) + ... + string
-			id = uint32(le16(row, 4))
-			strOff = 10
+			// Artist row: subtype(2) index_shift(2) id(4) unknown(1=0x03)
+			// then the NAME OFFSET, then the DeviceSQL string at that offset.
+			// The offset must be READ from the row, not assumed: the near
+			// variant (0x0060) stores a u8 at row[9], the far variant
+			// (0x0064) a u16 at row[10]. It usually equals 10 for a short
+			// ASCII name (so a hardcoded 10 happened to work), but a longer
+			// or UTF-16 name sits further along — hardcoding landed on
+			// padding, read lk=0x00, and the fallback returned the whole
+			// rest of the string heap (one artist decoding as hundreds of
+			// bytes of concatenated names).
+			if len(row) < 12 {
+				return
+			}
+			id = le32(row, 4)
 			if subtype == 0x0064 {
-				strOff = 12 // far string offset variant
+				strOff = int(le16(row, 10))
+			} else {
+				strOff = int(row[9])
 			}
 		case 0x0080, 0x0084:
-			// Album: subtype(2) + ... + ID at offset 12 + ... + string
+			// Album row: subtype(2) index_shift(2) unknown(4) artist_id(4)
+			// id(4) unknown(4) unknown(1=0x03) then the NAME OFFSET (u8 near
+			// at row[21] / u16 far at row[22]) and the string. Same
+			// read-the-offset rule as artists.
 			if len(row) < 24 {
 				return
 			}
-			id = uint32(le16(row, 12))
-			strOff = 22
+			id = le32(row, 12)
 			if subtype == 0x0084 {
-				strOff = 24
+				strOff = int(le16(row, 22))
+			} else {
+				strOff = int(row[21])
 			}
 		default:
 			// Simple format (genres, labels): u32 ID + DeviceSQL string at offset 4
