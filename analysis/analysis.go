@@ -93,6 +93,13 @@ type Result struct {
 	SongStructure    []byte    // PSSI phrase analysis blob for 0x2504 response
 	Phrases          []Phrase  // detected phrases (intro/up/down/chorus/outro) — used by API/web UI
 	GridEdited       bool      // user manually adjusted the beat grid — serve our blobs, not the on-disk ANLZ
+
+	// TempoMinBPM / TempoMaxBPM record the --bpm-range setting this result was
+	// analyzed under (0 = the default dance window). The cache treats a result
+	// as stale when they differ from the current setting, so changing the range
+	// re-analyzes affected tracks instead of serving BPMs from the old range.
+	TempoMinBPM float64
+	TempoMaxBPM float64
 }
 
 // gridCarry is a user-edited beat grid rescued from a stale-version cache
@@ -464,6 +471,16 @@ func (s *Store) loadFromDisk(filePath string) *Result {
 		os.Remove(path)
 		return nil
 	}
+	if r.TempoMinBPM != TempoMinBPM || r.TempoMaxBPM != TempoMaxBPM {
+		// The --bpm-range setting changed since this was cached. The BPM and
+		// grid were fit under the old range, so re-analyze under the new one.
+		// Unlike a version bump we do not carry a user-edited grid across: an
+		// edit made at the old tempo is meaningless once the tempo refolds.
+		log.Printf("analysis-cache: tempo range changed (was %g-%g, now %g-%g), re-analyzing %s",
+			r.TempoMinBPM, r.TempoMaxBPM, TempoMinBPM, TempoMaxBPM, filepath.Base(path))
+		os.Remove(path)
+		return nil
+	}
 	return &r
 }
 
@@ -504,6 +521,8 @@ func AnalyzeTrack(filePath string) (*Result, error) {
 		Beats:         beatResult.Beats,
 		DownbeatIndex: downbeatIdx,
 		Phrases:       phrases,
+		TempoMinBPM:   TempoMinBPM,
+		TempoMaxBPM:   TempoMaxBPM,
 	}
 
 	// ---- encode to the installed wire format (Pioneer today) ----

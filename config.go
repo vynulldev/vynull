@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strconv"
 	"strings"
 
 	"github.com/vynulldev/vynull/proto"
@@ -30,25 +31,49 @@ type Config struct {
 	DeviceType     proto.DeviceType
 	CDJMode        bool // true in --mode cdj (needs the privileged RPC port 111)
 	MediaSlot      uint8
-	GenerateDir    string // if set, generate USB structure instead of serving
-	GenerateCopy   bool   // copy files instead of symlinking
-	LazyAnalysis   bool   // if true, analyze tracks on-demand instead of upfront
-	Transcode      bool   // if true, transcode FLAC/WAV/AIFF to MP3 for NFS serving
-	DataDir        string // directory for cached analysis and settings data
-	ReplayDir      string // if set, replay recorded response packets from this directory
-	PWV4Override   string // path to raw PWV4 bytes to inject for every track at serve time
-	PWV5Override   string // path to raw PWV5 bytes to inject for every track at serve time
-	SettingsFile   string // path to JSON settings config (default: <data-dir>/settings.json)
-	ImportSettings string // path to a PIONEER directory containing rekordbox .DAT files to import
-	ExportPlaylist string // with --generate, exports only this playlist (matched by name) — USB tree contains just that playlist
-	Web            bool   // if true, serve an HTML UI at the API listen address
-	MPRIS          bool   // publish now-playing on the D-Bus session bus (default true; no-op without a bus)
-	TUI            bool   // if true (default), show the interactive terminal monitor; false runs headless
-	Listen         string // API + web listen address (default: 127.0.0.1:9443; use 0.0.0.0:9443 to expose to LAN)
-	LogLevel       string // log verbosity: error|warn|info|debug|trace (default: info)
-	LogFile        string // if set, append logs to this file instead of the default destination
-	HistoryFile    string // if set, write the track-history file here instead of the default
-	HistoryFormat  string // track-history format: text|csv|json (default: text)
+	GenerateDir    string  // if set, generate USB structure instead of serving
+	GenerateCopy   bool    // copy files instead of symlinking
+	LazyAnalysis   bool    // if true, analyze tracks on-demand instead of upfront
+	Transcode      bool    // if true, transcode FLAC/WAV/AIFF to MP3 for NFS serving
+	DataDir        string  // directory for cached analysis and settings data
+	ReplayDir      string  // if set, replay recorded response packets from this directory
+	PWV4Override   string  // path to raw PWV4 bytes to inject for every track at serve time
+	PWV5Override   string  // path to raw PWV5 bytes to inject for every track at serve time
+	SettingsFile   string  // path to JSON settings config (default: <data-dir>/settings.json)
+	ImportSettings string  // path to a PIONEER directory containing rekordbox .DAT files to import
+	ExportPlaylist string  // with --generate, exports only this playlist (matched by name) — USB tree contains just that playlist
+	Web            bool    // if true, serve an HTML UI at the API listen address
+	MPRIS          bool    // publish now-playing on the D-Bus session bus (default true; no-op without a bus)
+	TUI            bool    // if true (default), show the interactive terminal monitor; false runs headless
+	Listen         string  // API + web listen address (default: 127.0.0.1:9443; use 0.0.0.0:9443 to expose to LAN)
+	LogLevel       string  // log verbosity: error|warn|info|debug|trace (default: info)
+	LogFile        string  // if set, append logs to this file instead of the default destination
+	HistoryFile    string  // if set, write the track-history file here instead of the default
+	HistoryFormat  string  // track-history format: text|csv|json (default: text)
+	BPMMin         float64 // --bpm-range lower bound (0 = unset: use the default 80-170 dance window)
+	BPMMax         float64 // --bpm-range upper bound
+}
+
+// parseBPMRange parses a "MIN-MAX" tempo range (e.g. "160-185") into its
+// bounds. Both must be positive and MAX must exceed MIN.
+func parseBPMRange(s string) (lo, hi float64, err error) {
+	parts := strings.SplitN(strings.TrimSpace(s), "-", 2)
+	if len(parts) != 2 {
+		return 0, 0, fmt.Errorf("expected MIN-MAX, e.g. 160-185 (got %q)", s)
+	}
+	if lo, err = strconv.ParseFloat(strings.TrimSpace(parts[0]), 64); err != nil {
+		return 0, 0, fmt.Errorf("bad lower bound %q", strings.TrimSpace(parts[0]))
+	}
+	if hi, err = strconv.ParseFloat(strings.TrimSpace(parts[1]), 64); err != nil {
+		return 0, 0, fmt.Errorf("bad upper bound %q", strings.TrimSpace(parts[1]))
+	}
+	if lo <= 0 || hi <= 0 {
+		return 0, 0, fmt.Errorf("bounds must be positive (got %g-%g)", lo, hi)
+	}
+	if hi <= lo {
+		return 0, 0, fmt.Errorf("upper bound %g must exceed lower bound %g", hi, lo)
+	}
+	return lo, hi, nil
 }
 
 func parseFlags() Config {
@@ -81,9 +106,20 @@ func parseFlags() Config {
 	flag.StringVar(&cfg.LogFile, "log-file", "", "append logs to this file (default: an auto temp file while the TUI is shown, or stdout when headless with --tui=false)")
 	flag.StringVar(&cfg.HistoryFile, "history-file", "", "append the played-track history to this file as tracks finish; one rolling file across sessions (default: <data-dir>/history.<ext>)")
 	flag.StringVar(&cfg.HistoryFormat, "history-format", "text", "track-history format: text, csv, or json (json is one object per line / JSONL)")
+	var bpmRange string
+	flag.StringVar(&bpmRange, "bpm-range", "", "constrain BPM detection to a tempo range, e.g. 160-185, so fast genres (drum & bass) stop analyzing at half/third tempo. Applies to all analysis and re-analyzes affected tracks. Default: the usual 80-170 dance window")
 
 	flag.Usage = printGroupedUsage
 	flag.Parse()
+
+	if bpmRange != "" {
+		lo, hi, err := parseBPMRange(bpmRange)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "error: --bpm-range: %v\n", err)
+			os.Exit(1)
+		}
+		cfg.BPMMin, cfg.BPMMax = lo, hi
+	}
 
 	// Default data dir.
 	if cfg.DataDir == "" {
@@ -171,7 +207,7 @@ var flagGroups = []flagGroup{
 		"interface", "mode", "device-number", "device-name",
 	}},
 	{"Library + analysis", []string{
-		"music-dir", "data-dir", "lazy-analysis", "transcode",
+		"music-dir", "data-dir", "lazy-analysis", "transcode", "bpm-range",
 	}},
 	{"CDJ settings", []string{
 		"settings", "import-settings",

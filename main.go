@@ -82,6 +82,14 @@ func main() {
 		fmt.Printf("PWV5 override loaded: %d bytes (%d entries)\n", len(b), len(b)/2)
 	}
 
+	// Opt-in tempo range for BPM detection (--bpm-range). Must be set before
+	// any AnalyzeAll / AnalyzeTrack so detection and the on-disk cache see it.
+	if cfg.BPMMin > 0 && cfg.BPMMax > cfg.BPMMin {
+		analysis.TempoMinBPM = cfg.BPMMin
+		analysis.TempoMaxBPM = cfg.BPMMax
+		fmt.Printf("BPM range: %g-%g (fast-genre tempo lock; affected tracks re-analyze)\n", cfg.BPMMin, cfg.BPMMax)
+	}
+
 	// Import rekordbox MYSETTING/.../DEVSETTING .DAT files into the
 	// YAML config, then exit. Doesn't need an interface, library, etc.
 	if cfg.ImportSettings != "" {
