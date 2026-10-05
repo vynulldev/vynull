@@ -10,9 +10,9 @@ import (
 // withTempoRange sets the package tempo-range config for the duration of fn and
 // restores it after, so tests don't leak state into each other.
 func withTempoRange(lo, hi float64, fn func()) {
-	om, oM := TempoMinBPM, TempoMaxBPM
-	TempoMinBPM, TempoMaxBPM = lo, hi
-	defer func() { TempoMinBPM, TempoMaxBPM = om, oM }()
+	om, oM := TempoRange()
+	SetTempoRange(lo, hi)
+	defer SetTempoRange(om, oM)
 	fn()
 }
 

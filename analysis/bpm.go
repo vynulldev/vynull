@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 )
 
 // BeatResult holds the detected BPM and actual beat positions.
@@ -39,30 +40,49 @@ const (
 	defaultTempoHi = 170.0
 )
 
-// TempoMinBPM / TempoMaxBPM are an optional, opt-in tempo range (set from the
-// --bpm-range flag). When both are set (max > min > 0) the detector only
-// accepts tempo candidates inside [min, max] and re-centres the perceptual
-// prior on that range. This forces genres the default dance window gets wrong —
-// most notably drum & bass, which otherwise locks onto its half (~87) or third
-// (~58) tempo because the real ~174 is above the default 170 ceiling. Zero (the
-// default) leaves the historical behaviour untouched. Changing these values
-// changes analysis output, so AnalyzeTrack records them in each Result and the
-// cache treats a mismatch as stale (see analysis.go).
+// The opt-in tempo range (set from --bpm-range or the web Analysis Setting).
+// When both bounds are set (max > min > 0) the detector only accepts tempo
+// candidates inside [min, max] and re-centres the perceptual prior on that
+// range. This forces genres the default dance window gets wrong — most notably
+// drum & bass, which otherwise locks onto its half (~87) or third (~58) tempo
+// because the real ~174 is above the default 170 ceiling. Zero (the default)
+// leaves the historical behaviour untouched. Guarded by a mutex because the web
+// settings handler can change it at runtime while analysis workers read it.
+// Changing it changes analysis output, so AnalyzeTrack records the range in each
+// Result and the cache treats a mismatch as stale (see analysis.go).
 var (
-	TempoMinBPM float64
-	TempoMaxBPM float64
+	tempoRangeMu sync.RWMutex
+	tempoMinBPM  float64
+	tempoMaxBPM  float64
 )
+
+// SetTempoRange sets the opt-in BPM detection range. (0, 0) — or any max <= min
+// — clears it, restoring the default window. Safe to call at runtime.
+func SetTempoRange(min, max float64) {
+	tempoRangeMu.Lock()
+	defer tempoRangeMu.Unlock()
+	tempoMinBPM, tempoMaxBPM = min, max
+}
+
+// TempoRange returns the configured range (0, 0 when unset).
+func TempoRange() (min, max float64) {
+	tempoRangeMu.RLock()
+	defer tempoRangeMu.RUnlock()
+	return tempoMinBPM, tempoMaxBPM
+}
 
 // tempoRangeSet reports whether a usable explicit tempo range is configured.
 func tempoRangeSet() bool {
-	return TempoMinBPM > 0 && TempoMaxBPM > TempoMinBPM
+	min, max := TempoRange()
+	return min > 0 && max > min
 }
 
 // tempoWindow returns the inclusive BPM range a candidate must fall within to
 // be accepted — the configured range when set, else the default dance window.
 func tempoWindow() (lo, hi float64) {
-	if tempoRangeSet() {
-		return TempoMinBPM, TempoMaxBPM
+	min, max := TempoRange()
+	if min > 0 && max > min {
+		return min, max
 	}
 	return defaultTempoLo, defaultTempoHi
 }
@@ -72,9 +92,10 @@ func tempoWindow() (lo, hi float64) {
 // half its width in octaves (floored so a narrow range stays usefully tight),
 // so the prior peaks in the middle of the user's range instead of at 130.
 func tempoPriorParams() (center, sigma float64) {
-	if tempoRangeSet() {
-		center = math.Sqrt(TempoMinBPM * TempoMaxBPM)
-		sigma = math.Log2(TempoMaxBPM/TempoMinBPM) / 2
+	min, max := TempoRange()
+	if min > 0 && max > min {
+		center = math.Sqrt(min * max)
+		sigma = math.Log2(max/min) / 2
 		if sigma < 0.05 {
 			sigma = 0.05
 		}
@@ -296,6 +317,9 @@ func DetectBeatsWithEncoderDelay(samples []float32, sampleRate int, encoderDelay
 
 	// Use autocorrelation on onset to find the dominant periodicity.
 	// This is more robust than raw median for tracks with off-beat hits.
+	// The 60-200 BPM search span is the detector's hard range (also bounded by
+	// minSpacingFrames above); the web Analysis-Setting presets and custom-range
+	// clamp mirror this 60-200 window — keep them in step if it ever changes.
 	minLag := int(framesPerSec * 60.0 / 200.0)
 	maxLag := int(framesPerSec * 60.0 / 60.0)
 	if maxLag >= numFrames/2 {
