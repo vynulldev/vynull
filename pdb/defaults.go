@@ -314,38 +314,41 @@ var menuRows = [][]byte{
 // heap_used=40 free_size=4010
 
 // makeHistoryRow builds a History row (table 0x13) carrying per-export
-// metadata. Exports declare the number of tracks present; if that
-// value is 0 the deck appears to treat the USB as "no real export" and
-// may suppress advanced features. Bytes layout follows the kaitai spec
-// and matches a rekordbox 6.6.4 export verbatim (only num_tracks
-// and the date string differ across exports).
-//
-//	0x00 u2  subtype = 0x0280
-//	0x02 u2  index_shift (128 = slot 4 × 32 in the row group)
-//	0x04 u4  num_tracks
-//	0x08 u8  ofs_strings[3] + pad (positions of date/version/label strings)
-//	0x10+    inline strings: date, version, label
+// metadata. Exports declare the number of tracks present; if that value is 0
+// the deck appears to treat the USB as "no real export" and may suppress
+// advanced features. The row layout is documented inline below — it was
+// corrected (issue #53) to the inline-string form real rekordbox writes.
 func makeHistoryRow(numTracks int, date string) []byte {
 	if date == "" {
 		date = "2022-02-02"
 	}
 	dateStr := encodeString(date)
 	versionStr := encodeString("1000")
-	labelStr := encodeString("")
+	labelStr := append(encodeString(""), 0x00) // real exports: 0x03 0x00
 
-	// Fixed prefix: subtype(2) + index_shift(2) + num_tracks(4) +
-	// ofs_strings[3] (u2 each = 6) + pad(2) = 16 bytes
-	row := make([]byte, 16+len(dateStr)+len(versionStr)+len(labelStr))
+	// Real rekordbox History rows (table 0x13) store the strings INLINE after a
+	// u32 zero magic — NOT via an offset table. Layout verified byte-for-byte
+	// against real exports (rb 6.x, 2024-02) and cross-checked with rekordcrate:
+	//   0x00 u16 subtype = 0x0280
+	//   0x02 u16 index_shift (0x20 per row slot; a single row is slot 0)
+	//   0x04 u32 num_tracks
+	//   0x08 u32 magic   = 0
+	//   0x0C date (DeviceSQLString), u16 magic 0x1E19, version, then label
+	// The earlier offset-table layout (ofs_strings[3] + pad at 0x08) does not
+	// occur in real files and made third-party parsers (rekordcrate) fail the
+	// History table with "bad magic" — a u16 offset read as the u32 magic.
+	// num_tracks stays at 0x04 (the field the deck is known to react to); this
+	// only brings the string area in line with real exports. See issue #53.
+	row := make([]byte, 12+len(dateStr)+2+len(versionStr)+len(labelStr))
 	le16put(row, 0x00, 0x0280)
-	le16put(row, 0x02, 128) // index_shift
+	le16put(row, 0x02, 0) // index_shift: single row → slot 0
 	le32put(row, 0x04, uint32(numTracks))
-	le16put(row, 0x08, 16)                                      // ofs_strings[0] = date
-	le16put(row, 0x0A, uint16(16+len(dateStr)))                 // ofs_strings[1] = version
-	le16put(row, 0x0C, uint16(16+len(dateStr)+len(versionStr))) // ofs_strings[2] = label
-	// 0x0E-0x0F: pad (2 bytes of zero)
-	copy(row[16:], dateStr)
-	copy(row[16+len(dateStr):], versionStr)
-	copy(row[16+len(dateStr)+len(versionStr):], labelStr)
+	le32put(row, 0x08, 0) // magic, always zero
+	n := copy(row[12:], dateStr)
+	le16put(row, 12+n, 0x1E19) // magic between date and version
+	n += 2
+	n += copy(row[12+n:], versionStr)
+	copy(row[12+n:], labelStr)
 	return row
 }
 
