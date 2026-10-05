@@ -31,6 +31,12 @@ type SettingsConfig struct {
 	// album, genre, label, bitrate, time, rating, color, comments,
 	// original_artist, remixer, dj_play_count, date_added, none.
 	TrackDetail string `yaml:"track_detail,omitempty" json:"track_detail,omitempty"`
+
+	// BPMRangeMin / BPMRangeMax are the analysis BPM range (rekordbox's
+	// "Analysis Setting > BPM Range" dropdown). 0 = unset: the analyzer's
+	// default detection window. Not pushed to decks — consumed by the analyzer.
+	BPMRangeMin float64 `yaml:"bpm_range_min,omitempty" json:"bpm_range_min,omitempty"`
+	BPMRangeMax float64 `yaml:"bpm_range_max,omitempty" json:"bpm_range_max,omitempty"`
 }
 
 // MySettingFields backs MYSETTING.DAT (player UI settings).

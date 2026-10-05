@@ -3584,6 +3584,25 @@ func parseTrackIDFromPath(path, prefix string) uint32 {
 	return id
 }
 
+// syncBPMRange applies the persisted Analysis-Setting BPM range to the analyzer
+// and, when it actually changed, drops cached analyses so affected tracks
+// re-analyze on next access (lazy — nothing is re-analyzed up front). Called
+// after a settings write.
+func (s *Server) syncBPMRange() {
+	if s.Device == nil || s.Device.Settings == nil {
+		return
+	}
+	mn, mx := s.Device.Settings.GetBPMRange()
+	if oldMn, oldMx := analysis.TempoRange(); mn == oldMn && mx == oldMx {
+		return
+	}
+	analysis.SetTempoRange(mn, mx)
+	if s.Analysis != nil {
+		s.Analysis.InvalidateAll()
+	}
+	log.Printf("api: BPM analysis range -> %g-%g; cached analyses invalidated", mn, mx)
+}
+
 // handleSettings handles GET/POST /api/settings for CDJ display settings.
 func (s *Server) handleSettings(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Access-Control-Allow-Origin", "*")
@@ -3678,6 +3697,7 @@ func (s *Server) handleSettings(w http.ResponseWriter, r *http.Request) {
 	if combined.Full != nil {
 		settings.SetConfig(*combined.Full)
 		log.Printf("api: settings: full config replaced")
+		s.syncBPMRange() // keep the analyzer + cache in step with the Analysis Setting
 		s.Device.NotifySettingsChanged()
 		writeJSON(w, struct{ OK bool }{true})
 		return
