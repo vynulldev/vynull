@@ -3665,12 +3665,19 @@ func (s *Server) handleSettings(w http.ResponseWriter, r *http.Request) {
 		// Backward-compatible: existing 5-field DEVSETTING-derived shape,
 		// plus the full YAML config under "full" so the web UI can render
 		// every MYSETTING/MYSETTING2/DJMMYSETTING field too.
+		full := settings.Config()
+		// Report the EFFECTIVE analysis BPM range, not just what's persisted:
+		// --bpm-range overrides the range for the session without writing
+		// settings.json, so reflect it here or the UI shows Default while a
+		// flag-set range is actually in force. Editing it in the UI still
+		// persists to settings.json as usual.
+		full.BPMRangeMin, full.BPMRangeMax = analysis.TempoRange()
 		resp := struct {
 			SettingsJSON
 			Full device.SettingsConfig `json:"full"`
 		}{
 			SettingsJSON: devSettingToJSON(),
-			Full:         settings.Config(),
+			Full:         full,
 		}
 		writeJSON(w, resp)
 		return
