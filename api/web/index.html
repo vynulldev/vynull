@@ -7590,7 +7590,10 @@ function renderSettings(cfg) {
 
   // LIBRARY SOURCE: import from rekordbox + bulk path fix (not a CDJ setting).
   if (section.key === 'source') {
-    const bpmFull = (cfg && cfg.full) || {};
+    // renderSettings receives the full config itself on the 1 Hz poll
+    // (renderSettings(settings.full)) and the API response (has .full) on
+    // other paths — accept both shapes, or the dropdown always shows Default.
+    const bpmFull = (cfg && (cfg.full || cfg)) || {};
     const bpmCurMin = Number(bpmFull.bpm_range_min) || 0;
     const bpmCurMax = Number(bpmFull.bpm_range_max) || 0;
     const bpmCustomActive = bpmCurMin > 0 && bpmCurMax > bpmCurMin &&
@@ -7733,7 +7736,7 @@ async function handleSettingChange(select) {
 // when the persisted range matches no preset (e.g. a custom value entered here
 // or via --bpm-range on the CLI).
 function bpmRangeOptionsHTML(cfg) {
-  const full = (cfg && cfg.full) || {};
+  const full = (cfg && (cfg.full || cfg)) || {};
   const curMin = Number(full.bpm_range_min) || 0;
   const curMax = Number(full.bpm_range_max) || 0;
   let matched = false;
@@ -7750,7 +7753,12 @@ function bpmRangeOptionsHTML(cfg) {
 // postBPMRange persists a range via the full-config POST (the same path every
 // settings field uses) and reflects it immediately.
 async function postBPMRange(min, max, label) {
-  const full = JSON.parse(JSON.stringify((currentSettings && currentSettings.full) || {}));
+  // currentSettings is the full config itself on the poll path, or the API
+  // response (has .full) otherwise. Base the POST on the whole config — the
+  // full-config POST does a SetConfig REPLACE, so sending only the two BPM
+  // fields would wipe every other setting (my_setting, dev_setting, ...).
+  const base = (currentSettings && (currentSettings.full || currentSettings)) || {};
+  const full = JSON.parse(JSON.stringify(base));
   full.bpm_range_min = min;
   full.bpm_range_max = max;
   const r = await fetch('/api/settings', {
@@ -7758,7 +7766,9 @@ async function postBPMRange(min, max, label) {
     body: JSON.stringify({ full }),
   });
   if (!r.ok) { toast('SAVE FAILED', 'error'); return; }
-  if (currentSettings) { currentSettings.full = full; lastSettingsKey = ''; }
+  // Reflect immediately into whichever shape currentSettings holds.
+  const cur = (currentSettings && currentSettings.full) || currentSettings;
+  if (cur) { cur.bpm_range_min = min; cur.bpm_range_max = max; lastSettingsKey = ''; }
   toast('BPM RANGE · ' + label, 'success');
 }
 
