@@ -26,6 +26,9 @@ type OverlayConfig struct {
 	HistoryCount   int    `json:"history_count"`   // how many recent tracks to list
 	Width          int    `json:"width"`           // card width in px
 	Label          string `json:"label"`           // header text (empty = no label)
+	WaveformStyle  string `json:"waveform_style"`  // half (bottom-anchored bars) | full (centre-mirrored); applies to every waveform
+	WaveformBand   bool   `json:"waveform_band"`   // show a tall, full-width waveform band pinned to the overlay's vertical edge (replaces the card's waveform while on)
+	WaveformHeight int    `json:"waveform_height"` // the band height in px
 }
 
 func defaultOverlayConfig() OverlayConfig {
@@ -41,6 +44,9 @@ func defaultOverlayConfig() OverlayConfig {
 		HistoryCount:   5,
 		Width:          440,
 		Label:          "Now Playing",
+		WaveformStyle:  "full",
+		WaveformBand:   false,
+		WaveformHeight: 180,
 	}
 }
 
@@ -49,8 +55,9 @@ var (
 		"bottom-left": true, "bottom-right": true, "top-left": true,
 		"top-right": true, "bottom-center": true, "top-center": true,
 	}
-	overlayStyles = map[string]bool{"vinyl": true, "cover": true}
-	hexColorRe    = regexp.MustCompile(`^#[0-9a-fA-F]{6}$`)
+	overlayStyles    = map[string]bool{"vinyl": true, "cover": true}
+	overlayWaveforms = map[string]bool{"half": true, "full": true}
+	hexColorRe       = regexp.MustCompile(`^#[0-9a-fA-F]{6}$`)
 )
 
 // sanitize clamps a config to valid values, replacing anything invalid with the
@@ -62,6 +69,9 @@ func (c OverlayConfig) sanitize() OverlayConfig {
 	}
 	if !overlayStyles[c.Style] {
 		c.Style = d.Style
+	}
+	if !overlayWaveforms[c.WaveformStyle] {
+		c.WaveformStyle = d.WaveformStyle
 	}
 	if !hexColorRe.MatchString(c.Accent) {
 		c.Accent = d.Accent
@@ -82,6 +92,13 @@ func (c OverlayConfig) sanitize() OverlayConfig {
 		c.Width = 280
 	} else if c.Width > 1000 {
 		c.Width = 1000
+	}
+	if c.WaveformHeight == 0 {
+		c.WaveformHeight = d.WaveformHeight
+	} else if c.WaveformHeight < 60 {
+		c.WaveformHeight = 60
+	} else if c.WaveformHeight > 600 {
+		c.WaveformHeight = 600
 	}
 	return c
 }
