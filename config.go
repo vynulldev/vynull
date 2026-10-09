@@ -49,6 +49,7 @@ type Config struct {
 	LogFile        string // if set, append logs to this file instead of the default destination
 	HistoryFile    string // if set, write the track-history file here instead of the default
 	HistoryFormat  string // track-history format: text|csv|json (default: text)
+	Simulate       bool   // if true, run as a virtual playing CDJ (emulator); implies --mode cdj
 }
 
 func parseFlags() Config {
@@ -81,6 +82,7 @@ func parseFlags() Config {
 	flag.StringVar(&cfg.LogFile, "log-file", "", "append logs to this file (default: an auto temp file while the TUI is shown, or stdout when headless with --tui=false)")
 	flag.StringVar(&cfg.HistoryFile, "history-file", "", "append the played-track history to this file as tracks finish; one rolling file across sessions (default: <data-dir>/history.<ext>)")
 	flag.StringVar(&cfg.HistoryFormat, "history-format", "text", "track-history format: text, csv, or json (json is one object per line / JSONL)")
+	flag.BoolVar(&cfg.Simulate, "simulate", false, "run as a virtual playing CDJ: broadcast a dynamic playing status driven by a software deck, controllable via /api/sim and 'vynull sim'. Implies --mode cdj. Uses a safe profile (not tempo master, not on-air) for the isolated test rig; see docs/design/cdj-emulator.md")
 
 	flag.Usage = printGroupedUsage
 	flag.Parse()
@@ -89,6 +91,11 @@ func parseFlags() Config {
 	if cfg.DataDir == "" {
 		home, _ := os.UserHomeDir()
 		cfg.DataDir = home + "/.vynull"
+	}
+
+	// The emulator is a playing CDJ, so --simulate implies --mode cdj.
+	if cfg.Simulate && mode == "rekordbox" {
+		mode = "cdj"
 	}
 
 	switch mode {
