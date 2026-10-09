@@ -149,6 +149,34 @@ func TestSimDeckSeekFromEnd(t *testing.T) {
 	}
 }
 
+func TestSimDeckEject(t *testing.T) {
+	d, clk := newTestDeck()
+	d.Load(1, 17, proto.SlotUSB, 1, grid(600, 128), 0, 300000, 128)
+	d.SetPitch(4)
+	d.Play()
+	clk.advance(2 * time.Second)
+
+	// Eject must not panic (it previously reassigned *d while holding the
+	// mutex, panicking on the deferred unlock) and must clear the track.
+	d.Eject()
+	s := d.Snapshot()
+	if s.PlayState != proto.PlayStateNoTrack {
+		t.Errorf("after eject, PlayState = %#x, want NoTrack", s.PlayState)
+	}
+	if s.TrackID != 0 {
+		t.Errorf("after eject, TrackID = %d, want 0", s.TrackID)
+	}
+	if d.Status().Loaded {
+		t.Error("after eject, Loaded = true")
+	}
+	// The deck is still usable after an eject.
+	d.Eject() // idempotent, still no panic
+	d.Load(2, 17, proto.SlotUSB, 1, grid(100, 174), 0, 60000, 174)
+	if d.Snapshot().TrackID != 2 {
+		t.Error("could not load after eject")
+	}
+}
+
 func TestSimDeckDownbeatOffset(t *testing.T) {
 	d, _ := newTestDeck()
 	// Downbeat at index 2: beats 2,6,10,... are beat 1 of a bar.

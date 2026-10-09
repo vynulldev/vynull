@@ -85,11 +85,26 @@ func (d *SimDeck) Load(trackID uint32, device, slot, typ uint8, beats []float64,
 	d.anchor = d.now()
 }
 
-// Eject clears the loaded track.
+// Eject clears the loaded track. It resets the track, grid, and transport in
+// place; pitch and the sync/master/on-air flags carry over, as a physical
+// fader and switches would. (Resetting the fields individually rather than
+// reassigning *d is deliberate: overwriting the struct while holding d.mu
+// would replace the locked mutex and panic on the deferred unlock.)
 func (d *SimDeck) Eject() {
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	*d = SimDeck{now: d.now, trackSlot: proto.SlotUSB, trackType: 1, state: proto.PlayStateNoTrack}
+	d.trackID = 0
+	d.trackDevice = 0
+	d.trackSlot = proto.SlotUSB
+	d.trackType = 1
+	d.beats = nil
+	d.downbeat = 0
+	d.durationMs = 0
+	d.bpm = 0
+	d.posMs = 0
+	d.anchor = d.now()
+	d.playing = false
+	d.state = proto.PlayStateNoTrack
 }
 
 // Play starts (or resumes) playback. No-op with no track loaded or at the end.
