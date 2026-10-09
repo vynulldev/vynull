@@ -29,7 +29,12 @@ type CDJStatus struct {
 
 // PlayStateString returns a human-readable play state.
 func (s *CDJStatus) PlayStateString() string {
-	switch s.PlayState {
+	return PlayStateName(s.PlayState)
+}
+
+// PlayStateName returns a human-readable name for a 0x7b play-state value.
+func PlayStateName(state uint8) string {
+	switch state {
 	case 0x00:
 		return "NO TRACK"
 	case 0x02:

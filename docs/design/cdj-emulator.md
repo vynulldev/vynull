@@ -46,13 +46,17 @@
 - **On a live rig a fake playing CDJ can confuse real gear** — a DJM might try to sync to our BPM/beat, master handoff could misbehave, and claiming on-air/master is risky. Default to a safe profile (not master, on-air off) and gate "live rig" behind an explicit opt-in; isolated/test-rig is the default.
 - **Device number collision.** A deck is treated as a player at numbers 1–4; we currently use 17 (rekordbox) or 3 (cdj). Emulating a player may want 1–4, which can collide with real CDJs on the network. Needs a decision (pick a free number, detect collisions, or stay at a non-player number and accept reduced realism).
 
-## Open decisions
+## Decisions (locked 2026-10-09)
 
-- Audio in or out of the first release (Phase 2 vs status-only)? — proposed: status-only first.
-- Virtual-player device number (1–4 vs our 17/3) and collision handling.
-- Isolated/test-rig-only initially, or live-rig opt-in from the start? — proposed: isolated-first.
-- Fold the #41 requester's input (they were asked status-vs-beat priority, and which model's quirks matter).
-- Relationship to `--mode cdj`: the emulator layers playing behaviour on the existing CDJ-source presence; decide whether it's a flag (`--simulate`), an API-only runtime mode, or both.
+- **Status-only first.** No audio in Phase 1; audio is Phase 2.
+- **Isolated / test-rig first.** The safe profile (not master, not on-air) is the default; a live rig is an explicit opt-in.
+- **Control via API + CLI**, with a `--simulate` flag as the convenience shorthand that layers playing behaviour onto the existing `--mode cdj` presence.
+- **Virtual-player device number is configurable**, auto-picking a free slot in 1–4 (collision-avoided); in isolated mode it is a non-issue, so this is deferred to the live-rig work.
+- Still open for the requester: status-vs-beat priority, and which model's quirks matter most (feeds Phase 0 RE).
+
+## Progress
+
+- **1a core done** (branch `cdj-emulator`): `proto.MarshalStatusCDJPlaying` + `CDJPlayState` (overlays the dynamic fields onto the idle template, round-trips through `ParseCDJStatus`) and `device.SimDeck` (the playhead/grid clock: load/play/pause/cue/seek/pitch, beat-in-track + beat-in-bar derivation, end-of-track, effective BPM). Unit-tested, no hardware needed. Remaining in 1a: wire `SimDeck.Snapshot()` into the status broadcast loop behind `--simulate`.
 
 ## Rough phasing
 
