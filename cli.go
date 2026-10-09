@@ -44,7 +44,7 @@ var cliCommands = []struct {
 	{name: "players", desc: "connected players and what they're playing"},
 	{name: "playlists", desc: "playlists with counts"},
 	{name: "status", desc: "server, analysis, and link state"},
-	{name: "sim", args: "<status|load|play|pause|cue|seek|pitch|eject> [arg]", desc: "control the virtual playing deck (server needs --simulate)"},
+	{name: "sim", args: "<status|add|remove|renumber|load|play|pause|cue|seek|pitch|eject> [args] [--deck N]", desc: "manage and drive virtual playing CDJs (server needs --simulate)"},
 }
 
 // The handlers are bound here rather than in the literal: cliFlags reads
@@ -449,8 +449,10 @@ func (c *cliClient) resolveOneTrack(sel string) (uint32, string, error) {
 	}
 }
 
-// cliSimStatus mirrors device.SimDeckStatus (the /api/sim payload).
+// cliSimStatus mirrors device.SimDeckStatus (one deck). cliSimDecks is the
+// manager-level /api/sim/status payload.
 type cliSimStatus struct {
+	Number       uint8   `json:"number"`
 	Loaded       bool    `json:"loaded"`
 	TrackID      uint32  `json:"track_id"`
 	State        string  `json:"state"`
@@ -464,78 +466,197 @@ type cliSimStatus struct {
 	BeatInBar    uint8   `json:"beat_in_bar"`
 }
 
+type cliSimDecks struct {
+	Decks []cliSimStatus `json:"decks"`
+	Max   int            `json:"max"`
+}
+
+func simPitchStr(p float64) string {
+	s := strconv.FormatFloat(p, 'f', 1, 64)
+	if p >= 0 {
+		s = "+" + s
+	}
+	return s + "%"
+}
+
+// cliSim manages and drives the virtual playing decks. Manager subcommands
+// (status/add/remove/renumber) act on the set of decks; the transport
+// subcommands target one deck chosen with --deck (default: the lowest number).
 func cliSim(args []string) error {
-	c, rest, err := cliFlags("sim <status|load|play|pause|cue|seek|pitch|eject> [arg]", args, true)
+	// Pull --deck N / --deck=N before the shared flag parser rejects it.
+	deck := 0
+	var filtered []string
+	for i := 0; i < len(args); i++ {
+		a := args[i]
+		switch {
+		case a == "--deck":
+			if i+1 >= len(args) {
+				return fmt.Errorf("--deck requires a number")
+			}
+			i++
+			n, err := strconv.Atoi(args[i])
+			if err != nil {
+				return fmt.Errorf("--deck must be a number (got %q)", args[i])
+			}
+			deck = n
+		case strings.HasPrefix(a, "--deck="):
+			n, err := strconv.Atoi(strings.TrimPrefix(a, "--deck="))
+			if err != nil {
+				return fmt.Errorf("--deck must be a number")
+			}
+			deck = n
+		default:
+			filtered = append(filtered, a)
+		}
+	}
+
+	c, rest, err := cliFlags("sim <status|add|remove|renumber|load|play|pause|cue|seek|pitch|eject> [args] [--deck N]", filtered, true)
 	if err != nil {
 		return err
 	}
 	action := "status"
 	if len(rest) > 0 {
 		action = rest[0]
+		rest = rest[1:]
 	}
+
+	switch action {
+	case "status", "list", "ls":
+		return c.cliSimList()
+	case "add":
+		num := 0
+		if len(rest) > 0 {
+			if num, err = strconv.Atoi(rest[0]); err != nil {
+				return fmt.Errorf("usage: vynull sim add [number]")
+			}
+		}
+		if err := c.post("/api/sim/add", map[string]any{"number": num}, nil); err != nil {
+			return err
+		}
+		return c.cliSimList()
+	case "remove", "rm":
+		if len(rest) < 1 {
+			return fmt.Errorf("usage: vynull sim remove <number>")
+		}
+		n, err := strconv.Atoi(rest[0])
+		if err != nil {
+			return fmt.Errorf("player number must be a number (got %q)", rest[0])
+		}
+		if err := c.post("/api/sim/remove", map[string]any{"number": n}, nil); err != nil {
+			return err
+		}
+		return c.cliSimList()
+	case "renumber", "mv":
+		if len(rest) < 2 {
+			return fmt.Errorf("usage: vynull sim renumber <old> <new>")
+		}
+		from, e1 := strconv.Atoi(rest[0])
+		to, e2 := strconv.Atoi(rest[1])
+		if e1 != nil || e2 != nil {
+			return fmt.Errorf("usage: vynull sim renumber <old> <new>")
+		}
+		if err := c.post("/api/sim/renumber", map[string]any{"number": from, "to": to}, nil); err != nil {
+			return err
+		}
+		return c.cliSimList()
+	}
+
+	// Per-deck transport actions. Default to the lowest-numbered deck.
+	if deck == 0 {
+		if deck, err = c.simDefaultDeck(); err != nil {
+			return err
+		}
+	}
+	base := "/api/sim/" + strconv.Itoa(deck) + "/"
 
 	var st cliSimStatus
 	switch action {
-	case "status":
-		if err := c.get("/api/sim/status", &st); err != nil {
-			return err
-		}
 	case "play", "pause", "cue", "eject":
-		if err := c.post("/api/sim/"+action, nil, &st); err != nil {
-			return err
-		}
+		err = c.post(base+action, nil, &st)
 	case "load":
-		if len(rest) < 2 {
-			return fmt.Errorf("usage: vynull sim load <track-id|query>")
+		if len(rest) < 1 {
+			return fmt.Errorf("usage: vynull sim load <track-id|query> [--deck N]")
 		}
-		trackID, _, err := c.resolveOneTrack(strings.Join(rest[1:], " "))
-		if err != nil {
-			return err
+		trackID, _, rerr := c.resolveOneTrack(strings.Join(rest, " "))
+		if rerr != nil {
+			return rerr
 		}
-		if err := c.post("/api/sim/load", map[string]any{"track_id": trackID}, &st); err != nil {
-			return err
-		}
+		err = c.post(base+"load", map[string]any{"track_id": trackID}, &st)
 	case "seek":
-		if len(rest) < 2 {
-			return fmt.Errorf("usage: vynull sim seek <ms|m:ss>")
+		if len(rest) < 1 {
+			return fmt.Errorf("usage: vynull sim seek <ms|m:ss> [--deck N]")
 		}
-		ms, err := parsePosition(rest[1])
-		if err != nil {
-			return err
+		ms, perr := parsePosition(rest[0])
+		if perr != nil {
+			return perr
 		}
-		if err := c.post("/api/sim/seek", map[string]any{"position_ms": ms}, &st); err != nil {
-			return err
-		}
+		err = c.post(base+"seek", map[string]any{"position_ms": ms}, &st)
 	case "pitch":
-		if len(rest) < 2 {
-			return fmt.Errorf("usage: vynull sim pitch <percent>")
+		if len(rest) < 1 {
+			return fmt.Errorf("usage: vynull sim pitch <percent> [--deck N]")
 		}
-		pct, err := strconv.ParseFloat(strings.TrimSuffix(rest[1], "%"), 64)
-		if err != nil {
-			return fmt.Errorf("pitch must be a number (got %q)", rest[1])
+		pct, perr := strconv.ParseFloat(strings.TrimSuffix(rest[0], "%"), 64)
+		if perr != nil {
+			return fmt.Errorf("pitch must be a number (got %q)", rest[0])
 		}
-		if err := c.post("/api/sim/pitch", map[string]any{"pitch_pct": pct}, &st); err != nil {
-			return err
-		}
+		err = c.post(base+"pitch", map[string]any{"pitch_pct": pct}, &st)
 	default:
-		return fmt.Errorf("unknown sim action %q (status|load|play|pause|cue|seek|pitch|eject)", action)
+		return fmt.Errorf("unknown sim action %q", action)
+	}
+	if err != nil {
+		return err
 	}
 
 	if c.json {
 		return json.NewEncoder(os.Stdout).Encode(st)
 	}
 	if !st.Loaded {
-		fmt.Println("sim: no track loaded")
+		fmt.Printf("player %d: %s (no track)\n", st.Number, st.State)
 		return nil
 	}
-	pitch := strconv.FormatFloat(st.PitchPct, 'f', -1, 64)
-	if st.PitchPct >= 0 {
-		pitch = "+" + pitch
-	}
-	fmt.Printf("sim: %s  track %d  %s/%s  %.1f→%.1f BPM  pitch %s%%  beat %d (%d/4)\n",
-		st.State, st.TrackID, fmtMs(st.PositionMs), fmtMs(st.DurationMs),
-		st.BPM, st.EffectiveBPM, pitch, st.BeatInTrack, st.BeatInBar)
+	fmt.Printf("player %d: %s  %s/%s  %.1f→%.1f BPM  pitch %s  beat %d (%d/4)  track #%d\n",
+		st.Number, st.State, fmtMs(st.PositionMs), fmtMs(st.DurationMs),
+		st.BPM, st.EffectiveBPM, simPitchStr(st.PitchPct), st.BeatInTrack, st.BeatInBar, st.TrackID)
 	return nil
+}
+
+// simDefaultDeck returns the lowest-numbered deck, erroring when none exist.
+func (c *cliClient) simDefaultDeck() (int, error) {
+	var list cliSimDecks
+	if err := c.get("/api/sim/status", &list); err != nil {
+		return 0, err
+	}
+	if len(list.Decks) == 0 {
+		return 0, fmt.Errorf("no virtual decks (add one with 'vynull sim add')")
+	}
+	return int(list.Decks[0].Number), nil // decks come sorted ascending
+}
+
+// cliSimList prints the deck table (or JSON).
+func (c *cliClient) cliSimList() error {
+	var list cliSimDecks
+	if err := c.get("/api/sim/status", &list); err != nil {
+		return err
+	}
+	if c.json {
+		return json.NewEncoder(os.Stdout).Encode(list)
+	}
+	if len(list.Decks) == 0 {
+		fmt.Printf("no virtual CDJs (max %d; add one with 'vynull sim add')\n", list.Max)
+		return nil
+	}
+	w := tabwriter.NewWriter(os.Stdout, 2, 4, 2, ' ', 0)
+	fmt.Fprintln(w, "DECK\tSTATE\tPOS/DUR\tBPM\tPITCH\tTRACK")
+	for _, d := range list.Decks {
+		track, bpm := "-", "-"
+		if d.Loaded {
+			track = fmt.Sprintf("#%d", d.TrackID)
+			bpm = fmt.Sprintf("%.1f→%.1f", d.BPM, d.EffectiveBPM)
+		}
+		fmt.Fprintf(w, "%d\t%s\t%s/%s\t%s\t%s\t%s\n",
+			d.Number, d.State, fmtMs(d.PositionMs), fmtMs(d.DurationMs), bpm, simPitchStr(d.PitchPct), track)
+	}
+	return w.Flush()
 }
 
 // parsePosition accepts a raw millisecond value or an "m:ss" timestamp.
