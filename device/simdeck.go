@@ -189,6 +189,21 @@ func (d *SimDeck) SetFlags(master, sync, onAir bool) {
 	d.master, d.sync, d.onAir = master, sync, onAir
 }
 
+// SetOnAir sets just the on-air flag (mixer channel up). Now-playing overlays
+// use it to pick the live deck.
+func (d *SimDeck) SetOnAir(on bool) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.onAir = on
+}
+
+// SetMaster sets just the tempo-master flag.
+func (d *SimDeck) SetMaster(on bool) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.master = on
+}
+
 func (d *SimDeck) rate() float64 { return 1 + d.pitchPct/100 }
 
 // normalizeLocked folds elapsed wall-clock time into posMs and handles
@@ -297,6 +312,9 @@ type SimDeckStatus struct {
 	BeatInTrack  uint32  `json:"beat_in_track"`
 	BeatInBar    uint8   `json:"beat_in_bar"`
 	BeatFraction float64 `json:"beat_fraction"` // 0..1 through the current beat, for smooth client animation
+	OnAir        bool    `json:"on_air"`
+	Master       bool    `json:"master"`
+	Sync         bool    `json:"sync"`
 }
 
 // Status returns the deck's current state for display.
@@ -319,6 +337,9 @@ func (d *SimDeck) Status() SimDeckStatus {
 		BeatInTrack:  beatInTrack,
 		BeatInBar:    beatInBar,
 		BeatFraction: frac,
+		OnAir:        d.onAir,
+		Master:       d.master,
+		Sync:         d.sync,
 	}
 }
 
