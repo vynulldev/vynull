@@ -376,6 +376,10 @@ func (s *Server) Handler() http.Handler {
 		}
 	})
 
+	// API documentation (spec + self-hosted Swagger UI). Always on, so the API
+	// is self-describing even for a headless daemon with --web off.
+	registerAPIDocs(mux)
+
 	if s.Web {
 		RegisterWebUI(mux)
 	}
