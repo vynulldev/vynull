@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Vynull API</title>
+  <link rel="stylesheet" href="/api/swagger/swagger-ui.css" />
+  <style>
+    body { margin: 0; background: #fafafa; }
+  </style>
+</head>
+<body>
+  <div id="swagger-ui"></div>
+  <script src="/api/swagger/swagger-ui-bundle.js" charset="UTF-8"></script>
+  <script>
+    window.ui = SwaggerUIBundle({
+      url: "/api/openapi.yaml",
+      dom_id: "#swagger-ui",
+      deepLinking: true,
+      presets: [SwaggerUIBundle.presets.apis],
+      layout: "BaseLayout",
+    });
+  </script>
+</body>
+</html>
