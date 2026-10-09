@@ -380,6 +380,18 @@ func (mgr *SimManager) Renumber(from, to uint8) error {
 	return nil
 }
 
+// Numbers returns the player numbers of all decks, ascending.
+func (mgr *SimManager) Numbers() []uint8 {
+	mgr.mu.Lock()
+	defer mgr.mu.Unlock()
+	nums := make([]uint8, 0, len(mgr.decks))
+	for n := range mgr.decks {
+		nums = append(nums, n)
+	}
+	sort.Slice(nums, func(i, j int) bool { return nums[i] < nums[j] })
+	return nums
+}
+
 // Get returns the deck at number, or nil.
 func (mgr *SimManager) Get(number uint8) *SimDeck {
 	mgr.mu.Lock()

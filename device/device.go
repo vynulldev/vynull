@@ -460,6 +460,22 @@ func (d *VirtualDevice) keepAliveLoop(ctx context.Context) error {
 			if err := d.send(pkt, dst); err != nil {
 				log.Printf("keep-alive send error: %v", err)
 			}
+			// --simulate: announce each virtual deck as its own player so
+			// trackers (beat-link, real gear) list it and associate its 0x0a
+			// status. Same MAC/IP, distinct device numbers — the one-IP,
+			// many-numbers pattern rekordbox uses for its claimed slots. Skip
+			// our own number (already announced above).
+			if d.Sim != nil {
+				for _, n := range d.Sim.Numbers() {
+					if n == d.DeviceNumber {
+						continue
+					}
+					kp := proto.MarshalKeepAlive(d.Name, n, proto.DeviceCDJ, d.MAC, d.IP, d.Peers.Count()+1)
+					if err := d.send(kp, dst); err != nil {
+						log.Printf("keep-alive send error (player %d): %v", n, err)
+					}
+				}
+			}
 		case <-func() <-chan time.Time {
 			if fastTicker == nil {
 				return nil
