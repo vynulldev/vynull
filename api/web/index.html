@@ -7596,6 +7596,21 @@ async function loadTrack(trackID, deviceNumber) {
     });
     if (!ok) return;
   }
+  // Virtual decks (the emulator) aren't real peers, so the /api/load 0x19
+  // path can't reach them — route them to the sim API instead. The LOAD menu
+  // already lists them because they appear in /api/players via the monitor.
+  if (simEnabled) {
+    const list = await simFetch();
+    if (list && (list.decks || []).some(d => d.number === deviceNumber)) {
+      const sr = await fetch('/api/sim/' + deviceNumber + '/load', {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ track_id: trackID }),
+      });
+      if (sr.ok) toast(`▶ TRACK ${String(trackID).padStart(4,'0')} → PLAYER ${String(deviceNumber).padStart(2,'0')} (virtual)`, 'success');
+      else toast('LOAD FAILED · ' + (await sr.text()), 'error');
+      return;
+    }
+  }
   const r = await fetch('/api/load', {
     method: 'POST', headers: {'Content-Type': 'application/json'},
     body: JSON.stringify({ track_id: trackID, device_number: deviceNumber }),
