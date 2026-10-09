@@ -36,12 +36,17 @@
   #np.show { opacity: 1; }
 
   /* position — corners translate the card up while fading; centres also -50% X */
-  #np.pos-bottom-left   { left: 40px; bottom: 40px; }
-  #np.pos-bottom-right  { right: 40px; bottom: 40px; }
-  #np.pos-top-left      { left: 40px; top: 40px; }
-  #np.pos-top-right     { right: 40px; top: 40px; }
-  #np.pos-bottom-center { left: 50%; bottom: 40px; }
-  #np.pos-top-center    { left: 50%; top: 40px; }
+  #np.pos-bottom-left   { left: 40px; bottom: calc(40px + var(--band-h, 0px)); }
+  #np.pos-bottom-right  { right: 40px; bottom: calc(40px + var(--band-h, 0px)); }
+  #np.pos-top-left      { left: 40px; top: calc(40px + var(--band-h, 0px)); }
+  #np.pos-top-right     { right: 40px; top: calc(40px + var(--band-h, 0px)); }
+  #np.pos-bottom-center { left: 50%; bottom: calc(40px + var(--band-h, 0px)); }
+  #np.pos-top-center    { left: 50%; top: calc(40px + var(--band-h, 0px)); }
+  /* full-width centre-mirrored waveform band, pinned to the overlay's edge */
+  #wave-full { position: fixed; left: 0; width: 100vw; display: block; pointer-events: none; }
+  #wave-full.hidden { display: none; }
+  #wave-full.at-bottom { bottom: 0; }
+  #wave-full.at-top { top: 0; }
   #np:not(.pos-bottom-center):not(.pos-top-center) { transform: translateY(16px); }
   #np:not(.pos-bottom-center):not(.pos-top-center).show { transform: none; }
   #np.pos-bottom-center, #np.pos-top-center { transform: translate(-50%, 16px); }
@@ -175,6 +180,7 @@
     <div id="decks" class="section hidden"></div>
     <div id="history" class="section hidden"></div>
   </div>
+  <canvas id="wave-full" class="wave hidden at-bottom" data-dev="0" data-mirror="1"></canvas>
 <script>
   const $ = id => document.getElementById(id);
   const el = {
@@ -184,6 +190,7 @@
     titleTx: $('title').querySelector('.tx'), artistTx: $('artist').querySelector('.tx'),
     label: $('np-label'), labelText: $('np-label-text'), npWave: $('np-wave'),
     npWaveCanvas: $('np-wave').querySelector('canvas'),
+    waveFull: $('wave-full'),
   };
   const POSITIONS = ['bottom-left', 'bottom-right', 'top-left', 'top-right', 'bottom-center', 'top-center'];
   let cfg = { show_nowplaying: true, show_waveform: true, show_meta: true, show_decks: false, show_history: false, history_count: 5, style: 'vinyl' };
@@ -277,6 +284,7 @@
       cv.width = cv.clientWidth || 300; cv.height = cv.clientHeight || 40;
     }
     const ctx = cv.getContext('2d'), W = cv.width, H = cv.height;
+    const mirror = cv.dataset.mirror === '1';
     ctx.clearRect(0, 0, W, H);
     if (!w || !w.entries || !w.entries.length || !pos || !pos.durMs) return;
     const posMs = renderPos(pos, now); // pitch-rate interpolation + slewed correction
@@ -296,7 +304,9 @@
       const bh = Math.max(1, mh / 31 * H);
       ctx.globalAlpha = x < W / 2 ? 1 : 0.45; // dim the not-yet-played side
       ctx.fillStyle = `rgb(${Math.round(r / c * 36)},${Math.round(g / c * 36)},${Math.round(b / c * 36)})`;
-      ctx.fillRect(x, H - bh, 1, bh);
+      // mirror === full waveform: bar centred and symmetric; else half (bottom-anchored).
+      if (mirror) ctx.fillRect(x, (H - bh) / 2, 1, bh);
+      else ctx.fillRect(x, H - bh, 1, bh);
     }
     ctx.globalAlpha = 1;
     ctx.fillStyle = '#fff';
@@ -326,7 +336,23 @@
     el.label.style.display = label ? '' : 'none';
     el.sub.style.display = cfg.show_meta !== false ? '' : 'none';
     el.sectNow.classList.toggle('hidden', cfg.show_nowplaying === false);
-    el.npWave.classList.toggle('hidden', cfg.show_waveform === false);
+    // Waveform style: half (bottom-anchored bars) or full (centre-mirrored),
+    // applied to every waveform via each canvas's data-mirror.
+    const mir = cfg.waveform_style === 'full' ? '1' : '0';
+    el.npWaveCanvas.dataset.mirror = mir;
+    el.waveFull.dataset.mirror = mir;
+    // Full-height band: a tall, full-width waveform pinned to the overlay's
+    // vertical edge. While on it replaces the card's small waveform and reserves
+    // space (--band-h) so the card sits clear of it.
+    const band = !!cfg.waveform_band;
+    const bandH = Math.max(60, Math.min(600, cfg.waveform_height || 180));
+    const atTop = String(cfg.position || '').indexOf('top') === 0;
+    el.waveFull.classList.toggle('hidden', !band);
+    el.waveFull.classList.toggle('at-top', atTop);
+    el.waveFull.classList.toggle('at-bottom', !atTop);
+    el.waveFull.style.height = bandH + 'px';
+    document.documentElement.style.setProperty('--band-h', band ? bandH + 'px' : '0px');
+    el.npWave.classList.toggle('hidden', cfg.show_waveform === false || band);
     el.sectDecks.classList.toggle('hidden', !cfg.show_decks);
     el.sectHist.classList.toggle('hidden', !cfg.show_history);
   }
@@ -342,6 +368,7 @@
     el.sub.innerHTML = bits.join(' &nbsp;&middot;&nbsp; ');
     el.vinyl.style.animationDuration = np.bpm ? (240 / np.bpm).toFixed(3) + 's' : '1.8s';
     el.npWaveCanvas.dataset.dev = np.device_number || 0;
+    el.waveFull.dataset.dev = np.device_number || 0;
 
     artToken++;
     const myToken = artToken;
@@ -386,7 +413,7 @@
           <span class="deck-track"><span class="tx"><b>${esc(p.track_title || 'Track ' + p.track_id)}</b>${p.artist ? ' — ' + esc(p.artist) : ''}</span></span>
           <span class="flags">${flags}</span>
         </div>
-        <div class="wave-wrap"><canvas class="wave" data-dev="${p.device_number}"></canvas></div>
+        <div class="wave-wrap"><canvas class="wave" data-dev="${p.device_number}" data-mirror="${cfg.waveform_style === 'full' ? '1' : '0'}"></canvas></div>
       </div>`;
     }).join('');
     marqueeAll(el.sectDecks);

@@ -7774,6 +7774,12 @@ async function renderOverlaySettings(el) {
         <div class="selector"><input type="checkbox" data-overlay="show_nowplaying" ${cfg.show_nowplaying !== false ? 'checked' : ''}></div></div>
       <div class="settings-row"><div class="key">waveform<div class="row-hint">scrolling waveform under the card</div></div>
         <div class="selector"><input type="checkbox" data-overlay="show_waveform" ${cfg.show_waveform !== false ? 'checked' : ''}></div></div>
+      <div class="settings-row"><div class="key">waveform style<div class="row-hint">half (bottom bars) or full (mirrored both sides of centre)</div></div>
+        <div class="selector">${sel('waveform_style', [['half', 'Half'], ['full', 'Full (mirrored)']], cfg.waveform_style || 'full')}</div></div>
+      <div class="settings-row"><div class="key">full-height band<div class="row-hint">tall waveform across the edge · replaces the small one</div></div>
+        <div class="selector"><input type="checkbox" data-overlay="waveform_band" ${cfg.waveform_band ? 'checked' : ''}></div></div>
+      <div class="settings-row"><div class="key">band height<div class="row-hint">band height in px (60–600)</div></div>
+        <div class="selector"><input type="number" class="input" data-overlay="waveform_height" value="${cfg.waveform_height || 180}" min="60" max="600" step="10" style="width:88px;padding-left:10px;padding-right:6px"></div></div>
       <div class="settings-row"><div class="key">decks<div class="row-hint">which deck is playing what, with waveforms</div></div>
         <div class="selector"><input type="checkbox" data-overlay="show_decks" ${cfg.show_decks ? 'checked' : ''}></div></div>
       <div class="settings-row"><div class="key">recently played</div>
@@ -7796,6 +7802,9 @@ async function renderOverlaySettings(el) {
         show_meta: v('show_meta').checked,
         show_nowplaying: v('show_nowplaying').checked,
         show_waveform: v('show_waveform').checked,
+        waveform_style: v('waveform_style').value,
+        waveform_band: v('waveform_band').checked,
+        waveform_height: parseInt(v('waveform_height').value, 10) || 0,
         show_decks: v('show_decks').checked,
         show_history: v('show_history').checked,
         history_count: parseInt(v('history_count').value, 10) || 0,
