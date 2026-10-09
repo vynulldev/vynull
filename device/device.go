@@ -426,8 +426,10 @@ func (d *VirtualDevice) keepAliveLoop(ctx context.Context) error {
 	defer ticker.Stop()
 
 	// Send one 0x06 immediately.
-	if err := d.sendKeepAlive(dst); err != nil {
-		return err
+	if !d.simPresence(dst) {
+		if err := d.sendKeepAlive(dst); err != nil {
+			return err
+		}
 	}
 
 	// Rekordbox mode: a brief startup 0x02 claim burst that cycles through
@@ -455,25 +457,13 @@ func (d *VirtualDevice) keepAliveLoop(ctx context.Context) error {
 			log.Printf("shutting down virtual device")
 			return nil
 		case <-ticker.C:
-			// Type 0x06 at 1.5s intervals (both modes).
-			pkt := proto.MarshalKeepAlive(d.Name, d.DeviceNumber, d.DeviceType, d.MAC, d.IP, d.Peers.Count()+1)
-			if err := d.send(pkt, dst); err != nil {
-				log.Printf("keep-alive send error: %v", err)
-			}
-			// --simulate: announce each virtual deck as its own player so
-			// trackers (beat-link, real gear) list it and associate its 0x0a
-			// status. Same MAC/IP, distinct device numbers — the one-IP,
-			// many-numbers pattern rekordbox uses for its claimed slots. Skip
-			// our own number (already announced above).
-			if d.Sim != nil {
-				for _, n := range d.Sim.Numbers() {
-					if n == d.DeviceNumber {
-						continue
-					}
-					kp := proto.MarshalKeepAlive(d.Name, n, proto.DeviceCDJ, d.MAC, d.IP, d.Peers.Count()+1)
-					if err := d.send(kp, dst); err != nil {
-						log.Printf("keep-alive send error (player %d): %v", n, err)
-					}
+			// Type 0x06 at 1.5s intervals. In --simulate this announces the
+			// virtual decks (and not our own source number); otherwise our
+			// own device number (both modes).
+			if !d.simPresence(dst) {
+				pkt := proto.MarshalKeepAlive(d.Name, d.DeviceNumber, d.DeviceType, d.MAC, d.IP, d.Peers.Count()+1)
+				if err := d.send(pkt, dst); err != nil {
+					log.Printf("keep-alive send error: %v", err)
 				}
 			}
 		case <-func() <-chan time.Time {
@@ -512,6 +502,26 @@ func (d *VirtualDevice) keepAliveLoop(ctx context.Context) error {
 func (d *VirtualDevice) hostname() string {
 	h, _ := os.Hostname()
 	return h
+}
+
+// simPresence announces each virtual deck's player number with a 0x06
+// keep-alive and reports whether it handled the announcement (true only in
+// --simulate with at least one deck). In --simulate the virtual decks are the
+// players; our own source device number is deliberately NOT announced here, or
+// trackers (prolink-tools, beat-link) show it as a phantom player that never
+// gets a status packet. All decks share our MAC/IP with distinct numbers, the
+// same one-IP-many-numbers pattern rekordbox uses for its claimed slots.
+func (d *VirtualDevice) simPresence(dst *net.UDPAddr) bool {
+	if d.Sim == nil || d.Sim.Len() == 0 {
+		return false
+	}
+	for _, n := range d.Sim.Numbers() {
+		kp := proto.MarshalKeepAlive(d.Name, n, proto.DeviceCDJ, d.MAC, d.IP, d.Peers.Count()+1)
+		if err := d.send(kp, dst); err != nil {
+			log.Printf("keep-alive send error (player %d): %v", n, err)
+		}
+	}
+	return true
 }
 
 func (d *VirtualDevice) sendKeepAlive(dst *net.UDPAddr) error {
