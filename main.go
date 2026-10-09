@@ -567,7 +567,7 @@ func main() {
 	if cfg.Simulate {
 		dev.Sim = device.NewSimManager()
 		dev.Sim.Add(1)
-		log.Printf("simulate: virtual playing deck enabled as Player 1 (safe profile); control via /api/sim and 'vynull sim'")
+		log.Printf("simulate: rekordbox source (device %d) with virtual CDJ Player 1 (safe profile); control via /api/sim and 'vynull sim'", dev.DeviceNumber)
 	}
 	// Let the monitor tell our own tracks apart from ones a deck loaded off a
 	// USB/SD or another player (device number is negotiated during the claim,
