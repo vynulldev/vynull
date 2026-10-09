@@ -27,7 +27,7 @@ Use it at your own risk, and back up your rekordbox library before importing any
 - **DJM mixer awareness** — surfaces DJM channel/master state on the link
 - **Native FLAC/WAV/AIFF playback** — CDJ decodes lossless formats directly over NFS
 - **Color waveforms** on the CDJ (PWV4 overview + PWV5 scrolling, generated with time-domain Butterworth filter banks calibrated against rekordbox's rendering); honors the CDJ "waveform color" setting (blue / RGB / 3-band) in both the deck and the web UI
-- **BPM detection** with autocorrelation + a perceptual tempo prior, coherence-verified integer/half-integer snap, and a DP beat tracker
+- **BPM detection** with autocorrelation + a perceptual tempo prior, coherence-verified integer/half-integer snap, and a DP beat tracker. Detects **60–200 BPM**; set an **Analysis BPM range** (Settings → Library Source, or `--bpm-range 90-180`) so fast genres like drum & bass lock onto the true tempo instead of its half/third. Tracks above 200 BPM are analyzed at a sub-harmonic (usually half-tempo) — 200 is the current ceiling
 - **Key detection** using chromagram analysis (octaves 4-7, Krumhansl-Kessler profiles)
 - **Beat grid** generation phase-locked via a multiband onset tempogram (modelled on rekordbox's reverse-engineered 25-band novelty), windowed clarity-weighted phase, and a gated half-beat correction
 - **Phrase/song structure** detection (PSSI format)

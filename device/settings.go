@@ -138,6 +138,22 @@ func (s *CDJSettings) SetTrackDetail(detail string) {
 	log.Printf("settings: track detail set to %q", detail)
 }
 
+// GetBPMRange returns the configured analysis BPM range (0, 0 = unset/default).
+func (s *CDJSettings) GetBPMRange() (min, max float64) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.cfg.BPMRangeMin, s.cfg.BPMRangeMax
+}
+
+// SetBPMRange sets the analysis BPM range and persists. (0, 0) clears it.
+func (s *CDJSettings) SetBPMRange(min, max float64) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.cfg.BPMRangeMin, s.cfg.BPMRangeMax = min, max
+	s.persist()
+	log.Printf("settings: BPM range set to %g-%g", min, max)
+}
+
 func (s *CDJSettings) persist() {
 	if err := SaveConfig(s.path, s.cfg); err != nil {
 		log.Printf("settings: failed to write %s: %v", s.path, err)

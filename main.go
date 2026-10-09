@@ -274,6 +274,25 @@ func main() {
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
 
+	// Resolve the BPM analysis range before any AnalyzeAll / AnalyzeTrack so
+	// detection and the on-disk cache see it. Precedence: the --bpm-range flag
+	// overrides the persisted web Analysis Setting for this session; otherwise
+	// the persisted setting (settings.json) applies.
+	bpmMin, bpmMax := cfg.BPMMin, cfg.BPMMax
+	if bpmMin <= 0 || bpmMax <= bpmMin {
+		settingsPath := cfg.SettingsFile
+		if settingsPath == "" {
+			settingsPath = filepath.Join(cfg.DataDir, "settings.json")
+		}
+		if mn, mx := device.NewCDJSettingsAt(settingsPath).GetBPMRange(); mn > 0 && mx > mn {
+			bpmMin, bpmMax = mn, mx
+		}
+	}
+	if bpmMin > 0 && bpmMax > bpmMin {
+		analysis.SetTempoRange(bpmMin, bpmMax)
+		fmt.Printf("BPM range: %g-%g (affected tracks re-analyze)\n", bpmMin, bpmMax)
+	}
+
 	// Always create a cached analysis store so API-added tracks get analyzed.
 	cacheDir := filepath.Join(cfg.DataDir, "analysis")
 	analysisStore := analysis.NewStoreWithCache(cacheDir)

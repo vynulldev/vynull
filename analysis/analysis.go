@@ -93,6 +93,13 @@ type Result struct {
 	SongStructure    []byte    // PSSI phrase analysis blob for 0x2504 response
 	Phrases          []Phrase  // detected phrases (intro/up/down/chorus/outro) — used by API/web UI
 	GridEdited       bool      // user manually adjusted the beat grid — serve our blobs, not the on-disk ANLZ
+
+	// TempoMinBPM / TempoMaxBPM record the --bpm-range setting this result was
+	// analyzed under (0 = the default dance window). The cache treats a result
+	// as stale when they differ from the current setting, so changing the range
+	// re-analyzes affected tracks instead of serving BPMs from the old range.
+	TempoMinBPM float64
+	TempoMaxBPM float64
 }
 
 // gridCarry is a user-edited beat grid rescued from a stale-version cache
@@ -400,6 +407,16 @@ func (s *Store) Invalidate(trackID uint32) {
 	}
 }
 
+// InvalidateAll drops every in-memory result so the next Get for each track
+// re-reads the disk cache — where the staleness check re-analyzes anything it
+// now rejects (e.g. after the BPM range changed). On-disk entries are left for
+// that per-track check to discard lazily; nothing is re-analyzed up front.
+func (s *Store) InvalidateAll() {
+	s.mu.Lock()
+	s.results = make(map[uint32]*Result)
+	s.mu.Unlock()
+}
+
 // RenameCachedPath moves the on-disk analysis cache from the slot
 // keyed by `oldPath` to the one keyed by `newPath` so a path remap
 // doesn't force re-analysis. Silently noops when there's no cache.
@@ -464,6 +481,16 @@ func (s *Store) loadFromDisk(filePath string) *Result {
 		os.Remove(path)
 		return nil
 	}
+	if curMin, curMax := TempoRange(); r.TempoMinBPM != curMin || r.TempoMaxBPM != curMax {
+		// The BPM range changed since this was cached. The BPM and grid were fit
+		// under the old range, so re-analyze under the new one. Unlike a version
+		// bump we do not carry a user-edited grid across: an edit made at the old
+		// tempo is meaningless once the tempo refolds.
+		log.Printf("analysis-cache: tempo range changed (was %g-%g, now %g-%g), re-analyzing %s",
+			r.TempoMinBPM, r.TempoMaxBPM, curMin, curMax, filepath.Base(path))
+		os.Remove(path)
+		return nil
+	}
 	return &r
 }
 
@@ -505,6 +532,7 @@ func AnalyzeTrack(filePath string) (*Result, error) {
 		DownbeatIndex: downbeatIdx,
 		Phrases:       phrases,
 	}
+	r.TempoMinBPM, r.TempoMaxBPM = TempoRange()
 
 	// ---- encode to the installed wire format (Pioneer today) ----
 	waveformEncoder.Encode(samples, AnalysisRate, r, beatResult)
