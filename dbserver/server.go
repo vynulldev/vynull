@@ -382,6 +382,18 @@ func (s *Server) handleSession(ctx context.Context, conn net.Conn) {
 			return
 		}
 
+		// Log each request's type and its first argument, which for menu /
+		// metadata requests is the descriptor encoding player, slot, and track
+		// type (e.g. 0x<player><?><slot><type>). Useful for seeing exactly what
+		// a client like prolink-tools asks for. Debug level to keep normal
+		// sessions quiet; run with --log-level debug to watch.
+		if len(msg.Args) > 0 {
+			dlog.Debugf("dbserver request type=0x%04x arg0=0x%08x nargs=%d from %s",
+				msg.Type, uint32(msg.Args[0].Int()), len(msg.Args), conn.RemoteAddr())
+		} else {
+			dlog.Debugf("dbserver request type=0x%04x nargs=0 from %s", msg.Type, conn.RemoteAddr())
+		}
+
 		// 0x0100 = Teardown. Peer is politely closing — notify so the
 		// device layer can drop them from the active peer list immediately
 		// (otherwise we wait up to 5s for keep-alive timeout).
