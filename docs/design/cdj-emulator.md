@@ -61,7 +61,9 @@
   - `device.SimDeck` — the playhead/grid clock: load/play/pause/cue/seek/pitch, beat-in-track + beat-in-bar derivation, end-of-track, effective BPM; injectable clock.
   - Broadcast wiring — `--simulate` (implies `--mode cdj`) attaches a `SimDeck`; the CDJ status loop emits a dynamic playing status (with a sequence counter) from its snapshot, else the idle status.
   - Control surface — `/api/sim/{status,load,play,pause,cue,seek,pitch,eject}` and `vynull sim ...`, both covered by tests.
-- **Next (1b):** the 0x28 beat emitter — gated on a real-CDJ capture (Phase 0). Until then, our monitor/overlay reflect the virtual deck from the 0x0a status alone (they interpolate beats), so the test rig is already usable.
+  - Local monitor feed — `listenStatus` drops packets from our own IP, so the emulator is invisible to our own UI off the wire. In `--simulate` the broadcast loop parses the very bytes it sends and feeds them to the monitor, so the virtual deck shows up in `/api/players`, the TUI, the now-playing card (it resolves from our own DB, and `selectNowPlaying` only needs playing + a title), MPRIS, and history. This is what makes the self-contained test rig work on one host.
+- **Next (1b):** the 0x28 beat emitter — gated on a real-CDJ capture (Phase 0). Until then, our monitor/overlay reflect the virtual deck from the 0x0a status alone (beat phase is approximate without the per-beat tick), so the test rig is already usable.
+- **Phase 1c — web control panel.** Load/play/pause/cue/seek/pitch the virtual deck from the web UI (a panel over the `/api/sim` endpoints), so a simulated CDJ can be driven from the browser rather than only the CLI/API. Not in 1a.
 - **Also pending:** a live visual check (point the web overlay / monitor at a `--simulate` instance and confirm a loaded track plays, advances, and reaches the end); and, when `api-spec` merges, add the `/api/sim` routes + `SimDeckStatus` schema to the OpenAPI spec.
 
 ## Rough phasing

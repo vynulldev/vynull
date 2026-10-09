@@ -593,6 +593,16 @@ func (d *VirtualDevice) statusBroadcastLoop(ctx context.Context) {
 					d.simPktNum++
 					p.PacketNum = d.simPktNum
 					pkt = proto.MarshalStatusCDJPlaying(d.Name, d.DeviceNumber, d.MediaSlot, d.TrackCount, ds, p)
+					// Feed our own virtual deck into the monitor. listenStatus
+					// drops packets from our own IP, so the emulator would
+					// otherwise be invisible to our own UI/overlay/MPRIS/history.
+					// Parsing the very bytes we broadcast keeps the local view
+					// identical to what any peer sees on the wire.
+					if d.Monitor != nil {
+						if st, ok := proto.ParseCDJStatus(pkt); ok {
+							d.Monitor.Update(st)
+						}
+					}
 				} else {
 					pkt = proto.MarshalStatusCDJ(d.Name, d.DeviceNumber, d.MediaSlot, d.TrackCount, ds)
 				}
