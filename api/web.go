@@ -7,7 +7,26 @@ import (
 	"io/fs"
 	"net/http"
 	"strings"
+
+	apidocs "github.com/vynulldev/vynull/docs/api"
 )
+
+// registerAPIDocs serves the API's own documentation, always (not gated on
+// --web) so the HTTP API is self-describing: the OpenAPI spec at
+// /api/openapi.yaml, a browsable self-hosted Swagger UI at /api/docs, and its
+// vendored assets under /api/swagger/. No CDN dependency — works offline.
+func registerAPIDocs(mux *http.ServeMux) {
+	mux.HandleFunc("/api/openapi.yaml", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/yaml")
+		w.Write(apidocs.Spec)
+	})
+	mux.HandleFunc("/api/docs", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.Write(apidocs.DocsHTML)
+	})
+	swaggerSub, _ := fs.Sub(apidocs.SwaggerFS, "swagger")
+	mux.Handle("/api/swagger/", http.StripPrefix("/api/swagger/", http.FileServer(http.FS(swaggerSub))))
+}
 
 //go:embed web/index.html
 var webIndexHTML []byte

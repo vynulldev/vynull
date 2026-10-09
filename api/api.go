@@ -294,6 +294,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/peers", s.handlePeers)
 	mux.HandleFunc("/api/players", s.handlePlayers)
 	mux.HandleFunc("/api/nowplaying", s.handleNowPlaying)
+	mux.HandleFunc("/api/events", s.handleEvents)
 	mux.HandleFunc("/api/overlay/config", s.handleOverlayConfig)
 	mux.HandleFunc("/api/history", s.handleHistory)
 	mux.HandleFunc("/api/tracks", s.handleTracks)
@@ -376,10 +377,34 @@ func (s *Server) Handler() http.Handler {
 		}
 	})
 
+	// API documentation (spec + self-hosted Swagger UI). Always on, so the API
+	// is self-describing even for a headless daemon with --web off.
+	registerAPIDocs(mux)
+
 	if s.Web {
 		RegisterWebUI(mux)
 	}
-	return mux
+	return corsMiddleware(mux)
+}
+
+// corsMiddleware adds permissive CORS to every response and answers preflight
+// OPTIONS requests uniformly, so a frontend served from another origin or
+// device can call the API. Vynull is a trusted-LAN tool with no auth; this just
+// makes the already-open posture consistent across every endpoint instead of
+// the former per-handler patchwork (those handlers set the same header, so they
+// remain correct — this just guarantees it everywhere, preflight included).
+func corsMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		h := w.Header()
+		h.Set("Access-Control-Allow-Origin", "*")
+		h.Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, HEAD, OPTIONS")
+		h.Set("Access-Control-Allow-Headers", "Content-Type")
+		if r.Method == http.MethodOptions {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
 }
 
 func (s *Server) Start(ctx context.Context) error {
