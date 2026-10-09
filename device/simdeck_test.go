@@ -186,3 +186,89 @@ func TestSimDeckDownbeatOffset(t *testing.T) {
 		t.Errorf("BeatInBar at index 0 with downbeat 2 = %d, want 3", s.BeatInBar)
 	}
 }
+
+func TestSimManager(t *testing.T) {
+	mgr := NewSimManager()
+	if mgr.Len() != 0 {
+		t.Fatalf("new manager has %d decks, want 0", mgr.Len())
+	}
+
+	// Auto-assign fills 1,2,3,4 in order.
+	for want := uint8(1); want <= MaxSimDecks; want++ {
+		n, err := mgr.Add(0)
+		if err != nil {
+			t.Fatalf("Add(0) #%d: %v", want, err)
+		}
+		if n != want {
+			t.Errorf("Add(0) assigned %d, want %d", n, want)
+		}
+	}
+	// Full.
+	if _, err := mgr.Add(0); err == nil {
+		t.Error("Add past the cap should fail")
+	}
+	if _, err := mgr.Add(2); err == nil {
+		t.Error("Add of a taken number should fail")
+	}
+
+	// Snapshots and Statuses are sorted and numbered.
+	snaps := mgr.Snapshots()
+	if len(snaps) != 4 {
+		t.Fatalf("Snapshots len = %d", len(snaps))
+	}
+	for i, sn := range snaps {
+		if sn.Number != uint8(i+1) {
+			t.Errorf("snapshot[%d].Number = %d", i, sn.Number)
+		}
+	}
+	for i, st := range mgr.Statuses() {
+		if st.Number != uint8(i+1) {
+			t.Errorf("status[%d].Number = %d", i, st.Number)
+		}
+	}
+
+	// Remove then re-add the freed slot.
+	if err := mgr.Remove(2); err != nil {
+		t.Fatalf("Remove(2): %v", err)
+	}
+	if err := mgr.Remove(2); err == nil {
+		t.Error("Remove of a gone deck should fail")
+	}
+	if n, _ := mgr.Add(0); n != 2 {
+		t.Errorf("Add(0) after removing 2 gave %d, want 2", n)
+	}
+
+	// Renumber keeps the deck's loaded state.
+	d := mgr.Get(1)
+	d.Load(99, 3, proto.SlotUSB, 1, grid(10, 120), 0, 5000, 120)
+	if err := mgr.Renumber(1, 2); err == nil {
+		t.Error("renumber onto a taken number should fail")
+	}
+	mgr.Remove(2)
+	if err := mgr.Renumber(1, 2); err != nil {
+		t.Fatalf("Renumber(1,2): %v", err)
+	}
+	if mgr.Get(1) != nil {
+		t.Error("old number still present after renumber")
+	}
+	if got := mgr.Get(2); got == nil || got.Snapshot().TrackID != 99 {
+		t.Error("renumbered deck lost its loaded track")
+	}
+	if err := mgr.Renumber(2, 9); err == nil {
+		t.Error("renumber out of range should fail")
+	}
+}
+
+func TestSimManagerInjectedClock(t *testing.T) {
+	clk := &fakeClock{t: time.Unix(1_700_000_000, 0)}
+	mgr := NewSimManager()
+	mgr.now = clk.now
+	n, _ := mgr.Add(0)
+	d := mgr.Get(n)
+	d.Load(1, 3, proto.SlotUSB, 1, grid(600, 120), 0, 300000, 120)
+	d.Play()
+	clk.advance(1 * time.Second)
+	if st := d.Status(); st.PositionMs < 990 || st.PositionMs > 1010 {
+		t.Errorf("manager deck not driven by injected clock: pos %.1f", st.PositionMs)
+	}
+}
