@@ -44,7 +44,7 @@ var cliCommands = []struct {
 	{name: "players", desc: "connected players and what they're playing"},
 	{name: "playlists", desc: "playlists with counts"},
 	{name: "status", desc: "server, analysis, and link state"},
-	{name: "sim", args: "<status|add|remove|renumber|load|play|pause|cue|seek|pitch|eject> [args] [--deck N]", desc: "manage and drive virtual playing CDJs (server needs --simulate)"},
+	{name: "sim", args: "<status|add|remove|renumber|load|play|pause|cue|seek|pitch|onair|master|eject> [args] [--deck N]", desc: "manage and drive virtual playing CDJs (server needs --simulate)"},
 }
 
 // The handlers are bound here rather than in the literal: cliFlags reads
@@ -464,6 +464,9 @@ type cliSimStatus struct {
 	PitchPct     float64 `json:"pitch_pct"`
 	BeatInTrack  uint32  `json:"beat_in_track"`
 	BeatInBar    uint8   `json:"beat_in_bar"`
+	OnAir        bool    `json:"on_air"`
+	Master       bool    `json:"master"`
+	Sync         bool    `json:"sync"`
 }
 
 type cliSimDecks struct {
@@ -510,7 +513,7 @@ func cliSim(args []string) error {
 		}
 	}
 
-	c, rest, err := cliFlags("sim <status|add|remove|renumber|load|play|pause|cue|seek|pitch|eject> [args] [--deck N]", filtered, true)
+	c, rest, err := cliFlags("sim <status|add|remove|renumber|load|play|pause|cue|seek|pitch|onair|master|eject> [args] [--deck N]", filtered, true)
 	if err != nil {
 		return err
 	}
@@ -600,6 +603,19 @@ func cliSim(args []string) error {
 			return fmt.Errorf("pitch must be a number (got %q)", rest[0])
 		}
 		err = c.post(base+"pitch", map[string]any{"pitch_pct": pct}, &st)
+	case "onair", "master":
+		on := true
+		if len(rest) > 0 {
+			switch strings.ToLower(rest[0]) {
+			case "on", "true", "1", "yes":
+				on = true
+			case "off", "false", "0", "no":
+				on = false
+			default:
+				return fmt.Errorf("usage: vynull sim %s [on|off] [--deck N]", action)
+			}
+		}
+		err = c.post(base+action, map[string]any{"on": on}, &st)
 	default:
 		return fmt.Errorf("unknown sim action %q", action)
 	}
@@ -611,13 +627,31 @@ func cliSim(args []string) error {
 		return json.NewEncoder(os.Stdout).Encode(st)
 	}
 	if !st.Loaded {
-		fmt.Printf("player %d: %s (no track)\n", st.Number, st.State)
+		fmt.Printf("player %d: %s%s (no track)\n", st.Number, st.State, simFlagsStr(st))
 		return nil
 	}
-	fmt.Printf("player %d: %s  %s/%s  %.1f→%.1f BPM  pitch %s  beat %d (%d/4)  track #%d\n",
-		st.Number, st.State, fmtMs(st.PositionMs), fmtMs(st.DurationMs),
+	fmt.Printf("player %d: %s%s  %s/%s  %.1f→%.1f BPM  pitch %s  beat %d (%d/4)  track #%d\n",
+		st.Number, st.State, simFlagsStr(st), fmtMs(st.PositionMs), fmtMs(st.DurationMs),
 		st.BPM, st.EffectiveBPM, simPitchStr(st.PitchPct), st.BeatInTrack, st.BeatInBar, st.TrackID)
 	return nil
+}
+
+// simFlagsStr renders the active on-air/master/sync flags as a compact suffix.
+func simFlagsStr(st cliSimStatus) string {
+	var f []string
+	if st.OnAir {
+		f = append(f, "ON-AIR")
+	}
+	if st.Master {
+		f = append(f, "MASTER")
+	}
+	if st.Sync {
+		f = append(f, "SYNC")
+	}
+	if len(f) == 0 {
+		return ""
+	}
+	return " [" + strings.Join(f, " ") + "]"
 }
 
 // simDefaultDeck returns the lowest-numbered deck, erroring when none exist.
@@ -646,15 +680,19 @@ func (c *cliClient) cliSimList() error {
 		return nil
 	}
 	w := tabwriter.NewWriter(os.Stdout, 2, 4, 2, ' ', 0)
-	fmt.Fprintln(w, "DECK\tSTATE\tPOS/DUR\tBPM\tPITCH\tTRACK")
+	fmt.Fprintln(w, "DECK\tSTATE\tPOS/DUR\tBPM\tPITCH\tFLAGS\tTRACK")
 	for _, d := range list.Decks {
 		track, bpm := "-", "-"
 		if d.Loaded {
 			track = fmt.Sprintf("#%d", d.TrackID)
 			bpm = fmt.Sprintf("%.1f→%.1f", d.BPM, d.EffectiveBPM)
 		}
-		fmt.Fprintf(w, "%d\t%s\t%s/%s\t%s\t%s\t%s\n",
-			d.Number, d.State, fmtMs(d.PositionMs), fmtMs(d.DurationMs), bpm, simPitchStr(d.PitchPct), track)
+		flags := strings.TrimSpace(strings.Trim(simFlagsStr(d), "[]"))
+		if flags == "" {
+			flags = "-"
+		}
+		fmt.Fprintf(w, "%d\t%s\t%s/%s\t%s\t%s\t%s\t%s\n",
+			d.Number, d.State, fmtMs(d.PositionMs), fmtMs(d.DurationMs), bpm, simPitchStr(d.PitchPct), flags, track)
 	}
 	return w.Flush()
 }

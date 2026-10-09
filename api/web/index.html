@@ -3589,6 +3589,11 @@
     .sim-btn:hover:not(:disabled) { border-color: var(--accent, #ff7714); }
     .sim-btn:disabled { opacity: .4; cursor: default; }
     .sim-btn.primary { background: var(--accent, #ff7714); color: #0d0f12; border-color: var(--accent, #ff7714); font-weight: 700; }
+    .sim-flags { display: flex; gap: 6px; margin-bottom: 14px; }
+    .sim-chip { flex: 1 1 auto; padding: 6px 8px; background: #1c1f26; color: var(--dim, #8a8f99); border: 1px solid var(--line, #2a2d35); border-radius: 6px; font: inherit; font-size: 11px; letter-spacing: .08em; cursor: pointer; }
+    .sim-chip:hover { border-color: var(--accent, #ff7714); }
+    .sim-onair.active { background: #e2554e; color: #fff; border-color: #e2554e; }
+    .sim-master.active { background: var(--accent, #ff7714); color: #0d0f12; border-color: var(--accent, #ff7714); }
     .sim-pitch label { display: flex; justify-content: space-between; font-size: 12px; color: var(--dim, #8a8f99); margin-bottom: 4px; }
     .sim-pitch-reset { background: none; border: none; color: var(--accent, #ff7714); cursor: pointer; font: inherit; font-size: 11px; }
     .sim-load-head { font-size: 12px; letter-spacing: .12em; color: var(--dim, #8a8f99); margin-bottom: 10px; display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
@@ -4041,6 +4046,10 @@ function simBuildCards(decks) {
         '<button type="button" class="sim-btn sim-cue" title="Cue to start">⏮</button>' +
         '<button type="button" class="sim-btn sim-eject" title="Eject">⏏</button>' +
       '</div>' +
+      '<div class="sim-flags">' +
+        '<button type="button" class="sim-chip sim-onair" title="Mixer channel up — now-playing overlays follow this">ON-AIR</button>' +
+        '<button type="button" class="sim-chip sim-master" title="Tempo master">MASTER</button>' +
+      '</div>' +
       '<div class="sim-pitch">' +
         '<label>PITCH <span><span class="sim-pitch-val">+0.0%</span> <button type="button" class="sim-pitch-reset">reset</button></span></label>' +
         '<input type="range" class="sim-pitch-range" min="-100" max="100" value="0" step="0.5">' +
@@ -4080,6 +4089,8 @@ function simWireCard(card, num) {
     simDo(base + 'pitch', { pitch_pct: Number(pitch.value) });
   });
   card.querySelector('.sim-pitch-reset').addEventListener('click', () => simDo(base + 'pitch', { pitch_pct: 0 }));
+  card.querySelector('.sim-onair').addEventListener('click', (e) => simDo(base + 'onair', { on: !e.currentTarget.classList.contains('active') }));
+  card.querySelector('.sim-master').addEventListener('click', (e) => simDo(base + 'master', { on: !e.currentTarget.classList.contains('active') }));
 }
 
 function simUpdateCard(d) {
@@ -4115,6 +4126,8 @@ function simUpdateCard(d) {
   card.querySelector('.sim-pause').disabled = !loaded || !d.playing;
   card.querySelector('.sim-cue').disabled = !loaded;
   card.querySelector('.sim-eject').disabled = !loaded;
+  card.querySelector('.sim-onair').classList.toggle('active', !!d.on_air);
+  card.querySelector('.sim-master').classList.toggle('active', !!d.master);
 }
 
 function simSyncLoadTarget(nums) {

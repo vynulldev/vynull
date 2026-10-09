@@ -35,6 +35,8 @@ type simListResponse struct {
 //	play|pause|cue|eject    POST
 //	seek                    POST  {position_ms}
 //	pitch                   POST  {pitch_pct}
+//	onair                   POST  {on}            mixer channel up (now-playing)
+//	master                  POST  {on}            tempo master
 //
 // See docs/design/cdj-emulator.md.
 func (s *Server) handleSim(w http.ResponseWriter, r *http.Request) {
@@ -171,6 +173,24 @@ func (s *Server) handleSimDeck(w http.ResponseWriter, r *http.Request, num uint8
 			return
 		}
 		deck.SetPitch(req.PitchPct)
+	case "onair":
+		var req struct {
+			On bool `json:"on"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, "invalid JSON: "+err.Error(), http.StatusBadRequest)
+			return
+		}
+		deck.SetOnAir(req.On)
+	case "master":
+		var req struct {
+			On bool `json:"on"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, "invalid JSON: "+err.Error(), http.StatusBadRequest)
+			return
+		}
+		deck.SetMaster(req.On)
 	case "load":
 		if !s.simLoad(w, r, deck) {
 			return
