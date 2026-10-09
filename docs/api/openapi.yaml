@@ -32,9 +32,11 @@ info:
     and answers preflight `OPTIONS` uniformly, so a browser frontend on another
     origin works out of the box. Native apps are unaffected either way.
 
-    **Live updates.** Poll-based today: poll `/api/players` / `/api/nowplaying`
-    (~1 Hz is what the web UI uses). `beat_age_ms` is the sub-beat phase, so a
-    client can interpolate a playhead between beats. An SSE push stream is planned.
+    **Live updates.** `GET /api/events` is a Server-Sent Events stream that
+    pushes live deck + now-playing state on change (no polling). `beat_age_ms`
+    on the live shapes is the sub-beat phase, so a client interpolates the
+    playhead between events. You can still poll `/api/players` / `/api/nowplaying`
+    if you prefer.
 
     **Success acks.** Many write endpoints reply with a small object. Note a
     historical quirk: some use the key `"OK"` (capitalised) and some `"ok"`; the
@@ -90,6 +92,23 @@ paths:
       summary: The audible deck's now-playing projection (what MPRIS/overlay show).
       responses:
         "200": { description: OK, content: { application/json: { schema: { $ref: "#/components/schemas/NowPlaying" } } } }
+
+  /api/events:
+    get:
+      tags: [Status & Players]
+      summary: Server-Sent Events stream of live deck + now-playing state.
+      description: |
+        An SSE stream (`text/event-stream`). Each message is an `event: state`
+        carrying `{players, nowplaying}` (same shapes as /api/players and
+        /api/nowplaying), sent on change (~4 Hz while a deck is active) with
+        `: ping` heartbeats when idle. Interpolate the playhead between events
+        with `beat_age_ms`. Open with `new EventSource("/api/events")`.
+      responses:
+        "200":
+          description: The event stream.
+          content:
+            text/event-stream:
+              schema: { type: string }
 
   /api/peers:
     get:
