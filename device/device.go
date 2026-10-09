@@ -42,6 +42,14 @@ type VirtualDevice struct {
 	Monitor  *PlayerMonitor
 	Settings *CDJSettings
 
+	// Sim, when non-nil, turns this device into a virtual playing CDJ:
+	// statusBroadcastLoop emits a dynamic playing status (0x0a) built from
+	// the deck's snapshot in place of the static idle status. Enabled by
+	// --simulate. See docs/design/cdj-emulator.md. simPktNum is the status
+	// sequence counter, touched only by the broadcast goroutine.
+	Sim       *SimDeck
+	simPktNum uint32
+
 	announceConn    *net.UDPConn
 	statusConn      *net.UDPConn
 	beatConn        *net.UDPConn
@@ -577,7 +585,17 @@ func (d *VirtualDevice) statusBroadcastLoop(ctx context.Context) {
 				if d.Settings != nil {
 					ds = d.Settings.GetDevSetting()
 				}
-				pkt := proto.MarshalStatusCDJ(d.Name, d.DeviceNumber, d.MediaSlot, d.TrackCount, ds)
+				var pkt []byte
+				if d.Sim != nil {
+					// Virtual playing deck: emit a dynamic status from
+					// the deck snapshot, with an incrementing sequence.
+					p := d.Sim.Snapshot()
+					d.simPktNum++
+					p.PacketNum = d.simPktNum
+					pkt = proto.MarshalStatusCDJPlaying(d.Name, d.DeviceNumber, d.MediaSlot, d.TrackCount, ds, p)
+				} else {
+					pkt = proto.MarshalStatusCDJ(d.Name, d.DeviceNumber, d.MediaSlot, d.TrackCount, ds)
+				}
 				d.sendStatus(pkt, dst)
 			}
 		}
