@@ -3915,8 +3915,11 @@ function simBeatFrame() {
     if (!a || !a.playing || a.eff <= 0 || a.beatInBar < 1) continue;
     const card = document.querySelector('.sim-card[data-deck="' + n + '"]');
     if (!card) continue;
-    const beatsElapsed = Math.floor((now - a.at) / (60000 / a.eff));
-    const b = ((a.beatInBar - 1 + beatsElapsed) % 4 + 4) % 4 + 1;
+    // Start partway (a.frac) into the current beat, so the next flip happens
+    // at the right wall-clock moment and the dots never freeze or jump.
+    const elapsedBeats = (now - a.at) * a.eff / 60000;
+    const crossings = Math.floor(a.frac + elapsedBeats);
+    const b = ((a.beatInBar - 1 + crossings) % 4 + 4) % 4 + 1;
     card.querySelector('.sim-beat').textContent = simDots(b);
   }
   if (simEnabled && simTabActive()) requestAnimationFrame(simBeatFrame);
@@ -4094,7 +4097,7 @@ function simUpdateCard(d) {
   }
   // Beat indicator: anchor the rAF animator to this authoritative beat and
   // render it once now; the animator extrapolates between polls (see below).
-  simBeatAnchor[d.number] = { beatInBar: d.beat_in_bar, eff: d.effective_bpm || 0, playing: loaded && d.playing, at: performance.now() };
+  simBeatAnchor[d.number] = { beatInBar: d.beat_in_bar, frac: d.beat_fraction || 0, eff: d.effective_bpm || 0, playing: loaded && d.playing, at: performance.now() };
   card.querySelector('.sim-beat').textContent = (loaded && d.beat_in_bar >= 1 && d.beat_in_bar <= 4) ? simDots(d.beat_in_bar) : '';
   simDur[d.number] = d.duration_ms || 0;
   card.querySelector('.sim-dur').textContent = fmtClock(simDur[d.number]);

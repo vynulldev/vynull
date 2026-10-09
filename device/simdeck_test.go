@@ -187,6 +187,23 @@ func TestSimDeckDownbeatOffset(t *testing.T) {
 	}
 }
 
+func TestSimDeckBeatFraction(t *testing.T) {
+	d, clk := newTestDeck()
+	// 120 BPM => 500 ms/beat.
+	d.Load(1, 17, proto.SlotUSB, 1, grid(600, 120), 0, 300000, 120)
+	d.Play()
+	// Quarter of the way into the first beat.
+	clk.advance(125 * time.Millisecond)
+	if f := d.Status().BeatFraction; f < 0.24 || f > 0.26 {
+		t.Errorf("at 125ms of a 500ms beat, fraction = %.3f, want ~0.25", f)
+	}
+	// Three-quarters of the way through the next beat.
+	clk.advance(750 * time.Millisecond) // now 875ms => beat index 1, 375ms in
+	if f := d.Status().BeatFraction; f < 0.74 || f > 0.76 {
+		t.Errorf("at 875ms, fraction = %.3f, want ~0.75", f)
+	}
+}
+
 func TestSimManager(t *testing.T) {
 	mgr := NewSimManager()
 	if mgr.Len() != 0 {

@@ -208,12 +208,13 @@ func (d *SimDeck) normalizeLocked(t time.Time) {
 	}
 }
 
-// beatPositionLocked derives the beat-in-track (1-based) and beat-in-bar (1-4)
-// from the playhead. Returns (0xFFFFFFFF, 0) when there is no grid. Caller
-// holds d.mu.
-func (d *SimDeck) beatPositionLocked() (uint32, uint8) {
+// beatPositionLocked derives the beat-in-track (1-based), beat-in-bar (1-4),
+// and the fraction (0..1) of the way through the current beat from the
+// playhead. Returns (0xFFFFFFFF, 0, 0) when there is no grid. The fraction lets
+// a client animate the beat smoothly between status samples. Caller holds d.mu.
+func (d *SimDeck) beatPositionLocked() (uint32, uint8, float64) {
 	if len(d.beats) == 0 {
-		return 0xFFFFFFFF, 0
+		return 0xFFFFFFFF, 0, 0
 	}
 	// Count of beats at or before the playhead.
 	n := sort.Search(len(d.beats), func(k int) bool { return d.beats[k] > d.posMs })
@@ -228,7 +229,28 @@ func (d *SimDeck) beatPositionLocked() (uint32, uint8) {
 	}
 	rel := beatIdx - d.downbeat
 	beatInBar := uint8(((rel%4)+4)%4) + 1
-	return beatInTrack, beatInBar
+
+	// Sub-beat phase: how far into the current beat the playhead sits, using
+	// the next beat's spacing (or the previous beat's past the grid's end).
+	frac := 0.0
+	if n > 0 {
+		var period float64
+		switch {
+		case n < len(d.beats):
+			period = d.beats[n] - d.beats[beatIdx]
+		case beatIdx > 0:
+			period = d.beats[beatIdx] - d.beats[beatIdx-1]
+		}
+		if period > 0 {
+			frac = (d.posMs - d.beats[beatIdx]) / period
+			if frac < 0 {
+				frac = 0
+			} else if frac > 1 {
+				frac = 1
+			}
+		}
+	}
+	return beatInTrack, beatInBar, frac
 }
 
 // Snapshot returns the current dynamic status fields. PacketNum is left zero
@@ -242,7 +264,7 @@ func (d *SimDeck) Snapshot() proto.CDJPlayState {
 	if d.bpm > 0 {
 		bpm = uint16(math.Round(d.bpm * 100))
 	}
-	beatInTrack, beatInBar := d.beatPositionLocked()
+	beatInTrack, beatInBar, _ := d.beatPositionLocked()
 
 	return proto.CDJPlayState{
 		PlayState:   d.state,
@@ -274,6 +296,7 @@ type SimDeckStatus struct {
 	PitchPct     float64 `json:"pitch_pct"`
 	BeatInTrack  uint32  `json:"beat_in_track"`
 	BeatInBar    uint8   `json:"beat_in_bar"`
+	BeatFraction float64 `json:"beat_fraction"` // 0..1 through the current beat, for smooth client animation
 }
 
 // Status returns the deck's current state for display.
@@ -281,7 +304,7 @@ func (d *SimDeck) Status() SimDeckStatus {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	d.normalizeLocked(d.now())
-	beatInTrack, beatInBar := d.beatPositionLocked()
+	beatInTrack, beatInBar, frac := d.beatPositionLocked()
 	eff := d.bpm * d.rate()
 	return SimDeckStatus{
 		Loaded:       d.state != proto.PlayStateNoTrack,
@@ -295,6 +318,7 @@ func (d *SimDeck) Status() SimDeckStatus {
 		PitchPct:     d.pitchPct,
 		BeatInTrack:  beatInTrack,
 		BeatInBar:    beatInBar,
+		BeatFraction: frac,
 	}
 }
 
