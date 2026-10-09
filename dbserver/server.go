@@ -142,6 +142,11 @@ type Server struct {
 	// Ready, if non-nil, is closed once the listeners are bound and QueryPort
 	// is valid. Used by the conformance server to learn the dynamic port.
 	Ready chan struct{}
+	// EnsureArtwork, if set, resolves a track's artwork ID, extracting the
+	// embedded cover on demand. Lets a track a deck plays get its cover served
+	// even if it was never requested through the web UI. Wired to the API
+	// server's EnsureArtwork.
+	EnsureArtwork func(trackID uint32) uint32
 
 	discoveryLn net.Listener
 	dynamicLn   net.Listener
@@ -416,6 +421,7 @@ func (s *Server) handleSession(ctx context.Context, conn net.Conn) {
 		menu:         s.Menu,
 		cues:         s.Cues,
 		settings:     s.Settings,
+		ensureArt:    s.EnsureArtwork,
 	}
 
 	for {

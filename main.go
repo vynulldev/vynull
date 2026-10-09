@@ -674,6 +674,11 @@ func main() {
 	if cfg.Web {
 		log.Printf("web UI enabled: http://%s/", displayAddr(cfg.Listen))
 	}
+
+	// Let the dbserver resolve artwork through the API server's lazy extractor,
+	// so a track a deck plays gets its embedded cover served on demand even if
+	// it was never requested through the web UI.
+	db.EnsureArtwork = apiSrv.EnsureArtwork
 	// MPRIS: mirror the audible deck to the desktop's media surfaces. Missing
 	// session bus (headless) is normal — debug-log and move on.
 	if cfg.MPRIS {
