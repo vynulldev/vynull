@@ -98,9 +98,13 @@ func (s *Server) simLoad(w http.ResponseWriter, r *http.Request) bool {
 		http.Error(w, "analysis store not available", http.StatusServiceUnavailable)
 		return false
 	}
-	res := s.Analysis.Get(req.TrackID)
+	// getOrAnalyze (not Analysis.Get) so a track analyzed in an earlier session
+	// loads: it resolves the file path from the library/PDB and pulls the
+	// on-disk cache, analyzing synchronously only as a last resort. Plain Get
+	// misses because the in-memory map and path map are empty after a restart.
+	res := s.getOrAnalyze(req.TrackID)
 	if res == nil {
-		http.Error(w, "no analysis for track (analyze it first)", http.StatusNotFound)
+		http.Error(w, "track not found, or analysis unavailable", http.StatusNotFound)
 		return false
 	}
 
