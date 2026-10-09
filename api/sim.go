@@ -213,13 +213,15 @@ func (s *Server) simLoad(w http.ResponseWriter, r *http.Request, deck *device.Si
 		return false
 	}
 
-	// The deck is loaded "from us": our device number is the source, so the
-	// monitor resolves the track against our own database (externalSource is
-	// false). USB slot, rekordbox type.
+	// The deck plays a track linked from our rekordbox library: the source is
+	// our own device number (rekordbox slot, rekordbox type). So our monitor
+	// resolves it locally (externalSource is false, since TrackDevice == our
+	// SelfDevice) and metadata clients (prolink-tools) query our dbserver as
+	// the rekordbox source.
 	deck.Load(
 		req.TrackID,
 		s.Device.DeviceNumber,
-		proto.SlotUSB,
+		proto.SlotRekordbox,
 		1,
 		res.Beats,
 		res.DownbeatIndex,
