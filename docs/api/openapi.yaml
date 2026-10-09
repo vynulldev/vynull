@@ -255,6 +255,45 @@ paths:
         "404": { description: Target CDJ not found. }
         "503": { description: No peers connected. }
 
+  /api/audio/{trackID}:
+    parameters: [ { name: trackID, in: path, required: true, schema: { type: integer, format: int64 } } ]
+    get:
+      tags: [Playback]
+      summary: Stream a library track's audio (for an in-browser or native player).
+      description: |
+        Serves the track's audio by library track ID — never an arbitrary path.
+        Honours HTTP Range so a player can seek (a Range request returns 206).
+        Native browser formats (mp3/wav/flac/ogg) are served directly; others
+        (AIFF, M4A/AAC, ...) are transcoded to WAV via ffmpeg, the same decoder
+        the analysis uses, so the player position lines up with the beat grid and
+        cues. The transcode is cached (size-capped) and seekable. The
+        `X-Audio-Source` response header reports `direct` or `transcoded`.
+      parameters:
+        - { name: transcode, in: query, schema: { type: string, enum: ["1"] }, description: Force the ffmpeg WAV path even for a natively playable format. }
+      responses:
+        "200":
+          description: Audio stream (a Range request returns 206 Partial Content).
+          headers:
+            X-Audio-Source: { schema: { type: string, enum: [direct, transcoded] } }
+            Accept-Ranges: { schema: { type: string, example: bytes } }
+          content:
+            audio/mpeg: { schema: { type: string, format: binary } }
+            audio/wav: { schema: { type: string, format: binary } }
+            audio/flac: { schema: { type: string, format: binary } }
+            audio/ogg: { schema: { type: string, format: binary } }
+        "206": { description: Partial content (Range request). }
+        "400": { description: track ID required. }
+        "404": { description: Track not found, or audio file missing/unreadable. }
+        "405": { description: Method not allowed (GET or HEAD only). }
+        "500": { description: Transcode failed. }
+        "503": { description: Library not available. }
+    head:
+      tags: [Playback]
+      summary: Headers only for the audio stream (size / type probe).
+      responses:
+        "200": { description: Headers (no body). }
+        "404": { description: Track not found / audio missing. }
+
   # -------------------------------------------------------------- Analysis
   /api/cues:
     get:
