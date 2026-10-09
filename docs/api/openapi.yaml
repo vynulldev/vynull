@@ -1,0 +1,860 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# Vynull HTTP API — OpenAPI 3 specification.
+#
+# This is the contract a frontend builds against. Vynull is a headless daemon;
+# the bundled web UI, the now-playing overlay, and MPRIS are all just clients of
+# this API. The goal of this document is to let anyone build a separate frontend
+# (a native app, a phone remote, an alternative UI) without reading the Go
+# handlers. Shapes are transcribed from the Go response structs in api/.
+
+openapi: 3.0.3
+
+info:
+  title: Vynull API
+  version: "0.5.x"
+  description: |
+    The HTTP/JSON control and library API for Vynull, a headless virtual
+    CDJ / rekordbox source on the Pro DJ Link network.
+
+    **Transport.** JSON over HTTP (`writeJSON` sets `application/json`). A few
+    endpoints return raw bytes: artwork and waveform-PNG return images, and the
+    preview waveform returns `application/octet-stream`. Error paths return
+    `text/plain` via `http.Error` with the status code.
+
+    **Auth.** None. Vynull is a trusted-LAN tool. It binds `127.0.0.1:9443` by
+    default; pass `--listen 0.0.0.0:9443` to reach it from another device (e.g. a
+    native frontend on a laptop talking to a daemon on a booth Pi). If you expose
+    it, you own the network boundary.
+
+    **CORS.** Most endpoints send `Access-Control-Allow-Origin: *`, but not all;
+    a browser frontend on another origin may hit gaps. Native apps are unaffected.
+
+    **Live updates.** Poll-based today: poll `/api/players` / `/api/nowplaying`
+    (~1 Hz is what the web UI uses). `beat_age_ms` is the sub-beat phase, so a
+    client can interpolate a playhead between beats. An SSE push stream is planned.
+
+    **Success acks.** Many write endpoints reply with a small object. Note a
+    historical quirk: some use the key `"OK"` (capitalised) and some `"ok"`; the
+    per-endpoint schemas below reflect the actual key.
+  license:
+    name: GPL-3.0-or-later
+    url: https://www.gnu.org/licenses/gpl-3.0.html
+
+servers:
+  - url: http://localhost:9443
+    description: Local daemon (default bind)
+  - url: http://{host}:{port}
+    description: A daemon reachable on the LAN (bind with --listen 0.0.0.0:9443)
+    variables:
+      host: { default: "192.168.1.10" }
+      port: { default: "9443" }
+
+tags:
+  - name: Status & Players
+  - name: Library
+  - name: Track edits
+  - name: Playlists
+  - name: Playback
+  - name: Analysis
+  - name: Import / Export
+  - name: Tags
+  - name: Settings & Menu
+  - name: Overlay
+  - name: Device link
+  - name: Diagnostics
+  - name: File browser
+
+paths:
+
+  # ---------------------------------------------------------------- Status
+  /api/status:
+    get:
+      tags: [Status & Players]
+      summary: Device status, peers, players, and analysis state.
+      responses:
+        "200": { description: OK, content: { application/json: { schema: { $ref: "#/components/schemas/StatusResponse" } } } }
+
+  /api/players:
+    get:
+      tags: [Status & Players]
+      summary: Live state of every connected CDJ.
+      responses:
+        "200": { description: OK, content: { application/json: { schema: { type: array, items: { $ref: "#/components/schemas/PlayerInfo" } } } } }
+
+  /api/nowplaying:
+    get:
+      tags: [Status & Players]
+      summary: The audible deck's now-playing projection (what MPRIS/overlay show).
+      responses:
+        "200": { description: OK, content: { application/json: { schema: { $ref: "#/components/schemas/NowPlaying" } } } }
+
+  /api/peers:
+    get:
+      tags: [Status & Players]
+      summary: Connected Pro DJ Link devices (players and mixers).
+      responses:
+        "200": { description: OK, content: { application/json: { schema: { type: array, items: { $ref: "#/components/schemas/PeerInfo" } } } } }
+
+  /api/history:
+    get:
+      tags: [Status & Players]
+      summary: Played-track history.
+      responses:
+        "200": { description: OK, content: { application/json: { schema: { type: array, items: { $ref: "#/components/schemas/HistoryItem" } } } } }
+
+  # ---------------------------------------------------------------- Library
+  /api/tracks:
+    get:
+      tags: [Library]
+      summary: The full library (trimmed per-row payload; detail via /api/tracks/{id}). Supports ETag / If-None-Match.
+      responses:
+        "200": { description: All tracks (gzipped)., content: { application/json: { schema: { type: array, items: { $ref: "#/components/schemas/TrackInfo" } } } } }
+        "304": { description: Not modified (ETag match). }
+
+  /api/tracks/rev:
+    get:
+      tags: [Library]
+      summary: Library revision counter (poll to detect changes).
+      responses:
+        "200": { description: OK, content: { application/json: { schema: { type: object, properties: { rev: { type: integer, format: int64 } } } } } }
+
+  /api/tracks/add:
+    post:
+      tags: [Library]
+      summary: Add files or folders (folders scanned recursively for mp3/m4a/flac/wav/aiff).
+      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [paths], properties: { paths: { type: array, items: { type: string } } } } } } }
+      responses:
+        "200":
+          description: "Synchronous (≤25 files) or started (>25)."
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - { type: object, properties: { status: { type: string, example: ok }, added: { type: integer }, total: { type: integer } } }
+                  - { type: object, properties: { status: { type: string, example: started }, async: { type: boolean }, job_id: { type: string }, total: { type: integer } } }
+        "400": { description: paths empty. }
+
+  /api/tracks/add/status:
+    get:
+      tags: [Library]
+      summary: Progress of a background add job.
+      parameters: [ { name: id, in: query, required: true, schema: { type: string } } ]
+      responses:
+        "200": { description: OK, content: { application/json: { schema: { type: object, properties: { total: {type: integer}, added: {type: integer}, failed: {type: integer}, skipped: {type: integer}, done: {type: boolean} } } } } }
+        "404": { description: Unknown or expired job. }
+
+  /api/tracks/reimport:
+    post:
+      tags: [Library]
+      summary: Re-read file tags for the given tracks (or all).
+      requestBody: { content: { application/json: { schema: { type: object, properties: { track_ids: { type: array, items: { type: integer, format: int64 } } } } } } }
+      responses:
+        "200": { description: OK, content: { application/json: { schema: { type: object, properties: { status: {type: string}, updated: {type: integer} } } } } }
+
+  /api/tracks/{id}:
+    parameters: [ { name: id, in: path, required: true, schema: { type: integer, format: int64 } } ]
+    get:
+      tags: [Library]
+      summary: One track with the full detail field set.
+      responses:
+        "200": { description: OK, content: { application/json: { schema: { $ref: "#/components/schemas/TrackInfo" } } } }
+        "404": { description: No such track. }
+    delete:
+      tags: [Library]
+      summary: Delete a track (cascades to playlists, tags, cues, analysis).
+      responses:
+        "200": { description: OK, content: { application/json: { schema: { $ref: "#/components/schemas/AckOK" } } } }
+        "404": { description: No such track. }
+
+  # ------------------------------------------------------------ Track edits
+  /api/tracks/{id}/metadata:
+    parameters: [ { name: id, in: path, required: true, schema: { type: integer, format: int64 } } ]
+    put: { tags: [Track edits], summary: Edit metadata (all fields optional/omitted-unchanged)., requestBody: { required: true, content: { application/json: { schema: { $ref: "#/components/schemas/TrackMetadataPatch" } } } }, responses: { "200": { description: Updated track., content: { application/json: { schema: { $ref: "#/components/schemas/TrackInfo" } } } }, "400": { description: Bad year/key. }, "404": { description: No such track. } } }
+    post: { tags: [Track edits], summary: Same as PUT., requestBody: { required: true, content: { application/json: { schema: { $ref: "#/components/schemas/TrackMetadataPatch" } } } }, responses: { "200": { description: Updated track., content: { application/json: { schema: { $ref: "#/components/schemas/TrackInfo" } } } } } }
+
+  /api/tracks/{id}/path:
+    parameters: [ { name: id, in: path, required: true, schema: { type: integer, format: int64 } } ]
+    put: { tags: [Track edits], summary: Relink a moved file (library DB only)., requestBody: { required: true, content: { application/json: { schema: { type: object, required: [path], properties: { path: { type: string } } } } } }, responses: { "200": { description: Updated track., content: { application/json: { schema: { $ref: "#/components/schemas/TrackInfo" } } } }, "400": { description: Empty path. }, "404": { description: No such track. } } }
+
+  /api/tracks/{id}/color:
+    parameters: [ { name: id, in: path, required: true, schema: { type: integer, format: int64 } } ]
+    get: { tags: [Track edits], summary: Get track colour., responses: { "200": { description: OK, content: { application/json: { schema: { type: object, properties: { color_id: { type: integer } } } } } } } }
+    put: { tags: [Track edits], summary: Set track colour (0 none, 1-8 palette)., requestBody: { required: true, content: { application/json: { schema: { type: object, properties: { color_id: { type: integer } } } } } }, responses: { "200": { description: OK, content: { application/json: { schema: { $ref: "#/components/schemas/AckOK" } } } } } }
+
+  /api/tracks/{id}/rating:
+    parameters: [ { name: id, in: path, required: true, schema: { type: integer, format: int64 } } ]
+    get: { tags: [Track edits], summary: Get rating (0-5)., responses: { "200": { description: OK, content: { application/json: { schema: { type: object, properties: { rating: { type: integer } } } } } } } }
+    put: { tags: [Track edits], summary: Set rating (clamped 0-5)., requestBody: { required: true, content: { application/json: { schema: { type: object, properties: { rating: { type: integer } } } } } }, responses: { "200": { description: OK, content: { application/json: { schema: { $ref: "#/components/schemas/AckOK" } } } } } }
+
+  /api/tracks/{id}/beats:
+    parameters: [ { name: id, in: path, required: true, schema: { type: integer, format: int64 } } ]
+    get: { tags: [Track edits], summary: Beat-grid summary., responses: { "200": { description: OK, content: { application/json: { schema: { type: object, properties: { bpm: {type: number}, detected_bpm: {type: number}, beat_phase_shift: {type: integer} } } } } } } }
+    put:
+      tags: [Track edits]
+      summary: Adjust BPM / phase, or clear to re-detect.
+      requestBody: { required: true, content: { application/json: { schema: { type: object, properties: { bpm: {type: number}, beat_phase_shift: {type: integer}, clear: {type: boolean} } } } } }
+      responses: { "200": { description: OK, content: { application/json: { schema: { type: object, properties: { ok: {type: boolean}, bpm: {type: number}, detected_bpm: {type: number}, beat_phase_shift: {type: integer} } } } } }, "404": { description: No such track. } }
+
+  /api/tracks/{id}/tags:
+    parameters: [ { name: id, in: path, required: true, schema: { type: integer, format: int64 } } ]
+    get: { tags: [Track edits], summary: Tags on a track., responses: { "200": { description: OK, content: { application/json: { schema: { type: array, items: { $ref: "#/components/schemas/TagInfo" } } } } } } }
+    post: { tags: [Track edits], summary: Set the track's tag set., requestBody: { required: true, content: { application/json: { schema: { type: object, properties: { tag_ids: { type: array, items: { type: integer, format: int64 } } } } } } }, responses: { "200": { description: OK, content: { application/json: { schema: { $ref: "#/components/schemas/AckOK" } } } } } }
+
+  /api/tracks/{id}/phrases:
+    parameters: [ { name: id, in: path, required: true, schema: { type: integer, format: int64 } } ]
+    get: { tags: [Track edits], summary: Detected phrases (song structure)., responses: { "200": { description: OK, content: { application/json: { schema: { type: array, items: { $ref: "#/components/schemas/PhraseInfo" } } } } } } }
+
+  /api/tracks/{id}/cues:
+    parameters: [ { name: id, in: path, required: true, schema: { type: integer, format: int64 } } ]
+    get: { tags: [Track edits], summary: Cue points and loops for a track., responses: { "200": { description: OK, content: { application/json: { schema: { type: array, items: { $ref: "#/components/schemas/CueInfo" } } } } } } }
+    post: { tags: [Track edits], summary: Create/overwrite one cue (body is a CueInfo)., requestBody: { required: true, content: { application/json: { schema: { $ref: "#/components/schemas/CueInfo" } } } }, responses: { "200": { description: OK, content: { application/json: { schema: { $ref: "#/components/schemas/Ack" } } } }, "400": { description: number is 0. } } }
+
+  /api/tracks/{id}/cues/{number}:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: integer, format: int64 } }
+      - { name: number, in: path, required: true, schema: { type: integer } }
+    delete: { tags: [Track edits], summary: Delete one cue by number., responses: { "200": { description: OK, content: { application/json: { schema: { $ref: "#/components/schemas/Ack" } } } } } }
+
+  # ------------------------------------------------------------- Playlists
+  /api/playlists:
+    get:
+      tags: [Playlists]
+      summary: User playlists (+ served-USB read-only entries).
+      responses: { "200": { description: OK, content: { application/json: { schema: { type: array, items: { $ref: "#/components/schemas/PlaylistInfo" } } } } } }
+    post:
+      tags: [Playlists]
+      summary: Create a playlist or folder (optionally smart).
+      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [name], properties: { name: {type: string}, parent_id: {type: integer, format: int64}, is_folder: {type: boolean}, is_smart: {type: boolean}, rules: { $ref: "#/components/schemas/SmartRules" } } } } } }
+      responses: { "200": { description: Created., content: { application/json: { schema: { $ref: "#/components/schemas/PlaylistInfo" } } } }, "400": { description: name empty, or both is_smart and is_folder. } }
+
+  /api/playlists/{id}:
+    parameters: [ { name: id, in: path, required: true, schema: { type: integer, format: int64 } } ]
+    put: { tags: [Playlists], summary: Rename / reparent / reorder., requestBody: { required: true, content: { application/json: { schema: { type: object, properties: { name: {type: string}, parent_id: {type: integer, format: int64}, sort_order: {type: integer} } } } } }, responses: { "200": { description: OK, content: { application/json: { schema: { $ref: "#/components/schemas/AckOK" } } } }, "403": { description: Served-USB playlist is read-only. } } }
+    delete: { tags: [Playlists], summary: Delete (recursive for folders)., responses: { "200": { description: OK, content: { application/json: { schema: { $ref: "#/components/schemas/AckOK" } } } }, "404": { description: Not found. } } }
+
+  /api/playlists/{id}/tracks:
+    parameters: [ { name: id, in: path, required: true, schema: { type: integer, format: int64 } } ]
+    get: { tags: [Playlists], summary: Tracks in a playlist (smart rules evaluated live)., responses: { "200": { description: OK, content: { application/json: { schema: { type: array, items: { $ref: "#/components/schemas/TrackInfo" } } } } } } }
+    post: { tags: [Playlists], summary: Set membership (rejected for smart playlists)., requestBody: { required: true, content: { application/json: { schema: { type: object, properties: { track_ids: { type: array, items: { type: integer, format: int64 } } } } } } }, responses: { "200": { description: OK, content: { application/json: { schema: { $ref: "#/components/schemas/AckOK" } } } } } }
+
+  /api/playlists/{id}/rules:
+    parameters: [ { name: id, in: path, required: true, schema: { type: integer, format: int64 } } ]
+    get: { tags: [Playlists], summary: Smart-playlist rules (null if not smart)., responses: { "200": { description: OK, content: { application/json: { schema: { $ref: "#/components/schemas/SmartRules" } } } } } }
+    put: { tags: [Playlists], summary: Set rules (body is a SmartRules, no wrapper)., requestBody: { required: true, content: { application/json: { schema: { $ref: "#/components/schemas/SmartRules" } } } }, responses: { "200": { description: OK, content: { application/json: { schema: { $ref: "#/components/schemas/AckOK" } } } } } }
+
+  # -------------------------------------------------------------- Playback
+  /api/load:
+    post:
+      tags: [Playback]
+      summary: Load a track onto a deck.
+      requestBody: { required: true, content: { application/json: { schema: { $ref: "#/components/schemas/LoadRequest" } } } }
+      responses:
+        "200": { description: OK, content: { application/json: { schema: { type: object, properties: { status: {type: string}, track_id: {type: integer, format: int64}, device_number: {type: integer} } } } } }
+        "400": { description: track_id or file_path required, or device_number 0. }
+        "404": { description: Target CDJ not found. }
+        "503": { description: No peers connected. }
+
+  # -------------------------------------------------------------- Analysis
+  /api/cues:
+    get:
+      tags: [Analysis]
+      summary: All cues, keyed by track ID.
+      responses: { "200": { description: "object: trackID → []CueInfo", content: { application/json: { schema: { type: object, additionalProperties: { type: array, items: { $ref: "#/components/schemas/CueInfo" } } } } } } }
+
+  /api/analysis/{id}:
+    parameters: [ { name: id, in: path, required: true, schema: { type: integer, format: int64 } } ]
+    get:
+      tags: [Analysis]
+      summary: Full analysis for a library track (BPM, key, beats, cues).
+      responses: { "200": { description: OK, content: { application/json: { schema: { $ref: "#/components/schemas/AnalysisResult" } } } }, "404": { description: No analysis. } }
+
+  /api/analysis/ext/{player}/{slot}/{trackID}:
+    parameters:
+      - { name: player, in: path, required: true, schema: { type: integer } }
+      - { name: slot, in: path, required: true, schema: { type: integer } }
+      - { name: trackID, in: path, required: true, schema: { type: integer, format: int64 } }
+    get:
+      tags: [Analysis]
+      summary: Analysis of a track a deck plays from its own USB/SD (read over NFS).
+      responses: { "200": { description: OK, content: { application/json: { schema: { $ref: "#/components/schemas/ExtAnalysis" } } } }, "404": { description: Not fetched yet / no analysis. } }
+
+  /api/analysis/reanalyze/{id}:
+    parameters: [ { name: id, in: path, required: true, schema: { type: integer, format: int64 } } ]
+    post:
+      tags: [Analysis]
+      summary: Invalidate the cache and re-run analysis for a track.
+      responses: { "200": { description: OK, content: { application/json: { schema: { type: object, properties: { ok: {type: boolean}, track_id: {type: integer, format: int64}, bpm: {type: number}, key: {type: string}, beat_count: {type: integer} } } } } }, "503": { description: No analysis store. } }
+
+  /api/analysis/beatgrid/adjust:
+    post:
+      tags: [Analysis]
+      summary: Hand-adjust a beat grid (shift, re-tempo, or set downbeat).
+      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [track_id], properties: { track_id: {type: integer, format: int64}, offset_ms: {type: number}, bpm: {type: number}, set_downbeat_ms: {type: number} } } } } }
+      responses: { "200": { description: OK, content: { application/json: { schema: { type: object, properties: { ok: {type: boolean}, bpm: {type: number}, beats: {type: integer}, phase_ms: {type: number} } } } } }, "400": { description: No track_id. }, "404": { description: No analysis. } }
+
+  /api/analysis/waveform/{id}:
+    parameters: [ { name: id, in: path, required: true, schema: { type: integer, format: int64 } } ]
+    get:
+      tags: [Analysis]
+      summary: Waveform data. Shape depends on `type`.
+      parameters:
+        - { name: type, in: query, schema: { type: string, enum: [detail, preview, color_preview], default: detail } }
+        - { name: style, in: query, schema: { type: string, enum: [spectral, "3band"], default: spectral }, description: "detail only" }
+      responses:
+        "200":
+          description: |
+            `detail&style=spectral` → JSON `{entries:[]WaveEntrySpectral}`;
+            `detail&style=3band` → JSON entries of `{bass,mid,high}` (0-255);
+            `color_preview` → JSON entries of `{bass,mid,treble}` (0-255);
+            `preview` → raw PWAV bytes.
+          content:
+            application/json: { schema: { type: object } }
+            application/octet-stream: { schema: { type: string, format: binary } }
+        "304": { description: Not modified. }
+        "400": { description: Bad type. }
+        "404": { description: No analysis. }
+
+  /api/analysis/waveform-png/{id}:
+    parameters: [ { name: id, in: path, required: true, schema: { type: integer, format: int64 } } ]
+    get:
+      tags: [Analysis]
+      summary: Pre-rendered waveform PNG (convenient for native frontends).
+      parameters:
+        - { name: type, in: query, schema: { type: string, enum: [detail, color_preview], default: detail } }
+        - { name: color, in: query, schema: { type: string, enum: [rgb, blue, "3band"], default: rgb } }
+        - { name: overview, in: query, schema: { type: string, enum: [full, half], default: full } }
+        - { name: w, in: query, schema: { type: integer, default: 280, maximum: 2400 } }
+        - { name: h, in: query, schema: { type: integer, default: 56, maximum: 240 } }
+      responses:
+        "200": { description: PNG (disk-cached; placeholder while analysis is queued)., content: { image/png: { schema: { type: string, format: binary } } } }
+        "400": { description: Bad type. }
+
+  /api/artwork/{id}:
+    parameters: [ { name: id, in: path, required: true, schema: { type: integer, format: int64 } } ]
+    get:
+      tags: [Analysis]
+      summary: Cover art (lazy-extracted on first request).
+      responses:
+        "200": { description: Image., content: { image/jpeg: { schema: { type: string, format: binary } } } }
+        "404": { description: No artwork. }
+
+  /api/artwork/ext/{player}/{slot}/{trackID}:
+    parameters:
+      - { name: player, in: path, required: true, schema: { type: integer } }
+      - { name: slot, in: path, required: true, schema: { type: integer } }
+      - { name: trackID, in: path, required: true, schema: { type: integer, format: int64 } }
+    get:
+      tags: [Analysis]
+      summary: Cover art for an external (player's own USB) track, read over NFS.
+      responses:
+        "200": { description: JPEG., content: { image/jpeg: { schema: { type: string, format: binary } } } }
+        "404": { description: Not fetched yet / none. }
+
+  # -------------------------------------------------------- Import / Export
+  /api/import/rekordbox:
+    post:
+      tags: [Import / Export]
+      summary: Import a rekordbox XML / master.db / backup zip, or Traktor NML.
+      requestBody: { required: true, content: { application/json: { schema: { $ref: "#/components/schemas/ImportRequest" } } } }
+      responses:
+        "200": { description: OK, content: { application/json: { schema: { $ref: "#/components/schemas/ImportResult" } } } }
+        "400": { description: Bad path / missing file / bad key. }
+        "409": { description: An import is already running. }
+        "500": { description: Import failed. }
+
+  /api/import/status:
+    get:
+      tags: [Import / Export]
+      summary: Progress of the current import.
+      responses: { "200": { description: OK, content: { application/json: { schema: { type: object, properties: { active: {type: boolean}, phase: {type: string}, done: {type: integer}, total: {type: integer} } } } } } }
+
+  /api/export/preview:
+    get:
+      tags: [Import / Export]
+      summary: Track count a given source would export.
+      parameters: [ { name: source, in: query, schema: { type: string, default: all }, description: "all | playlist:N | smart:N | selection:<csv ids>" } ]
+      responses: { "200": { description: OK, content: { application/json: { schema: { type: object, properties: { total: { type: integer } } } } } }, "400": { description: Bad source. }, "404": { description: Playlist not found. } }
+
+  /api/export:
+    post:
+      tags: [Import / Export]
+      summary: Write a rekordbox-compatible USB (PDB + ANLZ + settings).
+      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [destination], properties: { destination: {type: string}, source: {type: string, default: all}, copy_files: {type: boolean}, merge: {type: boolean} } } } } }
+      responses:
+        "200": { description: OK, content: { application/json: { schema: { type: object, properties: { ok: {type: boolean}, source: {type: string}, destination: {type: string}, track_count: {type: integer} } } } } }
+        "400": { description: Bad input. }
+        "404": { description: Playlist not found. }
+        "500": { description: Pipeline error. }
+
+  /api/library/remap-paths:
+    post:
+      tags: [Import / Export]
+      summary: Search-and-replace a path prefix across the library.
+      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [from, to], properties: { from: {type: string}, to: {type: string} } } } } }
+      responses: { "200": { description: OK, content: { application/json: { schema: { type: object, properties: { changed: {type: integer}, missing: {type: integer} } } } } }, "400": { description: from/to empty. } }
+
+  # ------------------------------------------------------------------ Tags
+  /api/tags:
+    get: { tags: [Tags], summary: All tags., responses: { "200": { description: OK, content: { application/json: { schema: { type: array, items: { $ref: "#/components/schemas/TagInfo" } } } } } } }
+    post: { tags: [Tags], summary: Create a tag., requestBody: { required: true, content: { application/json: { schema: { type: object, required: [name], properties: { name: {type: string}, category_id: {type: integer, format: int64} } } } } }, responses: { "200": { description: Created., content: { application/json: { schema: { $ref: "#/components/schemas/TagInfo" } } } }, "400": { description: name empty. } } }
+
+  /api/tags/{id}:
+    parameters: [ { name: id, in: path, required: true, schema: { type: integer, format: int64 } } ]
+    put: { tags: [Tags], summary: Edit a tag., requestBody: { required: true, content: { application/json: { schema: { type: object, properties: { name: {type: string}, category_id: {type: integer, format: int64}, color: {type: integer} } } } } }, responses: { "200": { description: OK, content: { application/json: { schema: { $ref: "#/components/schemas/AckOK" } } } } } }
+    delete: { tags: [Tags], summary: Delete a tag., responses: { "200": { description: OK, content: { application/json: { schema: { $ref: "#/components/schemas/AckOK" } } } } } }
+
+  /api/tag-categories:
+    get: { tags: [Tags], summary: All tag categories., responses: { "200": { description: OK, content: { application/json: { schema: { type: array, items: { $ref: "#/components/schemas/TagCategoryInfo" } } } } } } }
+    post: { tags: [Tags], summary: Create a category., requestBody: { required: true, content: { application/json: { schema: { type: object, required: [name], properties: { name: { type: string } } } } } }, responses: { "200": { description: Created., content: { application/json: { schema: { $ref: "#/components/schemas/TagCategoryInfo" } } } }, "400": { description: name empty. } } }
+
+  /api/tag-categories/{id}:
+    parameters: [ { name: id, in: path, required: true, schema: { type: integer, format: int64 } } ]
+    put: { tags: [Tags], summary: Rename a category., requestBody: { required: true, content: { application/json: { schema: { type: object, properties: { name: { type: string } } } } } }, responses: { "200": { description: OK, content: { application/json: { schema: { $ref: "#/components/schemas/AckOK" } } } } } }
+    delete: { tags: [Tags], summary: Delete a category., responses: { "200": { description: OK, content: { application/json: { schema: { $ref: "#/components/schemas/AckOK" } } } } } }
+
+  # ------------------------------------------------------- Settings & Menu
+  /api/settings:
+    get:
+      tags: [Settings & Menu]
+      summary: Current settings (DEVSETTING fields + full config under `full`).
+      responses: { "200": { description: OK, content: { application/json: { schema: { $ref: "#/components/schemas/SettingsResponse" } } } } }
+    post:
+      tags: [Settings & Menu]
+      summary: "Update settings — send {full: <SettingsConfig>} to replace the whole config, or the DEVSETTING fields to tweak those."
+      requestBody: { required: true, content: { application/json: { schema: { type: object } } } }
+      responses: { "200": { description: Updated., content: { application/json: { schema: { $ref: "#/components/schemas/SettingsResponse" } } } }, "503": { description: Settings unavailable. } }
+
+  /api/settings/enums:
+    get: { tags: [Settings & Menu], summary: Enum option lists for the settings UI., responses: { "200": { description: OK, content: { application/json: { schema: { type: object } } } } } }
+
+  /api/menu-items:
+    get:
+      tags: [Settings & Menu]
+      summary: CDJ root-menu configuration.
+      responses: { "200": { description: OK, content: { application/json: { schema: { type: object, properties: { items: { type: array, items: { $ref: "#/components/schemas/MenuItem" } }, track_detail: { type: string }, track_detail_fields: { type: array, items: { $ref: "#/components/schemas/TrackDetailField" } } } } } } }, "503": { description: No menu store. } }
+    put:
+      tags: [Settings & Menu]
+      summary: Update menu items and/or the track-detail column.
+      requestBody: { required: true, content: { application/json: { schema: { type: object, properties: { items: { type: array, items: { $ref: "#/components/schemas/MenuItem" } }, track_detail: { type: string } } } } } }
+      responses: { "200": { description: OK, content: { application/json: { schema: { $ref: "#/components/schemas/AckOK" } } } }, "400": { description: Invalid items/detail. } }
+
+  /api/menu-items/reset:
+    post: { tags: [Settings & Menu], summary: Restore the default CDJ menu., responses: { "200": { description: OK, content: { application/json: { schema: { $ref: "#/components/schemas/AckOK" } } } }, "503": { description: No menu store. } } }
+
+  # --------------------------------------------------------------- Overlay
+  /api/overlay/config:
+    get: { tags: [Overlay], summary: Now-playing overlay configuration., responses: { "200": { description: OK, content: { application/json: { schema: { $ref: "#/components/schemas/OverlayConfig" } } } } } }
+    put: { tags: [Overlay], summary: Update overlay config (sanitised server-side)., requestBody: { required: true, content: { application/json: { schema: { $ref: "#/components/schemas/OverlayConfig" } } } }, responses: { "200": { description: OK, content: { application/json: { schema: { $ref: "#/components/schemas/OverlayConfig" } } } }, "400": { description: Bad JSON. } } }
+
+  # ----------------------------------------------------------- Device link
+  /api/link:
+    get: { tags: [Device link], summary: Whether Vynull is linked to CDJs., responses: { "200": { description: OK, content: { application/json: { schema: { type: object, properties: { linked: { type: boolean } } } } } } } }
+    post: { tags: [Device link], summary: Link or unlink (sets the LINK indicator)., requestBody: { required: true, content: { application/json: { schema: { type: object, properties: { linked: { type: boolean } } } } } }, responses: { "200": { description: OK, content: { application/json: { schema: { type: object, properties: { linked: { type: boolean } } } } } }, "503": { description: No device. } } }
+
+  /api/unlink:
+    post: { tags: [Device link], summary: Tear down dbserver sessions and drop peers., responses: { "200": { description: OK, content: { application/json: { schema: { type: object, properties: { sessions_closed: { type: integer } } } } } }, "503": { description: No dbserver. } } }
+
+  # --------------------------------------------------------- Diagnostics
+  /api/diag:
+    get: { tags: [Diagnostics], summary: Runtime diagnostics (memory, goroutines, analysis, cache)., responses: { "200": { description: OK, content: { application/json: { schema: { $ref: "#/components/schemas/DiagResponse" } } } } } }
+
+  /api/diag/logs:
+    get:
+      tags: [Diagnostics]
+      summary: Recent log lines (for the web DIAG tab).
+      parameters: [ { name: since, in: query, schema: { type: integer, format: int64 }, description: Last seq seen. } ]
+      responses: { "200": { description: OK, content: { application/json: { schema: { type: array, items: { type: object, properties: { seq: {type: integer, format: int64}, time: {type: integer, format: int64}, line: {type: string} } } } } } } }
+
+  /api/diag/status:
+    get: { tags: [Diagnostics], summary: Current long-running activity (export or analysis)., responses: { "200": { description: OK, content: { application/json: { schema: { type: object, properties: { kind: { type: string, enum: [export, analysis, ""] }, text: { type: string } } } } } } } }
+
+  # -------------------------------------------------------- File browser
+  /api/fs/list:
+    get:
+      tags: [File browser]
+      summary: Browse directories under the allowed roots (for the add-files picker).
+      parameters: [ { name: path, in: query, schema: { type: string }, description: Omit for the root list. } ]
+      responses:
+        "200": { description: OK, content: { application/json: { schema: { type: object, properties: { path: {type: string}, parent: {type: string}, roots: {type: boolean}, entries: { type: array, items: { $ref: "#/components/schemas/FSEntry" } } } } } } }
+        "400": { description: Bad path. }
+        "403": { description: Outside the allowed roots. }
+
+components:
+  schemas:
+
+    Ack: { type: object, properties: { ok: { type: boolean } }, description: 'Success ack (lowercase "ok").' }
+    AckOK: { type: object, properties: { OK: { type: boolean } }, description: 'Success ack (capitalised "OK" — historical).' }
+
+    StatusResponse:
+      type: object
+      required: [device_name, device_number, track_count, peers, players]
+      properties:
+        device_name: { type: string }
+        device_number: { type: integer }
+        track_count: { type: integer }
+        peers: { type: array, items: { $ref: "#/components/schemas/PeerInfo" } }
+        players: { type: array, items: { $ref: "#/components/schemas/PlayerInfo" } }
+        analysis: { $ref: "#/components/schemas/AnalysisStatus" }
+
+    AnalysisStatus:
+      type: object
+      required: [status, pending, analyzed, cached]
+      properties:
+        status: { type: string }
+        pending: { type: integer }
+        analyzed: { type: integer }
+        cached: { type: integer }
+
+    PlayerInfo:
+      type: object
+      required: [device_number, track_title, artist, bpm, pitch_pct, key, is_playing, is_master, on_air, beat_in_bar]
+      properties:
+        device_number: { type: integer }
+        name: { type: string }
+        track_id: { type: integer, format: int64 }
+        track_title: { type: string }
+        artist: { type: string }
+        bpm: { type: number }
+        pitch_pct: { type: number, description: "-100..+100; 0 = nominal." }
+        key: { type: string }
+        external: { type: boolean }
+        source: { type: string }
+        artwork_url: { type: string }
+        analysis_url: { type: string }
+        waveform_url: { type: string }
+        is_playing: { type: boolean }
+        is_master: { type: boolean }
+        is_sync: { type: boolean }
+        on_air: { type: boolean }
+        beat_in_bar: { type: integer, description: "1..4 (0 = unknown)." }
+        beat_in_track: { type: integer, format: int64 }
+        beat_age_ms: { type: integer, format: int64, description: ms since that beat fired (sub-beat phase for playhead interpolation). }
+        duration_ms: { type: integer, format: int64 }
+        play_state: { type: integer }
+        play_state_name: { type: string }
+
+    NowPlaying:
+      type: object
+      required: [playing, title, artist]
+      properties:
+        playing: { type: boolean }
+        device_number: { type: integer }
+        track_id: { type: integer, format: int64 }
+        title: { type: string }
+        artist: { type: string }
+        bpm: { type: number }
+        key: { type: string }
+        duration_ms: { type: integer, format: int64 }
+        beat_in_track: { type: integer, format: int64 }
+        beat_age_ms: { type: integer, format: int64 }
+        pitch_pct: { type: number }
+        artwork_url: { type: string }
+        waveform_url: { type: string }
+
+    PeerInfo:
+      type: object
+      required: [device_number, name, device_type, ip, mac]
+      properties:
+        device_number: { type: integer }
+        name: { type: string }
+        device_type: { type: string }
+        ip: { type: string }
+        mac: { type: string }
+        mixer: { $ref: "#/components/schemas/MixerInfo" }
+
+    MixerInfo:
+      type: object
+      required: [master_device, master_bpm, beat_in_bar, channel_on_air, channel_state_known]
+      properties:
+        master_device: { type: integer }
+        master_bpm: { type: number }
+        beat_in_bar: { type: integer }
+        channel_on_air: { type: array, items: { type: boolean } }
+        channel_state_known: { type: boolean }
+
+    HistoryItem:
+      type: object
+      properties:
+        started_at: { type: string, format: date-time }
+        ended_at: { type: string, format: date-time }
+        device_number: { type: integer }
+        device_name: { type: string }
+        track_id: { type: integer, format: int64 }
+        title: { type: string }
+        artist: { type: string }
+        bpm: { type: number }
+        key: { type: string }
+
+    TrackInfo:
+      type: object
+      required: [id, title, artist, album, genre, bpm, key, duration, file_path]
+      properties:
+        id: { type: integer, format: int64 }
+        title: { type: string }
+        artist: { type: string }
+        album: { type: string }
+        genre: { type: string }
+        bpm: { type: number }
+        key: { type: string }
+        duration: { type: integer, description: Seconds. }
+        file_path: { type: string }
+        file_type: { type: string }
+        file_size: { type: integer, format: int64 }
+        comment: { type: string }
+        label: { type: string }
+        original_artist: { type: string }
+        remixer: { type: string }
+        mix_name: { type: string }
+        bitrate: { type: integer }
+        year: { type: integer }
+        track_num: { type: integer }
+        rating: { type: integer }
+        color_id: { type: integer }
+        color_name: { type: string }
+        date_added: { type: string }
+        play_count: { type: integer }
+        tags: { type: array, items: { type: string } }
+        art_id: { type: integer, format: int64 }
+        art_checked: { type: boolean }
+        file_missing: { type: boolean }
+
+    TrackMetadataPatch:
+      type: object
+      description: All fields optional; omitted = unchanged.
+      properties:
+        title: { type: string }
+        artist: { type: string }
+        album: { type: string }
+        genre: { type: string }
+        year: { type: string }
+        key: { type: string }
+        label: { type: string }
+        remixer: { type: string }
+        original_artist: { type: string }
+        mix_name: { type: string }
+        comment: { type: string }
+
+    PhraseInfo:
+      type: object
+      properties:
+        kind: { type: integer, description: "1=intro,2=up,3=down,5=chorus,6=outro." }
+        name: { type: string }
+        start_ms: { type: integer, format: int64 }
+        end_ms: { type: integer, format: int64 }
+        energy: { type: number }
+        has_vocal: { type: boolean }
+        vocal_score: { type: number }
+
+    CueInfo:
+      type: object
+      required: [number, type, time_ms, loop_ms, color_id, label]
+      properties:
+        number: { type: integer, description: "1=A, 2=B, ...; memory cues number upward from 9." }
+        type: { type: string, enum: [cue, loop] }
+        time_ms: { type: integer, format: int64 }
+        loop_ms: { type: integer, description: "Loop end in ms; -1 if not a loop." }
+        color_id: { type: integer }
+        label: { type: string }
+
+    LoadRequest:
+      type: object
+      description: Provide track_id OR file_path, plus the target deck.
+      properties:
+        track_id: { type: integer, format: int64 }
+        file_path: { type: string }
+        device_number: { type: integer, description: "Target CDJ (1-4)." }
+
+    AnalysisResult:
+      type: object
+      properties:
+        track_id: { type: integer, format: int64 }
+        bpm: { type: number }
+        key: { type: string }
+        key_standard: { type: string }
+        duration_sec: { type: integer }
+        beat_count: { type: integer }
+        downbeat_index: { type: integer }
+        beats: { type: array, items: { $ref: "#/components/schemas/BeatInfo" } }
+        cues: { type: array, items: { $ref: "#/components/schemas/CueInfo" } }
+
+    BeatInfo:
+      type: object
+      properties:
+        time_ms: { type: number }
+        beat_in_bar: { type: integer, description: "1-4." }
+
+    ExtAnalysis:
+      type: object
+      properties:
+        track_id: { type: integer, format: int64 }
+        duration_ms: { type: integer, format: int64 }
+        bpm: { type: number }
+        sample_rate: { type: integer, description: "Always 150." }
+        waveform: { type: array, items: { $ref: "#/components/schemas/WaveEntrySpectral" } }
+        cues: { type: array, items: { $ref: "#/components/schemas/CueInfo" } }
+        beats: { type: array, items: { type: number } }
+
+    WaveEntrySpectral:
+      type: object
+      description: One waveform column decoded from PWV5.
+      properties:
+        r: { type: integer, description: "0-7." }
+        g: { type: integer, description: "0-7." }
+        b: { type: integer, description: "0-7." }
+        h: { type: integer, description: "height 0-31." }
+
+    TagInfo:
+      type: object
+      required: [id, name, category_id]
+      properties:
+        id: { type: integer, format: int64 }
+        name: { type: string }
+        category_id: { type: integer, format: int64 }
+        color: { type: integer }
+
+    TagCategoryInfo:
+      type: object
+      required: [id, name]
+      properties:
+        id: { type: integer, format: int64 }
+        name: { type: string }
+
+    PlaylistInfo:
+      type: object
+      required: [id, name, parent_id, is_folder, sort_order, track_ids]
+      properties:
+        id: { type: integer, format: int64 }
+        name: { type: string }
+        parent_id: { type: integer, format: int64 }
+        is_folder: { type: boolean }
+        sort_order: { type: integer }
+        track_ids: { type: array, items: { type: integer, format: int64 } }
+        is_smart: { type: boolean }
+        rules: { $ref: "#/components/schemas/SmartRules" }
+        read_only: { type: boolean }
+
+    SmartRules:
+      type: object
+      properties:
+        combinator: { type: string, enum: [all, any] }
+        conditions: { type: array, items: { $ref: "#/components/schemas/SmartCond" } }
+
+    SmartCond:
+      type: object
+      description: A leaf condition (field/operator/value) or a nested group.
+      properties:
+        group: { $ref: "#/components/schemas/SmartRules" }
+        field: { type: string }
+        operator: { type: string }
+        value: {}
+
+    MenuItem:
+      type: object
+      properties:
+        key: { type: string }
+        label: { type: string }
+        id: { type: integer, format: int64 }
+        item_type: { type: integer, format: int64 }
+        visible: { type: boolean }
+        locked: { type: boolean }
+
+    TrackDetailField:
+      type: object
+      properties:
+        key: { type: string }
+        label: { type: string }
+        high_byte: { type: integer }
+
+    ImportRequest:
+      type: object
+      required: [path]
+      properties:
+        path: { type: string, description: ".xml / .nml / .db / .zip" }
+        key: { type: string, description: SQLCipher 64-hex key (encrypted master.db / backup zip). }
+        remap_from: { type: string }
+        remap_to: { type: string }
+        include:
+          type: object
+          description: Each flag nil = true.
+          properties:
+            tracks: { type: boolean }
+            playlists: { type: boolean }
+            tags: { type: boolean }
+            analysis: { type: boolean }
+            artwork: { type: boolean }
+            cues: { type: boolean }
+            settings: { type: boolean }
+
+    ImportResult:
+      type: object
+      description: PascalCase keys (no json tags on the Go struct).
+      properties:
+        TracksTotal: { type: integer }
+        TracksAdded: { type: integer }
+        TracksUpdated: { type: integer }
+        TracksSkipped: { type: integer }
+        PlaylistsTotal: { type: integer }
+        TagsTotal: { type: integer }
+        ArtworkImported: { type: integer }
+        AnalysisImported: { type: integer }
+        CuesImported: { type: integer }
+        SettingsImported: { type: integer }
+        FilesMissing: { type: integer }
+        Errors: { type: array, items: { type: string } }
+
+    OverlayConfig:
+      type: object
+      properties:
+        position: { type: string }
+        style: { type: string }
+        accent: { type: string }
+        show_meta: { type: boolean }
+        show_nowplaying: { type: boolean }
+        show_waveform: { type: boolean }
+        show_decks: { type: boolean }
+        show_history: { type: boolean }
+        history_count: { type: integer }
+        width: { type: integer }
+        label: { type: string }
+
+    DiagResponse:
+      type: object
+      properties:
+        started_unix_ms: { type: integer, format: int64 }
+        uptime_sec: { type: integer, format: int64 }
+        linked: { type: boolean }
+        go_version: { type: string }
+        goroutines: { type: integer }
+        heap_mb: { type: integer, format: int64 }
+        sys_mb: { type: integer, format: int64 }
+        gc_pause_us: { type: integer, format: int64 }
+        gc_count: { type: integer, format: int64 }
+        library_tracks: { type: integer }
+        analysis_pending: { type: integer }
+        analysis_analyzed: { type: integer }
+        analysis_cached: { type: integer }
+        cache_dir_bytes: { type: integer, format: int64 }
+
+    SettingsResponse:
+      type: object
+      description: |
+        The 5 DEVSETTING-derived display fields at the top level, plus the whole
+        persisted config under `full` (my_setting, my_setting_2, djm_my_setting,
+        dev_setting, track_detail, bpm_range_min/max). `full.bpm_range_*` reflects
+        the effective analysis range (including a --bpm-range flag override).
+      properties:
+        waveform_size: { type: string }
+        waveform_color: { type: string }
+        waveform_position: { type: string }
+        key_display: { type: string }
+        track_detail: { type: string }
+        full: { type: object }
+
+    FSEntry:
+      type: object
+      properties:
+        name: { type: string }
+        path: { type: string }
+        is_dir: { type: boolean }
+        audio: { type: boolean }
