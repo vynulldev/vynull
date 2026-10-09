@@ -307,6 +307,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/import/status", s.handleImportStatus)
 	mux.HandleFunc("/api/library/remap-paths", s.handleRemapPaths)
 	mux.HandleFunc("/api/load", s.handleLoadTrack)
+	mux.HandleFunc("/api/sim/", s.handleSim)
 
 	mux.HandleFunc("/api/diag", s.handleDiag)
 	mux.HandleFunc("/api/diag/logs", s.handleDiagLogs)
@@ -2467,30 +2468,25 @@ func (s *Server) handleWaveform(w http.ResponseWriter, r *http.Request) {
 // GET /api/artwork/{trackID} — returns the cached album art (JPEG)
 // for trackID. 404 when the track has no art. Used by the library
 // table's optional ART column.
-func (s *Server) handleArtwork(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Access-Control-Allow-Origin", "*")
-	trackID := parseTrackIDFromPath(r.URL.Path, "/api/artwork/")
-	if trackID == 0 || s.Library == nil {
-		http.Error(w, "track ID required", http.StatusBadRequest)
-		return
+// EnsureArtwork returns a track's library artwork ID, extracting the embedded
+// cover on first request (one ffmpeg probe, then cached and persisted). Returns
+// 0 when the track is unknown, has no art, or a probe for it is already in
+// flight. Shared by the HTTP artwork endpoint and the dbserver (so a track a
+// deck plays gets its cover resolved on demand, not only via the web UI).
+func (s *Server) EnsureArtwork(trackID uint32) uint32 {
+	if s.Library == nil {
+		return 0
 	}
 	t := s.Library.Track(trackID)
 	if t == nil {
-		http.NotFound(w, r)
-		return
+		return 0
 	}
 	// Lazy extraction: if this track's file has never been probed, do it now
-	// (one ffmpeg probe, then cached for good). This replaces the old startup
-	// artwork sweep — we only pay for tracks whose art is actually requested,
-	// and the result (ArtID + ArtChecked) is persisted via a debounced save.
-	// Dedup concurrent requests for the same track, bound total concurrency,
-	// and write the track fields under the library lock (vs the debounced Save).
+	// (one ffmpeg probe, then cached for good). Dedup concurrent requests for
+	// the same track, bound total concurrency, and persist via a debounced save.
 	if t.ArtID == 0 && !t.ArtChecked && t.FilePath != "" {
 		if _, busy := s.artInFlight.LoadOrStore(trackID, struct{}{}); busy {
-			// Another request is already probing this track; don't double-probe.
-			// The thumbnail appears once that finishes (next poll re-fetches).
-			http.NotFound(w, r)
-			return
+			return 0 // another request is already probing; it'll appear shortly
 		}
 		artExtractSem <- struct{}{} // cap concurrent ffmpeg probes
 		data := analysis.ExtractArtwork(t.FilePath)
@@ -2503,11 +2499,22 @@ func (s *Server) handleArtwork(w http.ResponseWriter, r *http.Request) {
 		s.artInFlight.Delete(trackID)
 		s.scheduleArtworkSave()
 	}
-	if t.ArtID == 0 {
+	return t.ArtID
+}
+
+func (s *Server) handleArtwork(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	trackID := parseTrackIDFromPath(r.URL.Path, "/api/artwork/")
+	if trackID == 0 || s.Library == nil {
+		http.Error(w, "track ID required", http.StatusBadRequest)
+		return
+	}
+	artID := s.EnsureArtwork(trackID)
+	if artID == 0 {
 		http.NotFound(w, r)
 		return
 	}
-	art := s.Library.Artwork.Get(t.ArtID)
+	art := s.Library.Artwork.Get(artID)
 	if art == nil || len(art.Data) == 0 {
 		http.NotFound(w, r)
 		return

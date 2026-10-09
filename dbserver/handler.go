@@ -29,6 +29,9 @@ type Handler struct {
 	menu         MenuSource
 	cues         *CueStore
 	settings     *device.CDJSettings
+	// ensureArt resolves a track's artwork ID, extracting the embedded cover on
+	// demand (set from the API server's EnsureArtwork). nil when unavailable.
+	ensureArt func(trackID uint32) uint32
 
 	// Pending items keyed by transaction ID.
 	// The CDJ sends a query (which sets pending items), then a render

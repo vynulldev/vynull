@@ -3463,6 +3463,7 @@
   <div class="tab" data-tab="tags"><span class="tick">◢</span>TAGS</div>
   <div class="tab" data-tab="settings"><span class="tick">◢</span>SETTINGS</div>
   <div class="tab" data-tab="diag"><span class="tick">◢</span>DIAG</div>
+  <div class="tab" data-tab="sim" id="sim-tab-nav" style="display:none" title="Virtual playing CDJ (--simulate)"><span class="tick">◢</span>EMULATOR</div>
 </nav>
 
 <main>
@@ -3559,6 +3560,71 @@
       <pre id="diag-log" class="diag-log">loading…</pre>
     </div>
   </section>
+
+  <style>
+    #sim.panel { padding: 20px 24px; }
+    .sim-toolbar { display: flex; align-items: center; justify-content: space-between; margin: 16px 0 12px; }
+    .sim-toolbar .lbl { font-size: 12px; letter-spacing: .12em; color: var(--dim, #8a8f99); }
+    .sim-toolbar .lbl b { color: #e6e8ec; }
+    .sim-add { padding: 8px 14px; background: var(--accent, #ff7714); color: #0d0f12; border: none; border-radius: 7px; font: inherit; font-size: 13px; font-weight: 700; cursor: pointer; }
+    .sim-add:disabled { opacity: .4; cursor: default; }
+    .sim-decks { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 16px; }
+    .sim-card, .sim-loader { background: var(--panel, #15171c); border: 1px solid var(--line, #2a2d35); border-radius: 10px; padding: 16px; }
+    .sim-loader { margin-top: 18px; }
+    .sim-card-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
+    .sim-card-title { font-size: 13px; letter-spacing: .1em; color: var(--dim, #8a8f99); font-weight: 700; display: flex; align-items: center; gap: 6px; }
+    .sim-num { background: #1c1f26; color: #e6e8ec; border: 1px solid var(--line, #2a2d35); border-radius: 5px; font: inherit; font-size: 13px; padding: 2px 4px; }
+    .sim-remove { background: none; border: 1px solid var(--line, #2a2d35); color: var(--dim, #8a8f99); border-radius: 6px; width: 26px; height: 26px; cursor: pointer; line-height: 1; }
+    .sim-remove:hover { border-color: #e2554e; color: #e2554e; }
+    .sim-readout { border-bottom: 1px solid var(--line, #2a2d35); padding-bottom: 10px; margin-bottom: 12px; }
+    .sim-state { font-size: 12px; letter-spacing: .12em; color: var(--accent, #ff7714); font-weight: 700; }
+    .sim-title { font-size: 16px; font-weight: 700; margin: 4px 0 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .sim-meta { font-size: 12px; color: var(--dim, #8a8f99); font-variant-numeric: tabular-nums; }
+    .sim-beat { display: inline-block; margin-left: 8px; letter-spacing: .25em; }
+    .sim-seek { margin-bottom: 12px; }
+    .sim-seek input[type=range], .sim-pitch input[type=range] { width: 100%; accent-color: var(--accent, #ff7714); }
+    .sim-time { font-size: 12px; color: var(--dim, #8a8f99); font-variant-numeric: tabular-nums; margin-top: 4px; }
+    .sim-transport { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 14px; }
+    .sim-btn { flex: 1 1 auto; min-width: 48px; padding: 9px 8px; background: #1c1f26; color: #e6e8ec; border: 1px solid var(--line, #2a2d35); border-radius: 7px; font: inherit; font-size: 15px; cursor: pointer; }
+    .sim-btn:hover:not(:disabled) { border-color: var(--accent, #ff7714); }
+    .sim-btn:disabled { opacity: .4; cursor: default; }
+    .sim-btn.primary { background: var(--accent, #ff7714); color: #0d0f12; border-color: var(--accent, #ff7714); font-weight: 700; }
+    .sim-flags { display: flex; gap: 6px; margin-bottom: 14px; }
+    .sim-chip { flex: 1 1 auto; padding: 6px 8px; background: #1c1f26; color: var(--dim, #8a8f99); border: 1px solid var(--line, #2a2d35); border-radius: 6px; font: inherit; font-size: 11px; letter-spacing: .08em; cursor: pointer; }
+    .sim-chip:hover { border-color: var(--accent, #ff7714); }
+    .sim-onair.active { background: #e2554e; color: #fff; border-color: #e2554e; }
+    .sim-master.active { background: var(--accent, #ff7714); color: #0d0f12; border-color: var(--accent, #ff7714); }
+    .sim-pitch label { display: flex; justify-content: space-between; font-size: 12px; color: var(--dim, #8a8f99); margin-bottom: 4px; }
+    .sim-pitch-reset { background: none; border: none; color: var(--accent, #ff7714); cursor: pointer; font: inherit; font-size: 11px; }
+    .sim-load-head { font-size: 12px; letter-spacing: .12em; color: var(--dim, #8a8f99); margin-bottom: 10px; display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+    .sim-load-head select { background: #1c1f26; color: #e6e8ec; border: 1px solid var(--line, #2a2d35); border-radius: 5px; font: inherit; font-size: 12px; padding: 3px 5px; }
+    .sim-load-list { margin-top: 10px; max-height: 300px; overflow-y: auto; }
+    .sim-load-row { display: flex; align-items: baseline; gap: 8px; padding: 7px 8px; border-radius: 6px; cursor: pointer; font-size: 13px; }
+    .sim-load-row:hover { background: #1c1f26; }
+    .sim-load-row .id { color: var(--dim, #8a8f99); font-variant-numeric: tabular-nums; font-size: 11px; min-width: 42px; }
+    .sim-load-row .ttl { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .sim-load-row .art { color: var(--dim, #8a8f99); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .sim-load-row .bpm { margin-left: auto; color: var(--dim, #8a8f99); font-variant-numeric: tabular-nums; font-size: 11px; }
+    .sim-load-empty { color: var(--dim, #8a8f99); font-size: 12px; padding: 8px; }
+  </style>
+  <section id="sim" class="panel">
+    <div class="settings-note">
+      VIRTUAL PLAYING CDJS · DRIVE THIS SERVER'S OWN MONITOR / OVERLAY / MPRIS / HISTORY · SAFE PROFILE (NOT MASTER, NOT ON-AIR)
+    </div>
+    <div class="sim-toolbar">
+      <span class="lbl">VIRTUAL CDJS <b id="sim-count">0</b> / <span id="sim-max">4</span></span>
+      <button type="button" class="sim-add" id="sim-add">+ ADD CDJ</button>
+    </div>
+    <div class="sim-decks" id="sim-decks"></div>
+    <div class="sim-loader">
+      <div class="sim-load-head">
+        <span>LOAD A TRACK (deck pulls the beat grid from analysis)</span>
+        <label>into <select id="sim-load-target"></select></label>
+      </div>
+      <input type="text" id="sim-load-search" class="input" placeholder="search title / artist, or type a track ID + Enter" autocomplete="off" spellcheck="false">
+      <div class="sim-load-list" id="sim-load-list"><div class="sim-load-empty">Type to search your library.</div></div>
+    </div>
+  </section>
 </main>
 
 <!-- Bulk-action bar (lives outside <main> so position:fixed escapes the
@@ -3609,6 +3675,7 @@ document.querySelectorAll('.tab').forEach(t => {
     if (t.dataset.tab === 'library') refreshLibraryView();
     else if (t.dataset.tab === 'tags') renderTagsTab();
     else if (t.dataset.tab === 'diag') refreshDiag();
+    else if (t.dataset.tab === 'sim') simActivate();
   });
 });
 
@@ -3820,6 +3887,317 @@ function diagTabActive() {
   return document.getElementById('diag').classList.contains('active');
 }
 setInterval(() => { if (diagTabActive()) refreshDiag(); }, 2000);
+
+// ───────── CDJ emulator (--simulate) control panel ─────────
+// Shown only when the server was started with --simulate (probed via
+// /api/sim/status, which 503s otherwise). Manages up to 4 virtual decks via
+// /api/sim/*; each deck in turn feeds this server's own monitor/overlay.
+let simEnabled = false;
+let simTracks = null; // cached /api/tracks for the loader + title lookup
+let simMax = 4;
+let simNums = [];     // current deck numbers (sorted), to detect set changes
+const simDur = {};        // number -> current track duration (ms)
+const simSeeking = {};    // number -> user dragging the seek slider
+const simPitching = {};   // number -> user dragging the pitch slider
+const simBeatAnchor = {}; // number -> { beatInBar, eff, playing, at } for the beat animator
+let simBeatRAF = 0;
+let simActivated = false;
+
+function simDots(b) {
+  const d = ['·', '·', '·', '·'];
+  if (b >= 1 && b <= 4) d[b - 1] = '●';
+  return d.join(' ');
+}
+
+// simBeatFrame extrapolates each playing deck's current beat from its effective
+// BPM so the dots tick in time with the music instead of jumping on the 500ms
+// poll clock. Every poll re-anchors to the authoritative beat_in_bar, so it
+// self-corrects. Runs only while the EMULATOR tab is visible.
+function simBeatFrame() {
+  const now = performance.now();
+  for (const n of simNums) {
+    const a = simBeatAnchor[n];
+    if (!a || !a.playing || a.eff <= 0 || a.beatInBar < 1) continue;
+    const card = document.querySelector('.sim-card[data-deck="' + n + '"]');
+    if (!card) continue;
+    // Start partway (a.frac) into the current beat, so the next flip happens
+    // at the right wall-clock moment and the dots never freeze or jump.
+    const elapsedBeats = (now - a.at) * a.eff / 60000;
+    const crossings = Math.floor(a.frac + elapsedBeats);
+    const b = ((a.beatInBar - 1 + crossings) % 4 + 4) % 4 + 1;
+    card.querySelector('.sim-beat').textContent = simDots(b);
+  }
+  if (simEnabled && simTabActive()) requestAnimationFrame(simBeatFrame);
+  else simBeatRAF = 0;
+}
+
+function simStartBeat() {
+  if (!simBeatRAF) simBeatRAF = requestAnimationFrame(simBeatFrame);
+}
+
+function simTabActive() { return document.getElementById('sim').classList.contains('active'); }
+
+function fmtClock(ms) {
+  if (!ms || ms < 0) ms = 0;
+  const s = Math.floor(ms / 1000);
+  return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0');
+}
+
+// simFetch returns the manager list { decks, max }, null when --simulate is
+// off (503), or undefined on a transient error.
+async function simFetch() {
+  try {
+    const r = await fetch('/api/sim/status', { cache: 'no-store' });
+    if (r.status === 503) return null;
+    if (!r.ok) return undefined;
+    return await r.json();
+  } catch (e) { return undefined; }
+}
+
+async function simProbe() {
+  const list = await simFetch();
+  simEnabled = (list !== null && list !== undefined);
+  document.getElementById('sim-tab-nav').style.display = simEnabled ? '' : 'none';
+  if (simEnabled && list) simRenderDecks(list);
+}
+
+// simPost hits a route; toasts on error. Returns whether it succeeded.
+async function simPost(path, body) {
+  try {
+    const r = await fetch('/api/sim/' + path, {
+      method: 'POST',
+      headers: body ? { 'Content-Type': 'application/json' } : undefined,
+      body: body ? JSON.stringify(body) : undefined,
+    });
+    if (!r.ok) { toast((await r.text()).trim() || ('sim ' + path + ' failed')); return false; }
+    return true;
+  } catch (e) { toast('sim ' + path + ': ' + e); return false; }
+}
+
+// simDo posts then refreshes the whole panel from a fresh list, so manager and
+// per-deck routes both end in a consistent view.
+async function simDo(path, body) {
+  if (await simPost(path, body)) {
+    const list = await simFetch();
+    if (list) simRenderDecks(list);
+  }
+}
+
+function simTrackTitle(id) {
+  if (!id) return '—';
+  if (simTracks) {
+    const t = simTracks.find(x => x.id === id);
+    if (t) return t.artist ? (t.artist + ' — ' + t.title) : t.title;
+  }
+  return 'Track #' + id;
+}
+
+// simRenderDecks syncs the card set to the deck list, then updates each card.
+function simRenderDecks(list) {
+  simMax = list.max || 4;
+  const decks = list.decks || [];
+  document.getElementById('sim-count').textContent = decks.length;
+  document.getElementById('sim-max').textContent = simMax;
+  document.getElementById('sim-add').disabled = decks.length >= simMax;
+
+  const nums = decks.map(d => d.number);
+  if (nums.join(',') !== simNums.join(',')) {
+    simNums = nums;
+    simBuildCards(decks);
+    simSyncLoadTarget(nums);
+  }
+  for (const d of decks) simUpdateCard(d);
+}
+
+function simFreeNumbers(own) {
+  const free = [];
+  for (let n = 1; n <= simMax; n++) {
+    if (n === own || !simNums.includes(n)) free.push(n);
+  }
+  return free;
+}
+
+function simBuildCards(decks) {
+  const host = document.getElementById('sim-decks');
+  host.innerHTML = '';
+  for (const d of decks) {
+    const opts = simFreeNumbers(d.number).map(n =>
+      '<option value="' + n + '"' + (n === d.number ? ' selected' : '') + '>' + n + '</option>').join('');
+    const card = document.createElement('div');
+    card.className = 'sim-card';
+    card.dataset.deck = d.number;
+    card.innerHTML =
+      '<div class="sim-card-head">' +
+        '<span class="sim-card-title">PLAYER <select class="sim-num">' + opts + '</select></span>' +
+        '<button type="button" class="sim-remove" title="Remove this deck">✕</button>' +
+      '</div>' +
+      '<div class="sim-readout">' +
+        '<div class="sim-state">NO TRACK</div>' +
+        '<div class="sim-title">—</div>' +
+        '<div class="sim-meta"><span class="sim-bpm"></span> <span class="sim-beat"></span></div>' +
+      '</div>' +
+      '<div class="sim-seek">' +
+        '<input type="range" class="sim-seek-range" min="0" max="1000" value="0" step="1" disabled>' +
+        '<div class="sim-time"><span class="sim-pos">0:00</span> / <span class="sim-dur">0:00</span></div>' +
+      '</div>' +
+      '<div class="sim-transport">' +
+        '<button type="button" class="sim-btn primary sim-play" title="Play">▶</button>' +
+        '<button type="button" class="sim-btn sim-pause" title="Pause">⏸</button>' +
+        '<button type="button" class="sim-btn sim-cue" title="Cue to start">⏮</button>' +
+        '<button type="button" class="sim-btn sim-eject" title="Eject">⏏</button>' +
+      '</div>' +
+      '<div class="sim-flags">' +
+        '<button type="button" class="sim-chip sim-onair" title="Mixer channel up — now-playing overlays follow this">ON-AIR</button>' +
+        '<button type="button" class="sim-chip sim-master" title="Tempo master">MASTER</button>' +
+      '</div>' +
+      '<div class="sim-pitch">' +
+        '<label>PITCH <span><span class="sim-pitch-val">+0.0%</span> <button type="button" class="sim-pitch-reset">reset</button></span></label>' +
+        '<input type="range" class="sim-pitch-range" min="-100" max="100" value="0" step="0.5">' +
+      '</div>';
+    simWireCard(card, d.number);
+    host.appendChild(card);
+  }
+}
+
+function simWireCard(card, num) {
+  const base = num + '/';
+  card.querySelector('.sim-play').addEventListener('click', () => simDo(base + 'play'));
+  card.querySelector('.sim-pause').addEventListener('click', () => simDo(base + 'pause'));
+  card.querySelector('.sim-cue').addEventListener('click', () => simDo(base + 'cue'));
+  card.querySelector('.sim-eject').addEventListener('click', () => simDo(base + 'eject'));
+  card.querySelector('.sim-remove').addEventListener('click', () => simDo('remove', { number: num }));
+  card.querySelector('.sim-num').addEventListener('change', (e) => {
+    const to = Number(e.target.value);
+    if (to !== num) simDo('renumber', { number: num, to: to });
+  });
+  const seek = card.querySelector('.sim-seek-range');
+  seek.addEventListener('input', () => {
+    simSeeking[num] = true;
+    card.querySelector('.sim-pos').textContent = fmtClock((seek.value / 1000) * (simDur[num] || 0));
+  });
+  seek.addEventListener('change', () => {
+    simSeeking[num] = false;
+    simDo(base + 'seek', { position_ms: (seek.value / 1000) * (simDur[num] || 0) });
+  });
+  const pitch = card.querySelector('.sim-pitch-range');
+  pitch.addEventListener('input', () => {
+    simPitching[num] = true;
+    card.querySelector('.sim-pitch-val').textContent = (pitch.value >= 0 ? '+' : '') + Number(pitch.value).toFixed(1) + '%';
+  });
+  pitch.addEventListener('change', () => {
+    simPitching[num] = false;
+    simDo(base + 'pitch', { pitch_pct: Number(pitch.value) });
+  });
+  card.querySelector('.sim-pitch-reset').addEventListener('click', () => simDo(base + 'pitch', { pitch_pct: 0 }));
+  card.querySelector('.sim-onair').addEventListener('click', (e) => simDo(base + 'onair', { on: !e.currentTarget.classList.contains('active') }));
+  card.querySelector('.sim-master').addEventListener('click', (e) => simDo(base + 'master', { on: !e.currentTarget.classList.contains('active') }));
+}
+
+function simUpdateCard(d) {
+  const card = document.querySelector('.sim-card[data-deck="' + d.number + '"]');
+  if (!card) return;
+  const loaded = d.loaded;
+  card.querySelector('.sim-state').textContent = d.state || 'NO TRACK';
+  card.querySelector('.sim-title').textContent = loaded ? simTrackTitle(d.track_id) : '—';
+  const bpmEl = card.querySelector('.sim-bpm');
+  if (loaded) {
+    const p = (d.pitch_pct >= 0 ? '+' : '') + (d.pitch_pct || 0).toFixed(1) + '%';
+    bpmEl.textContent = (d.bpm || 0).toFixed(1) + ' → ' + (d.effective_bpm || 0).toFixed(1) + ' BPM · pitch ' + p + ' ';
+  } else {
+    bpmEl.textContent = 'No track loaded.';
+  }
+  // Beat indicator: anchor the rAF animator to this authoritative beat and
+  // render it once now; the animator extrapolates between polls (see below).
+  simBeatAnchor[d.number] = { beatInBar: d.beat_in_bar, frac: d.beat_fraction || 0, eff: d.effective_bpm || 0, playing: loaded && d.playing, at: performance.now() };
+  card.querySelector('.sim-beat').textContent = (loaded && d.beat_in_bar >= 1 && d.beat_in_bar <= 4) ? simDots(d.beat_in_bar) : '';
+  simDur[d.number] = d.duration_ms || 0;
+  card.querySelector('.sim-dur').textContent = fmtClock(simDur[d.number]);
+  card.querySelector('.sim-pos').textContent = fmtClock(d.position_ms || 0);
+  const seek = card.querySelector('.sim-seek-range');
+  seek.disabled = !loaded || simDur[d.number] <= 0;
+  if (!simSeeking[d.number]) {
+    seek.value = (loaded && simDur[d.number] > 0) ? Math.round((d.position_ms / simDur[d.number]) * 1000) : 0;
+  }
+  if (!simPitching[d.number]) {
+    card.querySelector('.sim-pitch-range').value = d.pitch_pct || 0;
+    card.querySelector('.sim-pitch-val').textContent = (d.pitch_pct >= 0 ? '+' : '') + (d.pitch_pct || 0).toFixed(1) + '%';
+  }
+  card.querySelector('.sim-play').disabled = !loaded || d.playing;
+  card.querySelector('.sim-pause').disabled = !loaded || !d.playing;
+  card.querySelector('.sim-cue').disabled = !loaded;
+  card.querySelector('.sim-eject').disabled = !loaded;
+  card.querySelector('.sim-onair').classList.toggle('active', !!d.on_air);
+  card.querySelector('.sim-master').classList.toggle('active', !!d.master);
+}
+
+function simSyncLoadTarget(nums) {
+  const sel = document.getElementById('sim-load-target');
+  const prev = Number(sel.value);
+  sel.innerHTML = nums.map(n => '<option value="' + n + '">Player ' + n + '</option>').join('');
+  if (nums.includes(prev)) sel.value = prev;
+}
+
+async function simLoadTracks() {
+  if (simTracks) return simTracks;
+  try { simTracks = await (await fetch('/api/tracks', { cache: 'no-store' })).json(); }
+  catch (e) { simTracks = []; }
+  return simTracks;
+}
+
+function simRenderLoadList(q) {
+  const list = document.getElementById('sim-load-list');
+  if (!simTracks) { list.innerHTML = '<div class="sim-load-empty">Loading library…</div>'; return; }
+  q = (q || '').trim().toLowerCase();
+  let hits = simTracks;
+  if (q) {
+    hits = simTracks.filter(t =>
+      (t.title || '').toLowerCase().includes(q) ||
+      (t.artist || '').toLowerCase().includes(q) ||
+      (t.album || '').toLowerCase().includes(q) ||
+      String(t.id) === q);
+  }
+  if (!hits.length) { list.innerHTML = '<div class="sim-load-empty">No matches.</div>'; return; }
+  list.innerHTML = hits.slice(0, 40).map(t =>
+    '<div class="sim-load-row" data-load-id="' + t.id + '">' +
+      '<span class="id">#' + t.id + '</span>' +
+      '<span class="ttl">' + escape(t.title || ('Track #' + t.id)) + '</span>' +
+      '<span class="art">' + escape(t.artist || '') + '</span>' +
+      '<span class="bpm">' + (t.bpm ? t.bpm.toFixed(1) : '') + '</span>' +
+    '</div>').join('');
+}
+
+function simLoadInto(trackID) {
+  const num = Number(document.getElementById('sim-load-target').value);
+  if (!num) { toast('add a virtual CDJ first'); return; }
+  simDo(num + '/load', { track_id: trackID });
+}
+
+async function simActivate() {
+  await simLoadTracks();
+  simRenderLoadList(document.getElementById('sim-load-search').value);
+  const list = await simFetch();
+  if (list) simRenderDecks(list);
+  simStartBeat(); // (re)start the beat animator each time the tab is opened
+  if (simActivated) return;
+  simActivated = true;
+  document.getElementById('sim-add').addEventListener('click', () => simDo('add'));
+  const search = document.getElementById('sim-load-search');
+  search.addEventListener('input', () => simRenderLoadList(search.value));
+  search.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      const q = search.value.trim();
+      if (/^\d+$/.test(q)) simLoadInto(Number(q));
+    }
+  });
+  document.getElementById('sim-load-list').addEventListener('click', (e) => {
+    const row = e.target.closest('[data-load-id]');
+    if (row) simLoadInto(Number(row.dataset.loadId));
+  });
+}
+
+// Poll the decks while the panel is visible so the readouts track playback.
+setInterval(() => { if (simEnabled && simTabActive()) simFetch().then(list => { if (list) simRenderDecks(list); }); }, 500);
+simProbe();
 
 // ───────── helpers ─────────
 async function fetchJSON(url, opts) {
@@ -7217,6 +7595,21 @@ async function loadTrack(trackID, deviceNumber) {
       danger: true,
     });
     if (!ok) return;
+  }
+  // Virtual decks (the emulator) aren't real peers, so the /api/load 0x19
+  // path can't reach them — route them to the sim API instead. The LOAD menu
+  // already lists them because they appear in /api/players via the monitor.
+  if (simEnabled) {
+    const list = await simFetch();
+    if (list && (list.decks || []).some(d => d.number === deviceNumber)) {
+      const sr = await fetch('/api/sim/' + deviceNumber + '/load', {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ track_id: trackID }),
+      });
+      if (sr.ok) toast(`▶ TRACK ${String(trackID).padStart(4,'0')} → PLAYER ${String(deviceNumber).padStart(2,'0')} (virtual)`, 'success');
+      else toast('LOAD FAILED · ' + (await sr.text()), 'error');
+      return;
+    }
   }
   const r = await fetch('/api/load', {
     method: 'POST', headers: {'Content-Type': 'application/json'},

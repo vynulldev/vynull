@@ -42,6 +42,14 @@ type VirtualDevice struct {
 	Monitor  *PlayerMonitor
 	Settings *CDJSettings
 
+	// Sim, when non-nil, turns this device into one or more virtual playing
+	// CDJs: statusBroadcastLoop emits a dynamic playing status (0x0a) per deck
+	// (each under its own player number) in place of the static idle status.
+	// Enabled by --simulate. See docs/design/cdj-emulator.md. simPktNum is the
+	// status sequence counter, touched only by the broadcast goroutine.
+	Sim       *SimManager
+	simPktNum uint32
+
 	announceConn    *net.UDPConn
 	statusConn      *net.UDPConn
 	beatConn        *net.UDPConn
@@ -421,6 +429,7 @@ func (d *VirtualDevice) keepAliveLoop(ctx context.Context) error {
 	if err := d.sendKeepAlive(dst); err != nil {
 		return err
 	}
+	d.announceSimDecks(dst)
 
 	// Rekordbox mode: a brief startup 0x02 claim burst that cycles through
 	// {17, 18, 41, 42, 43, 44}, stopping when the CDJ links (0x46) OR after a
@@ -447,11 +456,13 @@ func (d *VirtualDevice) keepAliveLoop(ctx context.Context) error {
 			log.Printf("shutting down virtual device")
 			return nil
 		case <-ticker.C:
-			// Type 0x06 at 1.5s intervals (both modes).
+			// Type 0x06 at 1.5s intervals (both modes): our own device number.
 			pkt := proto.MarshalKeepAlive(d.Name, d.DeviceNumber, d.DeviceType, d.MAC, d.IP, d.Peers.Count()+1)
 			if err := d.send(pkt, dst); err != nil {
 				log.Printf("keep-alive send error: %v", err)
 			}
+			// --simulate: also announce each virtual CDJ deck as its own player.
+			d.announceSimDecks(dst)
 		case <-func() <-chan time.Time {
 			if fastTicker == nil {
 				return nil
@@ -490,6 +501,24 @@ func (d *VirtualDevice) hostname() string {
 	return h
 }
 
+// announceSimDecks announces each virtual deck as its own CDJ player with a
+// 0x06 keep-alive (--simulate only; a no-op otherwise). This is in addition to
+// our own base keep-alive, which in simulate is a rekordbox source: trackers
+// then list a rekordbox instance (the metadata source) plus the CDJ players,
+// not a phantom. All decks share our MAC/IP with distinct player numbers, the
+// same one-IP-many-numbers pattern rekordbox uses for its claimed slots.
+func (d *VirtualDevice) announceSimDecks(dst *net.UDPAddr) {
+	if d.Sim == nil {
+		return
+	}
+	for _, n := range d.Sim.Numbers() {
+		kp := proto.MarshalKeepAlive(d.Name, n, proto.DeviceCDJ, d.MAC, d.IP, d.Peers.Count()+1)
+		if err := d.send(kp, dst); err != nil {
+			log.Printf("keep-alive send error (player %d): %v", n, err)
+		}
+	}
+}
+
 func (d *VirtualDevice) sendKeepAlive(dst *net.UDPAddr) error {
 	if d.DeviceType == proto.DeviceRekordbox {
 		// Rekordbox sends BOTH type 0x02 (primary) and 0x06 (secondary).
@@ -517,6 +546,15 @@ func (d *VirtualDevice) statusBroadcastLoop(ctx context.Context) {
 	dst := &net.UDPAddr{IP: d.Broadcast, Port: statusPort}
 	statusTicker := time.NewTicker(statusInterval)
 	defer statusTicker.Stop()
+
+	// --simulate: the virtual CDJ decks are the players, broadcast as dynamic
+	// 0x0a status regardless of our base device mode. Our base identity is a
+	// rekordbox source (it serves the decks' metadata), which does not itself
+	// broadcast a player status.
+	if d.Sim != nil {
+		d.simBroadcastLoop(ctx, dst, statusTicker)
+		return
+	}
 
 	if d.DeviceType == proto.DeviceRekordbox {
 		// Wait for claim to complete (CDJ sends 0x46) before starting 0x29.
@@ -578,6 +616,37 @@ func (d *VirtualDevice) statusBroadcastLoop(ctx context.Context) {
 					ds = d.Settings.GetDevSetting()
 				}
 				pkt := proto.MarshalStatusCDJ(d.Name, d.DeviceNumber, d.MediaSlot, d.TrackCount, ds)
+				d.sendStatus(pkt, dst)
+			}
+		}
+	}
+}
+
+// simBroadcastLoop emits one dynamic playing status (0x0a) per virtual deck,
+// each under its own player number, at the status rate. It feeds each into the
+// monitor too: listenStatus drops packets from our own IP, so the emulator
+// would otherwise be invisible to our own UI/overlay/MPRIS/history. Parsing the
+// very bytes we broadcast keeps the local view identical to the wire.
+func (d *VirtualDevice) simBroadcastLoop(ctx context.Context, dst *net.UDPAddr, ticker *time.Ticker) {
+	log.Printf("status broadcast started (simulate: virtual CDJ decks, type=0x0a to %s)", dst)
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			var ds []byte
+			if d.Settings != nil {
+				ds = d.Settings.GetDevSetting()
+			}
+			for _, sn := range d.Sim.Snapshots() {
+				d.simPktNum++
+				sn.State.PacketNum = d.simPktNum
+				pkt := proto.MarshalStatusCDJPlaying(d.Name, sn.Number, d.MediaSlot, d.TrackCount, ds, sn.State)
+				if d.Monitor != nil {
+					if st, ok := proto.ParseCDJStatus(pkt); ok {
+						d.Monitor.Update(st)
+					}
+				}
 				d.sendStatus(pkt, dst)
 			}
 		}

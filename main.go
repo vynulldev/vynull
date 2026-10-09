@@ -561,6 +561,14 @@ func main() {
 		Monitor:      monitor,
 		Settings:     cdjSettings,
 	}
+	// --simulate turns the device into one or more virtual playing CDJs: the
+	// status broadcast loop emits a dynamic playing status per deck. Start with
+	// a single deck as Player 1; add/remove/renumber via /api/sim and 'vynull sim'.
+	if cfg.Simulate {
+		dev.Sim = device.NewSimManager()
+		dev.Sim.Add(1)
+		log.Printf("simulate: rekordbox source (device %d) with virtual CDJ Player 1 (safe profile); control via /api/sim and 'vynull sim'", dev.DeviceNumber)
+	}
 	// Let the monitor tell our own tracks apart from ones a deck loaded off a
 	// USB/SD or another player (device number is negotiated during the claim,
 	// so read it live rather than capturing cfg.DeviceNumber).
@@ -666,6 +674,11 @@ func main() {
 	if cfg.Web {
 		log.Printf("web UI enabled: http://%s/", displayAddr(cfg.Listen))
 	}
+
+	// Let the dbserver resolve artwork through the API server's lazy extractor,
+	// so a track a deck plays gets its embedded cover served on demand even if
+	// it was never requested through the web UI.
+	db.EnsureArtwork = apiSrv.EnsureArtwork
 	// MPRIS: mirror the audible deck to the desktop's media surfaces. Missing
 	// session bus (headless) is normal — debug-log and move on.
 	if cfg.MPRIS {
