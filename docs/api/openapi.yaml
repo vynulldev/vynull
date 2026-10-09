@@ -27,8 +27,10 @@ info:
     native frontend on a laptop talking to a daemon on a booth Pi). If you expose
     it, you own the network boundary.
 
-    **CORS.** Most endpoints send `Access-Control-Allow-Origin: *`, but not all;
-    a browser frontend on another origin may hit gaps. Native apps are unaffected.
+    **CORS.** A middleware sends permissive CORS on every response
+    (`Access-Control-Allow-Origin: *`, the usual methods, and `Content-Type`)
+    and answers preflight `OPTIONS` uniformly, so a browser frontend on another
+    origin works out of the box. Native apps are unaffected either way.
 
     **Live updates.** Poll-based today: poll `/api/players` / `/api/nowplaying`
     (~1 Hz is what the web UI uses). `beat_age_ms` is the sub-beat phase, so a
