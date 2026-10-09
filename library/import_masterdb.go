@@ -300,18 +300,92 @@ func countPlaylists2(nodes []PlaylistImport) int {
 	return n
 }
 
+// defaultHelperVenv is the per-user location of the isolated python
+// environment runMasterDBDump provisions on demand (sqlcipher3 is pip-only
+// and must not pollute the system python).
+
+// helperPython returns a python3 interpreter able to run tools/rekordbox_dump.py.
+//
+// Resolution order:
+//  1. VYNULL_PYTHON env var (explicit override, used verbatim)
+//  2. system python3, if it can already import sqlcipher3
+//  3. a dedicated venv under the state dir, created on demand with sqlcipher3
+//     installed (provisioning is skipped when the marker file exists)
+func helperPython(venvDir string) (string, error) {
+	if override := os.Getenv("VYNULL_PYTHON"); override != "" {
+		return override, nil
+	}
+	if _, err := exec.LookPath("python3"); err != nil {
+		return "", fmt.Errorf("python3 not found in PATH (required for master.db import)")
+	}
+	const probe = "import sqlcipher3"
+	if err := exec.Command("python3", "-c", probe).Run(); err == nil {
+		return "python3", nil
+	}
+	if err := ensureHelperVenv(venvDir); err != nil {
+		return "", err
+	}
+	return filepath.Join(venvDir, "bin", "python3"), nil
+}
+
+// ensureHelperVenv creates venvDir (a fresh python3 venv) and pip-installs
+// sqlcipher3 into it, unless a previous run already left the marker file.
+// The marker is written only after the install is verified by an import probe.
+func ensureHelperVenv(venvDir string) error {
+	marker := filepath.Join(venvDir, ".deps-ok")
+	if _, err := os.Stat(marker); err == nil {
+		return nil
+	}
+	py, err := exec.Command("python3", "-c", "import sys; print(sys.executable)").Output()
+	if err != nil {
+		return fmt.Errorf("locate python3: %w", err)
+	}
+	if err := os.MkdirAll(venvDir, 0o755); err != nil {
+		return fmt.Errorf("create helper venv dir: %w", err)
+	}
+	cmd := exec.Command(strings.TrimSpace(string(py)), "-m", "venv", venvDir)
+	var stderr strings.Builder
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("create helper venv %s: %w (stderr: %s)", venvDir, err, strings.TrimSpace(stderr.String()))
+	}
+	venvPy := filepath.Join(venvDir, "bin", "python3")
+	cmd = exec.Command(venvPy, "-m", "pip", "--quiet", "install", "sqlcipher3")
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("install sqlcipher3 into helper venv: %w (stderr: %s) — "+
+			"or point VYNULL_PYTHON at a python that already has sqlcipher3", err, strings.TrimSpace(stderr.String()))
+	}
+	if err := exec.Command(venvPy, "-c", "import sqlcipher3").Run(); err != nil {
+		return fmt.Errorf("sqlcipher3 unusable in helper venv: %w", err)
+	}
+	return os.WriteFile(marker, []byte("ok\n"), 0o644)
+}
+
 // runMasterDBDump invokes the Python helper and parses its JSON output.
 func runMasterDBDump(dbPath, key string) (*MasterDBDump, error) {
-	if _, err := exec.LookPath("python3"); err != nil {
-		return nil, fmt.Errorf("python3 not found in PATH (required for master.db import)")
-	}
 	// tools/rekordbox_dump.py lives next to the binary's source — find it
 	// either by walking up from the executable or in the source tree.
 	script := findDumpScript()
 	if script == "" {
 		return nil, fmt.Errorf("rekordbox_dump.py helper not found")
 	}
-	cmd := exec.Command("python3", script, dbPath, key)
+	// Keep the helper's isolated python venv next to the rest of vynull's
+	// state (analysis cache, settings…). Tests pass an explicit absolute dir
+	// via VYNULL_HELPER_VENV; the plain run uses ~/.vynull/python-venv.
+	venvDir := os.Getenv("VYNULL_HELPER_VENV")
+	if venvDir == "" {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return nil, fmt.Errorf("resolve home for helper venv: %w", err)
+		}
+		venvDir = filepath.Join(home, ".vynull", "python-venv")
+	}
+	python, err := helperPython(venvDir)
+	if err != nil {
+		return nil, err
+	}
+	cmd := exec.Command(python, script, dbPath, key)
 	var stderr strings.Builder
 	cmd.Stderr = &stderr
 	out, err := cmd.Output()

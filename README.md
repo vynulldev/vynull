@@ -52,7 +52,11 @@ Use it at your own risk, and back up your rekordbox library before importing any
 - Linux (tested on x86_64)
 - Go 1.21+
 - `ffmpeg` in PATH (for audio decoding)
-- Python 3 with the `sqlcipher3` package — **only** to import an encrypted `master.db` or a library-backup `.zip` (it shells out to `tools/rekordbox_dump.py`); XML, Traktor NML, and everything else need no Python
+- Python 3 — **only** to import an encrypted `master.db` or a library-backup
+  `.zip` (it shells out to `tools/rekordbox_dump.py`); XML, Traktor NML, and
+  everything else need no Python. The `sqlcipher3` dependency is provisioned
+  automatically into an isolated venv (`~/.vynull/python-venv`) on first use —
+  no manual pip install required
 - Network interface on the same subnet as CDJs (typically 169.254.x.x link-local)
 - Permission to bind the RPC portmapper on **UDP 111** — see below (rekordbox mode does not need it)
 
@@ -168,7 +172,11 @@ analysis (waveforms + beat grids + phrases), and artwork; a Traktor
 has an import button for the same flow.
 Reading an encrypted `master.db` requires Python 3 with the `sqlcipher3`
 package (it shells out to `tools/rekordbox_dump.py`); XML, NML, and everything
-else need no Python.
+else need no Python. If the system python3 doesn't already have `sqlcipher3`,
+vynull provisions it automatically into an isolated venv at
+`~/.vynull/python-venv` (pip-installing the package there, first import only) —
+the system python is never touched. Set `VYNULL_PYTHON=/path/to/python3` to
+point at a specific interpreter instead.
 
 ### Directory Mode
 
