@@ -44,6 +44,7 @@ var cliCommands = []struct {
 	{name: "players", desc: "connected players and what they're playing"},
 	{name: "playlists", desc: "playlists with counts"},
 	{name: "status", desc: "server, analysis, and link state"},
+	{name: "sim", args: "<status|load|play|pause|cue|seek|pitch|eject> [arg]", desc: "control the virtual playing deck (server needs --simulate)"},
 }
 
 // The handlers are bound here rather than in the literal: cliFlags reads
@@ -53,6 +54,7 @@ func init() {
 	fns := map[string]func([]string) error{
 		"search": cliSearch, "add": cliAdd, "load": cliLoad,
 		"players": cliPlayers, "playlists": cliPlaylists, "status": cliStatus,
+		"sim": cliSim,
 	}
 	for i := range cliCommands {
 		cliCommands[i].fn = fns[cliCommands[i].name]
@@ -281,27 +283,9 @@ func cliLoad(args []string) error {
 		return fmt.Errorf("deck must be 1-4 (got %q)", rest[len(rest)-1])
 	}
 	sel := strings.Join(rest[:len(rest)-1], " ")
-	var trackID uint32
-	var title string
-	if id, err := strconv.ParseUint(sel, 10, 32); err == nil {
-		trackID = uint32(id)
-	} else {
-		// Query form: must match exactly one track, or we list the matches.
-		hits, err := c.tracks(sel)
-		if err != nil {
-			return err
-		}
-		switch len(hits) {
-		case 0:
-			return fmt.Errorf("no track matches %q", sel)
-		case 1:
-			trackID, title = hits[0].ID, hits[0].Title
-		default:
-			for _, t := range hits {
-				fmt.Fprintf(os.Stderr, "  %d  %s — %s\n", t.ID, t.Artist, t.Title)
-			}
-			return fmt.Errorf("%q matches %d tracks — use the ID", sel, len(hits))
-		}
+	trackID, title, err := c.resolveOneTrack(sel)
+	if err != nil {
+		return err
 	}
 	if err := c.post("/api/load", map[string]any{"track_id": trackID, "device_number": deck}, nil); err != nil {
 		return err
@@ -439,4 +423,144 @@ func cliStatus(args []string) error {
 		fmt.Printf("analysis: %s\n", st.Analysis.Status)
 	}
 	return nil
+}
+
+// resolveOneTrack turns a selector (a numeric track ID or a search query that
+// must match exactly one track) into a track ID. On an ambiguous query it
+// lists the matches to stderr and returns an error.
+func (c *cliClient) resolveOneTrack(sel string) (uint32, string, error) {
+	if id, err := strconv.ParseUint(sel, 10, 32); err == nil {
+		return uint32(id), "", nil
+	}
+	hits, err := c.tracks(sel)
+	if err != nil {
+		return 0, "", err
+	}
+	switch len(hits) {
+	case 0:
+		return 0, "", fmt.Errorf("no track matches %q", sel)
+	case 1:
+		return hits[0].ID, hits[0].Title, nil
+	default:
+		for _, t := range hits {
+			fmt.Fprintf(os.Stderr, "  %d  %s — %s\n", t.ID, t.Artist, t.Title)
+		}
+		return 0, "", fmt.Errorf("%q matches %d tracks — use the ID", sel, len(hits))
+	}
+}
+
+// cliSimStatus mirrors device.SimDeckStatus (the /api/sim payload).
+type cliSimStatus struct {
+	Loaded       bool    `json:"loaded"`
+	TrackID      uint32  `json:"track_id"`
+	State        string  `json:"state"`
+	Playing      bool    `json:"playing"`
+	PositionMs   float64 `json:"position_ms"`
+	DurationMs   float64 `json:"duration_ms"`
+	BPM          float64 `json:"bpm"`
+	EffectiveBPM float64 `json:"effective_bpm"`
+	PitchPct     float64 `json:"pitch_pct"`
+	BeatInTrack  uint32  `json:"beat_in_track"`
+	BeatInBar    uint8   `json:"beat_in_bar"`
+}
+
+func cliSim(args []string) error {
+	c, rest, err := cliFlags("sim <status|load|play|pause|cue|seek|pitch|eject> [arg]", args, true)
+	if err != nil {
+		return err
+	}
+	action := "status"
+	if len(rest) > 0 {
+		action = rest[0]
+	}
+
+	var st cliSimStatus
+	switch action {
+	case "status":
+		if err := c.get("/api/sim/status", &st); err != nil {
+			return err
+		}
+	case "play", "pause", "cue", "eject":
+		if err := c.post("/api/sim/"+action, nil, &st); err != nil {
+			return err
+		}
+	case "load":
+		if len(rest) < 2 {
+			return fmt.Errorf("usage: vynull sim load <track-id|query>")
+		}
+		trackID, _, err := c.resolveOneTrack(strings.Join(rest[1:], " "))
+		if err != nil {
+			return err
+		}
+		if err := c.post("/api/sim/load", map[string]any{"track_id": trackID}, &st); err != nil {
+			return err
+		}
+	case "seek":
+		if len(rest) < 2 {
+			return fmt.Errorf("usage: vynull sim seek <ms|m:ss>")
+		}
+		ms, err := parsePosition(rest[1])
+		if err != nil {
+			return err
+		}
+		if err := c.post("/api/sim/seek", map[string]any{"position_ms": ms}, &st); err != nil {
+			return err
+		}
+	case "pitch":
+		if len(rest) < 2 {
+			return fmt.Errorf("usage: vynull sim pitch <percent>")
+		}
+		pct, err := strconv.ParseFloat(strings.TrimSuffix(rest[1], "%"), 64)
+		if err != nil {
+			return fmt.Errorf("pitch must be a number (got %q)", rest[1])
+		}
+		if err := c.post("/api/sim/pitch", map[string]any{"pitch_pct": pct}, &st); err != nil {
+			return err
+		}
+	default:
+		return fmt.Errorf("unknown sim action %q (status|load|play|pause|cue|seek|pitch|eject)", action)
+	}
+
+	if c.json {
+		return json.NewEncoder(os.Stdout).Encode(st)
+	}
+	if !st.Loaded {
+		fmt.Println("sim: no track loaded")
+		return nil
+	}
+	pitch := strconv.FormatFloat(st.PitchPct, 'f', -1, 64)
+	if st.PitchPct >= 0 {
+		pitch = "+" + pitch
+	}
+	fmt.Printf("sim: %s  track %d  %s/%s  %.1f→%.1f BPM  pitch %s%%  beat %d (%d/4)\n",
+		st.State, st.TrackID, fmtMs(st.PositionMs), fmtMs(st.DurationMs),
+		st.BPM, st.EffectiveBPM, pitch, st.BeatInTrack, st.BeatInBar)
+	return nil
+}
+
+// parsePosition accepts a raw millisecond value or an "m:ss" timestamp.
+func parsePosition(s string) (float64, error) {
+	if strings.Contains(s, ":") {
+		parts := strings.SplitN(s, ":", 2)
+		m, err1 := strconv.Atoi(strings.TrimSpace(parts[0]))
+		sec, err2 := strconv.ParseFloat(strings.TrimSpace(parts[1]), 64)
+		if err1 != nil || err2 != nil {
+			return 0, fmt.Errorf("bad position %q (use ms or m:ss)", s)
+		}
+		return (float64(m)*60 + sec) * 1000, nil
+	}
+	ms, err := strconv.ParseFloat(s, 64)
+	if err != nil {
+		return 0, fmt.Errorf("bad position %q (use ms or m:ss)", s)
+	}
+	return ms, nil
+}
+
+// fmtMs renders milliseconds as m:ss.
+func fmtMs(ms float64) string {
+	if ms < 0 {
+		ms = 0
+	}
+	total := int(ms / 1000)
+	return fmt.Sprintf("%d:%02d", total/60, total%60)
 }
