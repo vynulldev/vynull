@@ -3891,10 +3891,41 @@ let simEnabled = false;
 let simTracks = null; // cached /api/tracks for the loader + title lookup
 let simMax = 4;
 let simNums = [];     // current deck numbers (sorted), to detect set changes
-const simDur = {};      // number -> current track duration (ms)
-const simSeeking = {};  // number -> user dragging the seek slider
-const simPitching = {}; // number -> user dragging the pitch slider
+const simDur = {};        // number -> current track duration (ms)
+const simSeeking = {};    // number -> user dragging the seek slider
+const simPitching = {};   // number -> user dragging the pitch slider
+const simBeatAnchor = {}; // number -> { beatInBar, eff, playing, at } for the beat animator
+let simBeatRAF = 0;
 let simActivated = false;
+
+function simDots(b) {
+  const d = ['·', '·', '·', '·'];
+  if (b >= 1 && b <= 4) d[b - 1] = '●';
+  return d.join(' ');
+}
+
+// simBeatFrame extrapolates each playing deck's current beat from its effective
+// BPM so the dots tick in time with the music instead of jumping on the 500ms
+// poll clock. Every poll re-anchors to the authoritative beat_in_bar, so it
+// self-corrects. Runs only while the EMULATOR tab is visible.
+function simBeatFrame() {
+  const now = performance.now();
+  for (const n of simNums) {
+    const a = simBeatAnchor[n];
+    if (!a || !a.playing || a.eff <= 0 || a.beatInBar < 1) continue;
+    const card = document.querySelector('.sim-card[data-deck="' + n + '"]');
+    if (!card) continue;
+    const beatsElapsed = Math.floor((now - a.at) / (60000 / a.eff));
+    const b = ((a.beatInBar - 1 + beatsElapsed) % 4 + 4) % 4 + 1;
+    card.querySelector('.sim-beat').textContent = simDots(b);
+  }
+  if (simEnabled && simTabActive()) requestAnimationFrame(simBeatFrame);
+  else simBeatRAF = 0;
+}
+
+function simStartBeat() {
+  if (!simBeatRAF) simBeatRAF = requestAnimationFrame(simBeatFrame);
+}
 
 function simTabActive() { return document.getElementById('sim').classList.contains('active'); }
 
@@ -3995,7 +4026,7 @@ function simBuildCards(decks) {
       '<div class="sim-readout">' +
         '<div class="sim-state">NO TRACK</div>' +
         '<div class="sim-title">—</div>' +
-        '<div class="sim-meta"></div>' +
+        '<div class="sim-meta"><span class="sim-bpm"></span> <span class="sim-beat"></span></div>' +
       '</div>' +
       '<div class="sim-seek">' +
         '<input type="range" class="sim-seek-range" min="0" max="1000" value="0" step="1" disabled>' +
@@ -4054,18 +4085,17 @@ function simUpdateCard(d) {
   const loaded = d.loaded;
   card.querySelector('.sim-state').textContent = d.state || 'NO TRACK';
   card.querySelector('.sim-title').textContent = loaded ? simTrackTitle(d.track_id) : '—';
-  const meta = card.querySelector('.sim-meta');
+  const bpmEl = card.querySelector('.sim-bpm');
   if (loaded) {
     const p = (d.pitch_pct >= 0 ? '+' : '') + (d.pitch_pct || 0).toFixed(1) + '%';
-    let beat = '';
-    if (d.beat_in_bar >= 1 && d.beat_in_bar <= 4) {
-      const dots = ['·', '·', '·', '·']; dots[d.beat_in_bar - 1] = '●';
-      beat = '<span class="sim-beat">' + dots.join(' ') + '</span>';
-    }
-    meta.innerHTML = (d.bpm || 0).toFixed(1) + ' → ' + (d.effective_bpm || 0).toFixed(1) + ' BPM · pitch ' + p + beat;
+    bpmEl.textContent = (d.bpm || 0).toFixed(1) + ' → ' + (d.effective_bpm || 0).toFixed(1) + ' BPM · pitch ' + p + ' ';
   } else {
-    meta.textContent = 'No track loaded.';
+    bpmEl.textContent = 'No track loaded.';
   }
+  // Beat indicator: anchor the rAF animator to this authoritative beat and
+  // render it once now; the animator extrapolates between polls (see below).
+  simBeatAnchor[d.number] = { beatInBar: d.beat_in_bar, eff: d.effective_bpm || 0, playing: loaded && d.playing, at: performance.now() };
+  card.querySelector('.sim-beat').textContent = (loaded && d.beat_in_bar >= 1 && d.beat_in_bar <= 4) ? simDots(d.beat_in_bar) : '';
   simDur[d.number] = d.duration_ms || 0;
   card.querySelector('.sim-dur').textContent = fmtClock(simDur[d.number]);
   card.querySelector('.sim-pos').textContent = fmtClock(d.position_ms || 0);
@@ -4131,6 +4161,7 @@ async function simActivate() {
   simRenderLoadList(document.getElementById('sim-load-search').value);
   const list = await simFetch();
   if (list) simRenderDecks(list);
+  simStartBeat(); // (re)start the beat animator each time the tab is opened
   if (simActivated) return;
   simActivated = true;
   document.getElementById('sim-add').addEventListener('click', () => simDo('add'));
