@@ -307,6 +307,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/import/status", s.handleImportStatus)
 	mux.HandleFunc("/api/library/remap-paths", s.handleRemapPaths)
 	mux.HandleFunc("/api/load", s.handleLoadTrack)
+	mux.HandleFunc("/api/sim/", s.handleSim)
 
 	mux.HandleFunc("/api/diag", s.handleDiag)
 	mux.HandleFunc("/api/diag/logs", s.handleDiagLogs)

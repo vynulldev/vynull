@@ -56,7 +56,13 @@
 
 ## Progress
 
-- **1a core done** (branch `cdj-emulator`): `proto.MarshalStatusCDJPlaying` + `CDJPlayState` (overlays the dynamic fields onto the idle template, round-trips through `ParseCDJStatus`) and `device.SimDeck` (the playhead/grid clock: load/play/pause/cue/seek/pitch, beat-in-track + beat-in-bar derivation, end-of-track, effective BPM). Unit-tested, no hardware needed. Remaining in 1a: wire `SimDeck.Snapshot()` into the status broadcast loop behind `--simulate`.
+- **Phase 1a done** (branch `cdj-emulator`), all unit-tested, no hardware needed:
+  - `proto.MarshalStatusCDJPlaying` + `CDJPlayState` — overlays the dynamic fields onto the idle template; round-trips through `ParseCDJStatus`.
+  - `device.SimDeck` — the playhead/grid clock: load/play/pause/cue/seek/pitch, beat-in-track + beat-in-bar derivation, end-of-track, effective BPM; injectable clock.
+  - Broadcast wiring — `--simulate` (implies `--mode cdj`) attaches a `SimDeck`; the CDJ status loop emits a dynamic playing status (with a sequence counter) from its snapshot, else the idle status.
+  - Control surface — `/api/sim/{status,load,play,pause,cue,seek,pitch,eject}` and `vynull sim ...`, both covered by tests.
+- **Next (1b):** the 0x28 beat emitter — gated on a real-CDJ capture (Phase 0). Until then, our monitor/overlay reflect the virtual deck from the 0x0a status alone (they interpolate beats), so the test rig is already usable.
+- **Also pending:** a live visual check (point the web overlay / monitor at a `--simulate` instance and confirm a loaded track plays, advances, and reaches the end); and, when `api-spec` merges, add the `/api/sim` routes + `SimDeckStatus` schema to the OpenAPI spec.
 
 ## Rough phasing
 
