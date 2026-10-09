@@ -80,6 +80,13 @@ func playStateActive(s uint8) bool {
 func MarshalStatusCDJPlaying(name string, deviceNumber uint8, mediaSlot uint8, trackCount uint16, devSetting []byte, p CDJPlayState) []byte {
 	buf := MarshalStatusCDJ(name, deviceNumber, mediaSlot, trackCount, devSetting)
 
+	// The player number lives at BOTH 0x21 and 0x24. The idle template carries
+	// 0x01 at 0x21 (it was captured from player 1), and MarshalStatusCDJ only
+	// sets 0x24 — but beat-link and prolink-tools key a status update by 0x21,
+	// so without this every virtual deck's status is attributed to player 1 and
+	// their info merges. (Our own monitor reads 0x24, which is why it was fine.)
+	buf[0x21] = deviceNumber
+
 	// Loaded-track source and ID.
 	buf[0x28] = p.TrackDevice
 	buf[0x29] = p.TrackSlot

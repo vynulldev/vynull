@@ -92,6 +92,27 @@ func TestMarshalStatusCDJPlayingRoundTrip(t *testing.T) {
 	if s.DeviceNumber != 3 {
 		t.Errorf("DeviceNumber = %d, want 3 (from the idle template)", s.DeviceNumber)
 	}
+	// The player number must appear at 0x21 too (beat-link/prolink read it
+	// there); otherwise multiple virtual decks merge onto player 1.
+	if buf[0x21] != 3 {
+		t.Errorf("status byte 0x21 = %d, want 3 (device number)", buf[0x21])
+	}
+}
+
+// TestMarshalStatusCDJPlayingPerDeckNumber guards the multi-deck merge bug:
+// two decks must carry distinct device numbers at both 0x21 and 0x24.
+func TestMarshalStatusCDJPlayingPerDeckNumber(t *testing.T) {
+	for _, n := range []uint8{1, 2, 3, 4} {
+		buf := MarshalStatusCDJPlaying("vynull", n, SlotUSB, 1, nil, CDJPlayState{
+			PlayState: PlayStatePlaying, TrackID: 10, BPM: 12000,
+		})
+		if buf[0x21] != n {
+			t.Errorf("deck %d: byte 0x21 = %d, want %d", n, buf[0x21], n)
+		}
+		if buf[0x24] != n {
+			t.Errorf("deck %d: byte 0x24 = %d, want %d", n, buf[0x24], n)
+		}
+	}
 }
 
 // TestMarshalStatusCDJPlayingPaused checks a paused deck is not marked active
