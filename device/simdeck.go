@@ -3,6 +3,7 @@
 package device
 
 import (
+	"fmt"
 	"math"
 	"sort"
 	"sync"
@@ -261,6 +262,7 @@ func (d *SimDeck) Snapshot() proto.CDJPlayState {
 
 // SimDeckStatus is a human-friendly view of the deck for the API/CLI.
 type SimDeckStatus struct {
+	Number       uint8   `json:"number"` // Pro DJ Link player number (1-4); set by SimManager
 	Loaded       bool    `json:"loaded"`
 	TrackID      uint32  `json:"track_id"`
 	State        string  `json:"state"`
@@ -294,4 +296,147 @@ func (d *SimDeck) Status() SimDeckStatus {
 		BeatInTrack:  beatInTrack,
 		BeatInBar:    beatInBar,
 	}
+}
+
+// MaxSimDecks is the number of virtual decks SimManager allows, matching the
+// Pro DJ Link player-number range (1-4).
+const MaxSimDecks = 4
+
+// SimManager holds up to MaxSimDecks virtual playing decks keyed by player
+// number (1-4). It is the multi-deck front end for --simulate: the status
+// broadcast loop asks it for every deck's snapshot, and the API/CLI add,
+// remove, renumber, and drive individual decks. Safe for concurrent use.
+type SimManager struct {
+	mu    sync.Mutex
+	decks map[uint8]*SimDeck
+	now   func() time.Time // injected into new decks (overridable in tests)
+}
+
+// NewSimManager returns an empty manager.
+func NewSimManager() *SimManager {
+	return &SimManager{decks: make(map[uint8]*SimDeck), now: time.Now}
+}
+
+// Add creates a virtual deck. A number of 0 auto-assigns the lowest free player
+// number. Returns the assigned number, or an error if the manager is full, the
+// number is out of range, or it is already taken.
+func (mgr *SimManager) Add(number uint8) (uint8, error) {
+	mgr.mu.Lock()
+	defer mgr.mu.Unlock()
+	if len(mgr.decks) >= MaxSimDecks {
+		return 0, fmt.Errorf("already at the maximum of %d virtual decks", MaxSimDecks)
+	}
+	if number == 0 {
+		for n := uint8(1); n <= MaxSimDecks; n++ {
+			if _, ok := mgr.decks[n]; !ok {
+				number = n
+				break
+			}
+		}
+	}
+	if number < 1 || number > MaxSimDecks {
+		return 0, fmt.Errorf("player number must be 1-%d", MaxSimDecks)
+	}
+	if _, ok := mgr.decks[number]; ok {
+		return 0, fmt.Errorf("player %d already exists", number)
+	}
+	d := NewSimDeck()
+	d.now = mgr.now
+	mgr.decks[number] = d
+	return number, nil
+}
+
+// Remove deletes a virtual deck.
+func (mgr *SimManager) Remove(number uint8) error {
+	mgr.mu.Lock()
+	defer mgr.mu.Unlock()
+	if _, ok := mgr.decks[number]; !ok {
+		return fmt.Errorf("no virtual player %d", number)
+	}
+	delete(mgr.decks, number)
+	return nil
+}
+
+// Renumber changes a deck's player number, keeping its loaded track and
+// transport state. The target must be free and in range.
+func (mgr *SimManager) Renumber(from, to uint8) error {
+	mgr.mu.Lock()
+	defer mgr.mu.Unlock()
+	if from == to {
+		return nil
+	}
+	d, ok := mgr.decks[from]
+	if !ok {
+		return fmt.Errorf("no virtual player %d", from)
+	}
+	if to < 1 || to > MaxSimDecks {
+		return fmt.Errorf("player number must be 1-%d", MaxSimDecks)
+	}
+	if _, ok := mgr.decks[to]; ok {
+		return fmt.Errorf("player %d already exists", to)
+	}
+	delete(mgr.decks, from)
+	mgr.decks[to] = d
+	return nil
+}
+
+// Get returns the deck at number, or nil.
+func (mgr *SimManager) Get(number uint8) *SimDeck {
+	mgr.mu.Lock()
+	defer mgr.mu.Unlock()
+	return mgr.decks[number]
+}
+
+// Len returns the number of virtual decks.
+func (mgr *SimManager) Len() int {
+	mgr.mu.Lock()
+	defer mgr.mu.Unlock()
+	return len(mgr.decks)
+}
+
+// snapshotDecks returns the decks in ascending player-number order, along with
+// their numbers, taking the manager lock only briefly.
+func (mgr *SimManager) snapshotDecks() ([]uint8, []*SimDeck) {
+	mgr.mu.Lock()
+	defer mgr.mu.Unlock()
+	nums := make([]uint8, 0, len(mgr.decks))
+	for n := range mgr.decks {
+		nums = append(nums, n)
+	}
+	sort.Slice(nums, func(i, j int) bool { return nums[i] < nums[j] })
+	decks := make([]*SimDeck, len(nums))
+	for i, n := range nums {
+		decks[i] = mgr.decks[n]
+	}
+	return nums, decks
+}
+
+// SimSnapshot pairs a player number with its deck's current status fields, for
+// the broadcast loop.
+type SimSnapshot struct {
+	Number uint8
+	State  proto.CDJPlayState
+}
+
+// Snapshots returns one SimSnapshot per deck, in player-number order.
+func (mgr *SimManager) Snapshots() []SimSnapshot {
+	nums, decks := mgr.snapshotDecks()
+	out := make([]SimSnapshot, len(nums))
+	for i := range nums {
+		out[i] = SimSnapshot{Number: nums[i], State: decks[i].Snapshot()}
+	}
+	return out
+}
+
+// Statuses returns the human-friendly status of every deck, in player-number
+// order, with Number filled in.
+func (mgr *SimManager) Statuses() []SimDeckStatus {
+	nums, decks := mgr.snapshotDecks()
+	out := make([]SimDeckStatus, len(nums))
+	for i := range nums {
+		st := decks[i].Status()
+		st.Number = nums[i]
+		out[i] = st
+	}
+	return out
 }

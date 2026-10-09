@@ -42,12 +42,12 @@ type VirtualDevice struct {
 	Monitor  *PlayerMonitor
 	Settings *CDJSettings
 
-	// Sim, when non-nil, turns this device into a virtual playing CDJ:
-	// statusBroadcastLoop emits a dynamic playing status (0x0a) built from
-	// the deck's snapshot in place of the static idle status. Enabled by
-	// --simulate. See docs/design/cdj-emulator.md. simPktNum is the status
-	// sequence counter, touched only by the broadcast goroutine.
-	Sim       *SimDeck
+	// Sim, when non-nil, turns this device into one or more virtual playing
+	// CDJs: statusBroadcastLoop emits a dynamic playing status (0x0a) per deck
+	// (each under its own player number) in place of the static idle status.
+	// Enabled by --simulate. See docs/design/cdj-emulator.md. simPktNum is the
+	// status sequence counter, touched only by the broadcast goroutine.
+	Sim       *SimManager
 	simPktNum uint32
 
 	announceConn    *net.UDPConn
@@ -585,28 +585,29 @@ func (d *VirtualDevice) statusBroadcastLoop(ctx context.Context) {
 				if d.Settings != nil {
 					ds = d.Settings.GetDevSetting()
 				}
-				var pkt []byte
-				if d.Sim != nil {
-					// Virtual playing deck: emit a dynamic status from
-					// the deck snapshot, with an incrementing sequence.
-					p := d.Sim.Snapshot()
-					d.simPktNum++
-					p.PacketNum = d.simPktNum
-					pkt = proto.MarshalStatusCDJPlaying(d.Name, d.DeviceNumber, d.MediaSlot, d.TrackCount, ds, p)
-					// Feed our own virtual deck into the monitor. listenStatus
+				if d.Sim != nil && d.Sim.Len() > 0 {
+					// Virtual playing decks: emit one dynamic status per deck,
+					// each under its own player number, with an incrementing
+					// sequence. Feed each into the monitor too: listenStatus
 					// drops packets from our own IP, so the emulator would
 					// otherwise be invisible to our own UI/overlay/MPRIS/history.
 					// Parsing the very bytes we broadcast keeps the local view
 					// identical to what any peer sees on the wire.
-					if d.Monitor != nil {
-						if st, ok := proto.ParseCDJStatus(pkt); ok {
-							d.Monitor.Update(st)
+					for _, sn := range d.Sim.Snapshots() {
+						d.simPktNum++
+						sn.State.PacketNum = d.simPktNum
+						pkt := proto.MarshalStatusCDJPlaying(d.Name, sn.Number, d.MediaSlot, d.TrackCount, ds, sn.State)
+						if d.Monitor != nil {
+							if st, ok := proto.ParseCDJStatus(pkt); ok {
+								d.Monitor.Update(st)
+							}
 						}
+						d.sendStatus(pkt, dst)
 					}
 				} else {
-					pkt = proto.MarshalStatusCDJ(d.Name, d.DeviceNumber, d.MediaSlot, d.TrackCount, ds)
+					pkt := proto.MarshalStatusCDJ(d.Name, d.DeviceNumber, d.MediaSlot, d.TrackCount, ds)
+					d.sendStatus(pkt, dst)
 				}
-				d.sendStatus(pkt, dst)
 			}
 		}
 	}
