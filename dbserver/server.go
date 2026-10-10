@@ -142,6 +142,11 @@ type Server struct {
 	// Ready, if non-nil, is closed once the listeners are bound and QueryPort
 	// is valid. Used by the conformance server to learn the dynamic port.
 	Ready chan struct{}
+	// EnsureArtwork, if set, resolves a track's artwork ID, extracting the
+	// embedded cover on demand. Lets a track a deck plays get its cover served
+	// even if it was never requested through the web UI. Wired to the API
+	// server's EnsureArtwork.
+	EnsureArtwork func(trackID uint32) uint32
 
 	discoveryLn net.Listener
 	dynamicLn   net.Listener
@@ -416,6 +421,7 @@ func (s *Server) handleSession(ctx context.Context, conn net.Conn) {
 		menu:         s.Menu,
 		cues:         s.Cues,
 		settings:     s.Settings,
+		ensureArt:    s.EnsureArtwork,
 	}
 
 	for {
@@ -433,6 +439,18 @@ func (s *Server) handleSession(ctx context.Context, conn net.Conn) {
 				log.Printf("dbserver read: %v", err)
 			}
 			return
+		}
+
+		// Log each request's type and its first argument, which for menu /
+		// metadata requests is the descriptor encoding player, slot, and track
+		// type (e.g. 0x<player><?><slot><type>). Useful for seeing exactly what
+		// a client like prolink-tools asks for. Debug level to keep normal
+		// sessions quiet; run with --log-level debug to watch.
+		if len(msg.Args) > 0 {
+			dlog.Debugf("dbserver request type=0x%04x arg0=0x%08x nargs=%d from %s",
+				msg.Type, uint32(msg.Args[0].Int()), len(msg.Args), conn.RemoteAddr())
+		} else {
+			dlog.Debugf("dbserver request type=0x%04x nargs=0 from %s", msg.Type, conn.RemoteAddr())
 		}
 
 		// 0x0100 = Teardown. Peer is politely closing — notify so the

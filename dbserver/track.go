@@ -83,6 +83,13 @@ func (h *Handler) handleGetMetadata(msg *proto.DBMessage) []*proto.DBMessage {
 
 	dlog.Debugf("dbserver: metadata for track %d: %q by %q", trackID, title, artist)
 
+	// If we have no art ID yet, report the track ID as the artwork handle so
+	// the client requests it; handleGetArtwork resolves it (extracting the
+	// embedded cover on demand). Reporting 0 would make the client skip art.
+	if artworkID == 0 {
+		artworkID = trackID
+	}
+
 	// Metadata items in the standard format.
 	// Item types: 0x000b=duration(secs), 0x000d=BPM(*100), 0x000f=key
 	tempo := uint32(0)
@@ -214,6 +221,15 @@ func (h *Handler) handleGetArtwork(msg *proto.DBMessage) []*proto.DBMessage {
 		if t := h.lib.Track(artID); t != nil && t.ArtID > 0 {
 			dlog.Debugf("dbserver: artwork %d → track %d artID=%d", artID, t.ID, t.ArtID)
 			art = h.lib.Artwork.Get(t.ArtID)
+		}
+	}
+	// Still nothing: the track's embedded cover may not have been extracted
+	// yet. Extract it on demand (the same lazy path the HTTP API uses) and
+	// retry. The art ID doubles as the track ID when metadata reported it so.
+	if art == nil && h.ensureArt != nil {
+		if realID := h.ensureArt(artID); realID > 0 {
+			dlog.Debugf("dbserver: artwork %d extracted on demand → artID=%d", artID, realID)
+			art = h.lib.Artwork.Get(realID)
 		}
 	}
 
