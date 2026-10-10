@@ -38,11 +38,13 @@ type menuItem struct {
 	keyID      uint32 // djmdContent.KeyID — extended-row arg 12
 
 	// Track-row wire-flag inputs (see render.go's flag assembly).
-	hasSongTag     bool   // track carries a MyTag — arg 7 bit 0x1
-	autoLoadHotCue bool   // deck auto-loads hot cues — arg 10 bit 0x100
-	fileTypeID     int    // rekordbox FileType enum — arg 10 compatibility bit
-	sampleRate     int    // Hz — arg 10 compatibility bit for wav/aiff
-	newKeyID       uint32 // converted (Camelot 1-24) key index — arg 11
+	contextTrackType uint32 // packed context track type — arg 7 high byte (TT<<24) on hierarchy track leaves
+	trackPos         uint32 // arg 9: scope position / track number (album scope uses TrackNo; 0 elsewhere)
+	hasSongTag       bool   // track carries a MyTag — arg 7 bit 0x1
+	autoLoadHotCue   bool   // deck auto-loads hot cues — arg 10 bit 0x100
+	fileTypeID       int    // rekordbox FileType enum — arg 10 compatibility bit
+	sampleRate       int    // Hz — arg 10 compatibility bit for wav/aiff
+	newKeyID         uint32 // converted (Camelot 1-24) key index — arg 11
 }
 
 // Sort order constants from CDJ protocol.
@@ -415,6 +417,17 @@ func trackColorName(id uint8) string {
 		return "Purple"
 	}
 	return ""
+}
+
+// markContextType stamps the packed context track type (TT) on every item, so
+// their served rows carry TT<<24 in argument 7. Applied to hierarchy track
+// leaves (genre/artist/album/label/original-artist/remixer), which rekordbox
+// tags with the context type; the direct track list and scalar filters leave
+// it 0.
+func markContextType(items []*menuItem, tt uint32) {
+	for _, m := range items {
+		m.contextTrackType = tt
+	}
 }
 
 // tracksToStdItems converts library tracks to standard menu items (0x0d04 format).

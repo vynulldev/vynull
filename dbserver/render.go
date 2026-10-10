@@ -158,12 +158,15 @@ func (h *Handler) handleRenderMenu(msg *proto.DBMessage) []*proto.DBMessage {
 				// Standard track row. These wire values match rekordbox's own
 				// output, verified against the link-spec conformance oracle and
 				// documented in its ROW_LAYOUT.md.
+				// arg 7 high byte: packed context track type, carried by
+				// genre/artist/album/label/original-artist/remixer track leaves
+				// (not the direct track list or scalar filters like BPM/year).
+				flags7 = item.contextTrackType << 24
 				if item.hasSongTag {
-					flags7 = 0x1 // arg 7 bit 0: track carries at least one MyTag
+					flags7 |= 0x1 // arg 7 bit 0: track carries at least one MyTag
 				}
-				flags8 = item.ID // arg 8: djmdContent.ID, repeated (not the artwork ID)
-				// arg 9 (scope position / track number) stays 0 for the direct
-				// track list; hierarchy and playlist scopes fill it elsewhere.
+				flags8 = item.ID       // arg 8: djmdContent.ID, repeated (not the artwork ID)
+				flags9 = item.trackPos // arg 9: scope position / track number (album scope only; 0 elsewhere)
 				if newCDJIncompatible(item.fileTypeID, item.FileType, item.sampleRate) {
 					flags10 |= 0x1 // arg 10 bit 0: not playable on new-CDJ decode path
 				}

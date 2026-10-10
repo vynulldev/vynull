@@ -41,19 +41,30 @@ type RootMenuEntry struct {
 // MenuSource is wired. Exported so the conformance server can reuse the exact
 // default while still supplying its own second (detail) column.
 func DefaultRootMenu() []RootMenuEntry {
+	// The 20 categories, order, IDs, and item types rekordbox 7.2.19 serves as
+	// its default LINK root menu (verified against the link-spec conformance
+	// oracle). The item type is a per-category constant, not a formula. A wired
+	// MenuSource (the web UI's configurable menu) overrides this.
 	return []RootMenuEntry{
+		{ID: 4, Label: "TRACK", ItemType: 0x83},
+		{ID: 12, Label: "KEY", ItemType: 0x8b},
+		{ID: 6, Label: "BPM", ItemType: 0x85},
+		{ID: 1, Label: "GENRE", ItemType: 0x80},
 		{ID: 2, Label: "ARTIST", ItemType: 0x81},
 		{ID: 3, Label: "ALBUM", ItemType: 0x82},
-		{ID: 4, Label: "TRACK", ItemType: 0x83},
+		{ID: 26, Label: "MATCHING", ItemType: 0xaa},
+		{ID: 18, Label: "SEARCH", ItemType: 0x91},
 		{ID: 5, Label: "PLAYLIST", ItemType: 0x84},
-		{ID: 6, Label: "BPM", ItemType: 0x85},
-		{ID: 7, Label: "RATING", ItemType: 0x86},
-		{ID: 9, Label: "REMIXER", ItemType: 0x88},
+		{ID: 22, Label: "HISTORY", ItemType: 0x95},
+		{ID: 20, Label: "BITRATE", ItemType: 0x93},
+		{ID: 15, Label: "COLOR", ItemType: 0x8e},
+		{ID: 21, Label: "FILE NAME", ItemType: 0x94},
+		{ID: 23, Label: "HOT CUE BANK", ItemType: 0x98},
 		{ID: 10, Label: "LABEL", ItemType: 0x89},
 		{ID: 11, Label: "ORIGINAL ARTIST", ItemType: 0x8a},
-		{ID: 12, Label: "KEY", ItemType: 0x8b},
-		{ID: 13, Label: "FOLDER", ItemType: 0x8d},
-		{ID: 1, Label: "GENRE", ItemType: 0x80},
+		{ID: 7, Label: "RATING", ItemType: 0x86},
+		{ID: 9, Label: "REMIXER", ItemType: 0x88},
+		{ID: 19, Label: "TIME", ItemType: 0x92},
 		{ID: 8, Label: "YEAR", ItemType: 0x87},
 	}
 }

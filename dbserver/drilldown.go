@@ -399,7 +399,10 @@ func (h *Handler) getTracksForLabelArtistAlbum(labelID, artistID, albumID uint32
 			tracks = append(tracks, t)
 		}
 	}
-	return h.tracksToStdItems(tracks)
+	items := h.tracksToStdItems(tracks)
+	sortItems(items, sortTitle)
+	markContextType(items, 1)
+	return items
 }
 
 func (h *Handler) handleGetArtistsForLabel(msg *proto.DBMessage) []*proto.DBMessage {
@@ -471,22 +474,7 @@ func (h *Handler) handleGetTracksByLabel(msg *proto.DBMessage) []*proto.DBMessag
 		albumID = msg.Args[4].Int()
 	}
 
-	var tracks []*library.Track
-	if h.lib != nil {
-		for _, t := range h.lib.Tracks() {
-			if t.Label == "" || h.catID("label", t.Label) != labelID {
-				continue
-			}
-			if artistID != 0xffffffff && h.catID("artist", t.Artist) != artistID {
-				continue
-			}
-			if albumID != 0xffffffff && h.catID("album", t.Album) != albumID {
-				continue
-			}
-			tracks = append(tracks, t)
-		}
-	}
-	items := h.tracksToStdItems(tracks)
+	items := h.getTracksForLabelArtistAlbum(labelID, artistID, albumID)
 	h.setPendingAll(msg, items)
 	dlog.Debugf("dbserver: tracks for label 0x%08x artist 0x%08x returning %d items", labelID, artistID, len(items))
 	return []*proto.DBMessage{h.successWithCount(msg)}
@@ -664,7 +652,7 @@ func (h *Handler) handleGetByArtist(msg *proto.DBMessage) []*proto.DBMessage {
 	if h.pdb != nil {
 		// Find albums for this artist from PDB tracks.
 		albumSet := make(map[uint32]bool)
-		var items []*menuItem
+		items := []*menuItem{{ID: 0xffffffff, Label1: "ALL", ItemType: 0x00a0}}
 		for _, t := range h.pdb.Tracks {
 			if t.ArtistID == artistID && t.AlbumID > 0 && !albumSet[t.AlbumID] {
 				albumSet[t.AlbumID] = true
@@ -675,9 +663,9 @@ func (h *Handler) handleGetByArtist(msg *proto.DBMessage) []*proto.DBMessage {
 				})
 			}
 		}
+		sortItems(items[1:], sortTitle)
 		h.pendingItems = items
 		dlog.Debugf("dbserver: get by artist %d returning %d albums (PDB)", artistID, len(items))
-		sortItems(items, sortTitle)
 		return []*proto.DBMessage{h.successWithCount(msg)}
 	}
 
@@ -695,7 +683,7 @@ func (h *Handler) handleGetByArtist(msg *proto.DBMessage) []*proto.DBMessage {
 	}
 	tracks := h.lib.TracksByArtist(artistName)
 	albumSet := make(map[string]bool)
-	var items []*menuItem
+	items := []*menuItem{{ID: 0xffffffff, Label1: "ALL", ItemType: 0x00a0}}
 	for _, t := range tracks {
 		album := t.Album
 		if album == "" {
@@ -710,6 +698,7 @@ func (h *Handler) handleGetByArtist(msg *proto.DBMessage) []*proto.DBMessage {
 			})
 		}
 	}
+	sortItems(items[1:], sortTitle)
 	h.pendingItems = items
 	dlog.Debugf("dbserver: get by artist %q returning %d albums", artistName, len(h.pendingItems))
 	return []*proto.DBMessage{h.successWithCount(msg)}
@@ -745,19 +734,31 @@ func (h *Handler) handleGetTracksByAlbum(msg *proto.DBMessage) []*proto.DBMessag
 		return []*proto.DBMessage{h.successWithCount(msg)}
 	}
 
-	// Fallback to library: find album name by hash ID.
-	albumName := ""
-	for _, name := range h.lib.Albums() {
-		if h.catID("album", name) == albumID {
-			albumName = name
-			break
+	// Library: filter by artist and album, honouring the 0xffffffff "ALL"
+	// sentinel at either level (e.g. an artist's tracks across all albums).
+	var matchTracks []*library.Track
+	if h.lib != nil {
+		for _, t := range h.lib.Tracks() {
+			if artistID != 0xffffffff && h.catID("artist", t.Artist) != artistID {
+				continue
+			}
+			if albumID != 0xffffffff && h.catID("album", t.Album) != albumID {
+				continue
+			}
+			matchTracks = append(matchTracks, t)
 		}
 	}
-	var matchTracks []*library.Track
-	if albumName != "" {
-		matchTracks = h.lib.TracksByAlbum(albumName)
+	items := h.tracksToStdItems(matchTracks)
+	// A specific album is album scope (track number in arg 9); spanning all
+	// albums is artist scope (arg 9 stays 0).
+	if albumID != 0xffffffff {
+		for i, t := range matchTracks {
+			items[i].trackPos = uint32(t.TrackNum)
+		}
 	}
-	h.pendingItems = h.tracksToStdItems(matchTracks)
+	sortItems(items, sortTitle)
+	markContextType(items, 1)
+	h.pendingItems = items
 	dlog.Debugf("dbserver: get tracks by album (0x1202) returning %d tracks", len(h.pendingItems))
 	return []*proto.DBMessage{h.successWithCount(msg)}
 }
@@ -795,31 +796,123 @@ func (h *Handler) handleGetByAlbum(msg *proto.DBMessage) []*proto.DBMessage {
 		return []*proto.DBMessage{h.successWithCount(msg)}
 	}
 	tracks := h.lib.TracksByAlbum(albumName)
-	h.pendingItems = h.tracksToStdItems(tracks)
+	items := h.tracksToStdItems(tracks)
+	for i, t := range tracks { // album scope puts the track number in arg 9
+		items[i].trackPos = uint32(t.TrackNum)
+	}
+	sortItems(items, sortTitle)
+	markContextType(items, 1)
+	h.pendingItems = items
 	dlog.Debugf("dbserver: get by album %q returning %d tracks", albumName, len(h.pendingItems))
 	return []*proto.DBMessage{h.successWithCount(msg)}
 }
 
+// The GENRE category is a 3-level drill like LABEL: genre -> artist -> album
+// -> track, with an [ALL] row at each level. rekordbox serves these as
+// 0x1101 (artists for genre), 0x1201 (albums for genre + artist), and 0x1301
+// (tracks for genre + artist + album). artistID/albumID of 0xffffffff mean
+// "ALL" at that level.
+
+func (h *Handler) getArtistsForGenreItems(genreID uint32) []*menuItem {
+	artistSet := make(map[string]bool)
+	if h.lib != nil {
+		for _, t := range h.lib.Tracks() {
+			if t.Genre != "" && h.catID("genre", t.Genre) == genreID && t.Artist != "" {
+				artistSet[t.Artist] = true
+			}
+		}
+	}
+	items := []*menuItem{{ID: 0xffffffff, Label1: "ALL", ItemType: 0x00a0}}
+	for name := range artistSet {
+		items = append(items, &menuItem{ID: h.catID("artist", name), Label1: name, ItemType: 0x07})
+	}
+	sortItems(items[1:], sortTitle)
+	return items
+}
+
+func (h *Handler) getAlbumsForGenreArtist(genreID, artistID uint32) []*menuItem {
+	albumSet := make(map[string]bool)
+	if h.lib != nil {
+		for _, t := range h.lib.Tracks() {
+			if t.Genre == "" || h.catID("genre", t.Genre) != genreID {
+				continue
+			}
+			if artistID != 0xffffffff && h.catID("artist", t.Artist) != artistID {
+				continue
+			}
+			if t.Album != "" {
+				albumSet[t.Album] = true
+			}
+		}
+	}
+	items := []*menuItem{{ID: 0xffffffff, Label1: "ALL", ItemType: 0x00a0}}
+	for name := range albumSet {
+		items = append(items, &menuItem{ID: h.catID("album", name), Label1: name, ItemType: 0x02})
+	}
+	sortItems(items[1:], sortTitle)
+	return items
+}
+
+func (h *Handler) getTracksForGenreArtistAlbum(genreID, artistID, albumID uint32) []*menuItem {
+	var tracks []*library.Track
+	if h.lib != nil {
+		for _, t := range h.lib.Tracks() {
+			if t.Genre == "" || h.catID("genre", t.Genre) != genreID {
+				continue
+			}
+			if artistID != 0xffffffff && h.catID("artist", t.Artist) != artistID {
+				continue
+			}
+			if albumID != 0xffffffff && h.catID("album", t.Album) != albumID {
+				continue
+			}
+			tracks = append(tracks, t)
+		}
+	}
+	items := h.tracksToStdItems(tracks)
+	sortItems(items, sortTitle)
+	markContextType(items, 1)
+	return items
+}
+
 func (h *Handler) handleGetByGenre(msg *proto.DBMessage) []*proto.DBMessage {
+	// 0x1101: [ALL] + artists for a genre.
 	if len(msg.Args) < 3 {
 		h.pendingItems = nil
 		return []*proto.DBMessage{h.successWithCount(msg)}
 	}
 	genreID := msg.Args[2].Int()
-	genreName := ""
-	for _, name := range h.lib.Genres() {
-		if h.catID("genre", name) == genreID {
-			genreName = name
-			break
-		}
-	}
-	if genreName == "" {
+	items := h.getArtistsForGenreItems(genreID)
+	h.setPendingAll(msg, items)
+	dlog.Debugf("dbserver: artists for genre 0x%08x returning %d items", genreID, len(items))
+	return []*proto.DBMessage{h.successWithCount(msg)}
+}
+
+func (h *Handler) handleGetAlbumsForGenre(msg *proto.DBMessage) []*proto.DBMessage {
+	// 0x1201: [ALL] + albums for a genre + artist.
+	if len(msg.Args) < 4 {
 		h.pendingItems = nil
 		return []*proto.DBMessage{h.successWithCount(msg)}
 	}
-	tracks := h.lib.TracksByGenre(genreName)
-	items := h.tracksToStdItems(tracks)
+	genreID := msg.Args[2].Int()
+	artistID := msg.Args[3].Int()
+	items := h.getAlbumsForGenreArtist(genreID, artistID)
 	h.setPendingAll(msg, items)
-	dlog.Debugf("dbserver: get by genre %q returning %d tracks", genreName, len(items))
+	dlog.Debugf("dbserver: albums for genre 0x%08x artist 0x%08x returning %d items", genreID, artistID, len(items))
+	return []*proto.DBMessage{h.successWithCount(msg)}
+}
+
+func (h *Handler) handleGetTracksByGenre(msg *proto.DBMessage) []*proto.DBMessage {
+	// 0x1301: tracks for a genre + artist + album.
+	if len(msg.Args) < 5 {
+		h.pendingItems = nil
+		return []*proto.DBMessage{h.successWithCount(msg)}
+	}
+	genreID := msg.Args[2].Int()
+	artistID := msg.Args[3].Int()
+	albumID := msg.Args[4].Int()
+	items := h.getTracksForGenreArtistAlbum(genreID, artistID, albumID)
+	h.setPendingAll(msg, items)
+	dlog.Debugf("dbserver: tracks for genre 0x%08x artist 0x%08x album 0x%08x returning %d items", genreID, artistID, albumID, len(items))
 	return []*proto.DBMessage{h.successWithCount(msg)}
 }
