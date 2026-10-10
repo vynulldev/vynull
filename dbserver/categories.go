@@ -20,14 +20,21 @@ import (
 // bucket tracks for each (e.g. tracksByRoundedBPM, tracksForBPMBucket).
 
 func (h *Handler) handleGetTracks(msg *proto.DBMessage) []*proto.DBMessage {
+	order := getSortOrder(msg)
 	if h.pdb != nil {
 		h.pendingItems = h.pdbTracksToItems(h.pdb.Tracks)
 	} else {
 		tracks := h.lib.Tracks()
 		h.pendingItems = h.tracksToStdItems(tracks)
+		// The library is ordered by ID; rekordbox's default (sort=0) all-track
+		// list is alphabetical by title. The PDB path keeps the export's own
+		// order, which rekordbox already wrote sorted.
+		if order == sortDefault {
+			order = sortTitle
+		}
 	}
-	sortItems(h.pendingItems, getSortOrder(msg))
-	dlog.Debugf("dbserver: get tracks returning %d items (sort=%d)", len(h.pendingItems), getSortOrder(msg))
+	sortItems(h.pendingItems, order)
+	dlog.Debugf("dbserver: get tracks returning %d items (sort=%d)", len(h.pendingItems), order)
 	return []*proto.DBMessage{h.successWithCount(msg)}
 }
 

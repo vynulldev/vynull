@@ -133,6 +133,7 @@ def main():
                c.Length, c.BitRate, c.SampleRate, c.Rating, c.ReleaseYear,
                c.TrackNo, c.DiscNo, c.Commnt, c.DJPlayCount, c.DateCreated,
                c.ColorID, c.AnalysisDataPath, c.ImagePath,
+               c.FileType, c.HotCueAutoLoad,
                a.Name AS Artist, al.Name AS Album, g.Name AS Genre,
                k.ScaleName AS Key, l.Name AS Label,
                c.GenreID, c.ArtistID, c.AlbumID, c.KeyID, c.LabelID
@@ -167,6 +168,12 @@ def main():
             "duration_sec": d.get("Length") or 0,
             "bitrate":      d.get("BitRate") or 0,
             "sample_rate":  d.get("SampleRate") or 0,
+            # rekordbox FileType enum (1=mp3, 4=m4a, 5=flac, 11=wav, 12=aiff).
+            # Authoritative for codec/compat flags; the file extension can lie
+            # (rekordbox stores .wav-named files as FileType 1, say).
+            "file_type_id": d.get("FileType") or 0,
+            # Non-empty when the deck should auto-load this track's hot cues.
+            "hot_cue_auto_load": d.get("HotCueAutoLoad") or "",
             "rating":       (d.get("Rating") or 0) // 20,  # 0-100 → 0-5
             "year":         d.get("ReleaseYear") or 0,
             "track_num":    d.get("TrackNo") or 0,
@@ -251,6 +258,16 @@ def main():
             })
     except sqlcipher3.dbapi2.OperationalError:
         pass  # Older DBs may not have MyTag tables
+
+    # Tag List membership (djmdSongTagList). Distinct from djmdSongMyTag: this
+    # is the "Tag List" the deck reflects as the song-tag flag (menu-row
+    # argument 7 bit 0), so it is dumped separately from MyTag assignments.
+    out["tag_list"] = []
+    try:
+        cur.execute("SELECT ContentID FROM djmdSongTagList")
+        out["tag_list"] = [str(cid) for (cid,) in cur.fetchall()]
+    except sqlcipher3.dbapi2.OperationalError:
+        pass  # Older DBs may not have the djmdSongTagList table
 
     # Cue points (hot + memory). Kind: 0 = memory cue; hot cues are 1,2,3
     # then 5,6,7,8,9 for A,B,C,D,E,F,G,H — rekordbox reserves Kind 4, so the

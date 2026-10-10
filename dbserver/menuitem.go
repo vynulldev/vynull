@@ -5,8 +5,10 @@ package dbserver
 import (
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 
+	"github.com/vynulldev/vynull/analysis"
 	"github.com/vynulldev/vynull/library"
 	"github.com/vynulldev/vynull/pdb"
 	"github.com/vynulldev/vynull/proto"
@@ -33,7 +35,14 @@ type menuItem struct {
 	sortAlbum  string
 	sortBPM    uint32 // BPM * 100
 	sortKey    string
-	keyID      uint32 // djmdContent.KeyID — extended-row arg 12 (0 until ID preservation lands)
+	keyID      uint32 // djmdContent.KeyID — extended-row arg 12
+
+	// Track-row wire-flag inputs (see render.go's flag assembly).
+	hasSongTag     bool   // track carries a MyTag — arg 7 bit 0x1
+	autoLoadHotCue bool   // deck auto-loads hot cues — arg 10 bit 0x100
+	fileTypeID     int    // rekordbox FileType enum — arg 10 compatibility bit
+	sampleRate     int    // Hz — arg 10 compatibility bit for wav/aiff
+	newKeyID       uint32 // converted (Camelot 1-24) key index — arg 11
 }
 
 // Sort order constants from CDJ protocol.
@@ -118,6 +127,11 @@ func (h *Handler) pdbTrackToStdItem(t *pdb.Track) *menuItem {
 		ArtID:    t.ArtworkID,
 		FileType: h.resolveFileType(t.ID),
 		ColorID:  uint32(t.ColorID),
+		// USB exports carry hot-cue autoload; the compatibility bit and
+		// new-key index fall out of the codec string and Camelot key. The PDB
+		// row has no FileTypeID/sample-rate, so those use the string fallback.
+		autoLoadHotCue: true,
+		newKeyID:       newKeyID(t.Key),
 	}
 	h.applyTrackDetailFromPDB(m, t)
 	return m
@@ -129,15 +143,20 @@ func (h *Handler) pdbTrackToStdItem(t *pdb.Track) *menuItem {
 // 0x0d04 for that classic look.
 func (h *Handler) trackToStdItem(t *library.Track) *menuItem {
 	m := &menuItem{
-		ID:         t.ID,
-		Label1:     t.Title,
-		ArtID:      t.ArtID,
-		FileType:   t.FileType,
-		ColorID:    uint32(t.ColorID),
-		sortArtist: t.Artist,
-		sortAlbum:  t.Album,
-		sortBPM:    uint32(t.BPM * 100),
-		sortKey:    t.Key,
+		ID:             t.ID,
+		Label1:         t.Title,
+		ArtID:          t.ArtID,
+		FileType:       t.FileType,
+		ColorID:        uint32(t.ColorID),
+		sortArtist:     t.Artist,
+		sortAlbum:      t.Album,
+		sortBPM:        uint32(t.BPM * 100),
+		sortKey:        t.Key,
+		hasSongTag:     h.lib != nil && h.lib.HasSongTag(t.ID),
+		autoLoadHotCue: t.AutoLoadHotCue,
+		fileTypeID:     t.FileTypeID,
+		sampleRate:     t.SampleRate,
+		newKeyID:       newKeyID(t.Key),
 	}
 	// keyID feeds the extended-row key argument; leave it 0 for keyless
 	// tracks rather than hashing an empty string.
@@ -146,6 +165,63 @@ func (h *Handler) trackToStdItem(t *library.Track) *menuItem {
 	}
 	h.applyTrackDetail(m, t)
 	return m
+}
+
+// newKeyID computes rekordbox's 1-24 "new key" index for a track's key. The
+// index is derived from the musical key (via its Camelot position), not the
+// configured display notation, so a track shown as "C" (Camelot 8B) still maps
+// to 16. Keys interleave A then B per wheel position: 1A=1, 1B=2, ... 8A=15,
+// 8B=16, ... 12A=23, 12B=24. Returns 0 for an unrecognized key.
+func newKeyID(key string) uint32 {
+	camelot, _ := analysis.KeyNamesFrom(key)
+	if camelot == "" {
+		return 0
+	}
+	letter := camelot[len(camelot)-1]
+	var mode uint32
+	switch letter {
+	case 'A', 'a':
+		mode = 1
+	case 'B', 'b':
+		mode = 2
+	default:
+		return 0
+	}
+	num, err := strconv.Atoi(strings.TrimSpace(camelot[:len(camelot)-1]))
+	if err != nil || num < 1 || num > 12 {
+		return 0
+	}
+	return uint32(num-1)*2 + mode
+}
+
+// newCDJIncompatible reports whether a track is rejected by rekordbox's
+// new-CDJ decode-compatibility path (argument 10 bit 0). FLAC (type 5) and
+// type 6 are always rejected; WAV (11) and AIFF (12) are rejected unless the
+// sample rate is 44100 or 48000 Hz. The rekordbox FileType enum is
+// authoritative; the codec string is a fallback when no enum was imported.
+func newCDJIncompatible(fileTypeID int, fileType string, sampleRate int) bool {
+	id := fileTypeID
+	if id == 0 {
+		switch fileType {
+		case "mp3":
+			id = 1
+		case "m4a":
+			id = 4
+		case "flac":
+			id = 5
+		case "wav":
+			id = 11
+		case "aiff":
+			id = 12
+		}
+	}
+	switch id {
+	case 5, 6:
+		return true
+	case 11, 12:
+		return sampleRate != 44100 && sampleRate != 48000
+	}
+	return false
 }
 
 // trackDetailKey returns the configured detail-field key, falling back

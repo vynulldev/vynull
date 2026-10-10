@@ -20,6 +20,10 @@ type MasterDBDump struct {
 	Playlists []MasterDBPlaylist `json:"playlists"`
 	Tags      []MasterDBTag      `json:"tags"`
 	Cues      []masterDBCue      `json:"cues"`
+	// TagList holds the rekordbox ContentIDs in djmdSongTagList (the "Tag
+	// List"). Distinct from per-track MyTag assignments; drives the song-tag
+	// flag bit in served menu rows.
+	TagList []string `json:"tag_list"`
 }
 
 type masterDBCue struct {
@@ -92,6 +96,11 @@ type masterDBTrack struct {
 	AlbumID  string `json:"album_id"`
 	KeyID    string `json:"key_id"`
 	LabelID  string `json:"label_id"`
+	// FileTypeID is rekordbox's FileType enum (1=mp3, 4=m4a, 5=flac, 11=wav,
+	// 12=aiff), authoritative over the file extension. HotCueAutoLoad is
+	// non-empty when the deck should auto-load this track's hot cues.
+	FileTypeID     int    `json:"file_type_id"`
+	HotCueAutoLoad string `json:"hot_cue_auto_load"`
 }
 
 // ImportedAsset pairs a library Track.ID with the rekordbox-relative paths
@@ -207,6 +216,15 @@ func ImportMasterDBDump(lib *Library, dump *MasterDBDump) (*ImportBundle, error)
 		}
 		if t.AnalyzePath != "" || t.ImagePath != "" {
 			assets = append(assets, ImportedAsset{TrackID: id, AnalyzePath: t.AnalyzePath, ImagePath: t.ImagePath})
+		}
+	}
+
+	// Flag the tracks in the "Tag List" (djmdSongTagList) so their served menu
+	// rows carry rekordbox's song-tag bit (argument 7). This is distinct from
+	// per-track MyTag assignments below.
+	for _, cid := range dump.TagList {
+		if id, ok := idMap[cid]; ok {
+			lib.MarkSongTag(id)
 		}
 	}
 
@@ -385,6 +403,12 @@ func masterDBToLibrary(t *masterDBTrack, path string) *Track {
 	if ft == "aif" {
 		ft = "aiff"
 	}
+	// rekordbox's FileType enum is authoritative over the extension (it stores
+	// .wav-named files as FileType 1, say); fall back to the extension when the
+	// dump carries no FileType.
+	if s := fileTypeString(t.FileTypeID); s != "" {
+		ft = s
+	}
 	dateAdded, _ := time.Parse("2006-01-02", t.DateAdded)
 	if dateAdded.IsZero() {
 		// rekordbox dates may include time; try a longer layout
@@ -399,27 +423,47 @@ func masterDBToLibrary(t *masterDBTrack, path string) *Track {
 	// if the ID is missing or not a uint32.
 	trackID := parseRBID(t.ID)
 	return &Track{
-		ID:         trackID,
-		Title:      t.Title,
-		Artist:     t.Artist,
-		Album:      t.Album,
-		Genre:      t.Genre,
-		Duration:   DurationSec(time.Duration(t.DurationSec) * time.Second),
-		BPM:        t.BPM,
-		Key:        t.Key,
-		Rating:     uint8(t.Rating),
-		Year:       t.Year,
-		TrackNum:   t.TrackNum,
-		DiscNum:    t.DiscNum,
-		FilePath:   path,
-		FileType:   ft,
-		FileSize:   t.FileSize,
-		Comment:    t.Comment,
-		Label:      t.Label,
-		DateAdded:  dateAdded,
-		Bitrate:    t.Bitrate,
-		SampleRate: t.SampleRate,
-		PlayCount:  t.PlayCount,
-		ColorID:    uint8(t.ColorID),
+		ID:             trackID,
+		Title:          t.Title,
+		Artist:         t.Artist,
+		Album:          t.Album,
+		Genre:          t.Genre,
+		Duration:       DurationSec(time.Duration(t.DurationSec) * time.Second),
+		BPM:            t.BPM,
+		Key:            t.Key,
+		Rating:         uint8(t.Rating),
+		Year:           t.Year,
+		TrackNum:       t.TrackNum,
+		DiscNum:        t.DiscNum,
+		FilePath:       path,
+		FileType:       ft,
+		FileSize:       t.FileSize,
+		Comment:        t.Comment,
+		Label:          t.Label,
+		DateAdded:      dateAdded,
+		Bitrate:        t.Bitrate,
+		SampleRate:     t.SampleRate,
+		PlayCount:      t.PlayCount,
+		ColorID:        uint8(t.ColorID),
+		FileTypeID:     t.FileTypeID,
+		AutoLoadHotCue: t.HotCueAutoLoad != "",
 	}
+}
+
+// fileTypeString maps a rekordbox FileType enum value to the library's codec
+// string. Returns "" for 0/unknown so callers keep the extension-derived type.
+func fileTypeString(id int) string {
+	switch id {
+	case 1:
+		return "mp3"
+	case 4:
+		return "m4a"
+	case 5:
+		return "flac"
+	case 11:
+		return "wav"
+	case 12:
+		return "aiff"
+	}
+	return ""
 }

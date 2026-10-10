@@ -99,13 +99,14 @@ func (h *Handler) handleRenderMenu(msg *proto.DBMessage) []*proto.DBMessage {
 
 	var responses []*proto.DBMessage
 
-	// Menu header. rekordbox sends arg[0]=1 (constant), not item count.
+	// Menu header. rekordbox sends arg[0]=1 (constant) and arg[1]=the page's
+	// starting row offset (0 for the first page), not an item count.
 	responses = append(responses, &proto.DBMessage{
 		TxID: msg.TxID,
 		Type: proto.DBMsgMenuHeader,
 		Args: []proto.DBArg{
 			proto.ArgI32(1),
-			proto.ArgI32(0),
+			proto.ArgI32(uint32(offset)),
 		},
 	})
 
@@ -149,23 +150,27 @@ func (h *Handler) handleRenderMenu(msg *proto.DBMessage) []*proto.DBMessage {
 		flags8 := item.ArtID
 		flags9 := uint32(0)
 		flags10 := uint32(0)
-		// rekordbox sends flags11 = 0 for every menu item, not the
-		// track colour as we previously assumed — colour is encoded in
-		// the ItemType high byte (see applyTrackDetail "color" case).
 		flags11 := uint32(0)
 		if item.ItemType&0xff == 0x04 {
 			if item.TrackInfo {
 				flags8 = 0 // track-info title: decoder ID only, no flags
 			} else {
-				flags7 = 0x01000000
-				flags8 = item.ArtID // artwork ID for CDJ to request via 0x2003 (0 = no art)
-				flags9 = 2
-				switch item.FileType {
-				case "flac", "wav", "aiff":
-					flags10 = 0x00000101
-				default:
-					flags10 = 0x00000100
+				// Standard track row. These wire values match rekordbox's own
+				// output, verified against the link-spec conformance oracle and
+				// documented in its ROW_LAYOUT.md.
+				if item.hasSongTag {
+					flags7 = 0x1 // arg 7 bit 0: track carries at least one MyTag
 				}
+				flags8 = item.ID // arg 8: djmdContent.ID, repeated (not the artwork ID)
+				// arg 9 (scope position / track number) stays 0 for the direct
+				// track list; hierarchy and playlist scopes fill it elsewhere.
+				if newCDJIncompatible(item.fileTypeID, item.FileType, item.sampleRate) {
+					flags10 |= 0x1 // arg 10 bit 0: not playable on new-CDJ decode path
+				}
+				if item.autoLoadHotCue {
+					flags10 |= 0x100 // arg 10 bit 8: deck auto-loads this track's hot cues
+				}
+				flags11 = item.newKeyID // arg 11: converted (Camelot 1-24) key index
 			}
 		}
 		// Album rows repeat the AlbumID in arg[8] (rekordbox uses it as the
