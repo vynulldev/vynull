@@ -24,7 +24,8 @@ type simListResponse struct {
 // Manager-level routes under /api/sim/:
 //
 //	status            GET   list every deck (+ the deck cap)
-//	add               POST  {number?}       add a deck (0/omitted = lowest free)
+//	profiles          GET   the built-in model profiles (for a model picker)
+//	add               POST  {number?, name?}  add a deck (0/omitted = lowest free)
 //	remove            POST  {number}        remove a deck
 //	renumber          POST  {number, to}    change a deck's player number
 //
@@ -66,6 +67,13 @@ func (s *Server) handleSim(w http.ResponseWriter, r *http.Request) {
 
 	// Manager-level.
 	switch rest {
+	case "profiles":
+		if r.Method != http.MethodGet {
+			http.Error(w, "GET required", http.StatusMethodNotAllowed)
+			return
+		}
+		writeJSON(w, map[string]any{"profiles": device.DeviceProfiles()})
+		return
 	case "status":
 		if r.Method != http.MethodGet {
 			http.Error(w, "GET required", http.StatusMethodNotAllowed)

@@ -3629,13 +3629,14 @@
       <div class="sim-modal-card">
         <div class="sim-modal-title">ADD VIRTUAL DEVICE</div>
         <label>PLAYER NUMBER <select id="sim-new-num"></select></label>
-        <label>MODEL NAME <input type="text" id="sim-new-name" maxlength="20" placeholder="e.g. CDJ-3000 (blank = server name)"></label>
+        <label>MODEL NAME <input type="text" id="sim-new-name" list="sim-models" maxlength="20" placeholder="e.g. CDJ-3000 (blank = server name)"></label>
         <div class="sim-modal-actions">
           <button type="button" class="sim-modal-cancel" id="sim-new-cancel">Cancel</button>
           <button type="button" class="sim-add" id="sim-new-add">Add</button>
         </div>
       </div>
     </div>
+    <datalist id="sim-models"></datalist>
     <div class="sim-decks" id="sim-decks"></div>
     <div class="sim-loader">
       <div class="sim-load-head">
@@ -4055,6 +4056,19 @@ function simCloseAddModal() {
   document.getElementById('sim-modal').classList.remove('open');
 }
 
+// simLoadModels fills the model-name datalist with the built-in device
+// profiles, so the name fields offer known models (CDJ-3000, XDJ-RX3, …) as
+// suggestions while still accepting any free-text name.
+async function simLoadModels() {
+  try {
+    const r = await fetch('/api/sim/profiles', { cache: 'no-store' });
+    if (!r.ok) return;
+    const { profiles } = await r.json();
+    document.getElementById('sim-models').innerHTML =
+      (profiles || []).map(p => '<option value="' + p.name + '"></option>').join('');
+  } catch (e) { /* suggestions are optional */ }
+}
+
 function simBuildCards(decks) {
   const host = document.getElementById('sim-decks');
   host.innerHTML = '';
@@ -4070,7 +4084,7 @@ function simBuildCards(decks) {
         '<button type="button" class="sim-remove" title="Remove this deck">✕</button>' +
       '</div>' +
       '<div class="sim-identity">' +
-        '<input type="text" class="sim-name" maxlength="20" placeholder="model (e.g. CDJ-3000)" title="Advertised model name; blank uses the server name">' +
+        '<input type="text" class="sim-name" list="sim-models" maxlength="20" placeholder="model (e.g. CDJ-3000)" title="Advertised model name; blank uses the server name">' +
       '</div>' +
       '<div class="sim-readout">' +
         '<div class="sim-state">NO TRACK</div>' +
@@ -4226,6 +4240,7 @@ async function simActivate() {
   simStartBeat(); // (re)start the beat animator each time the tab is opened
   if (simActivated) return;
   simActivated = true;
+  simLoadModels();
   document.getElementById('sim-add').addEventListener('click', simOpenAddModal);
   document.getElementById('sim-new-cancel').addEventListener('click', simCloseAddModal);
   document.getElementById('sim-modal').addEventListener('click', (e) => { if (e.target.id === 'sim-modal') simCloseAddModal(); });
