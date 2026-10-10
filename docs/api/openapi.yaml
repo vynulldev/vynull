@@ -856,6 +856,9 @@ components:
         history_count: { type: integer }
         width: { type: integer }
         label: { type: string }
+        waveform_style: { type: string, enum: [half, full], description: "half = bottom-anchored bars; full = centre-mirrored. Applies to every waveform." }
+        waveform_band: { type: boolean, description: "Show a tall full-width waveform band pinned to the overlay's vertical edge (replaces the card's waveform while on)." }
+        waveform_height: { type: integer, description: "Band height in px." }
 
     DiagResponse:
       type: object
