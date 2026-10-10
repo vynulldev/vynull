@@ -205,16 +205,15 @@ func (h *Handler) searchTrackItem(t *library.Track) *menuItem {
 // to handleGetTracksByColor.
 func (h *Handler) handleGetColors(msg *proto.DBMessage) []*proto.DBMessage {
 	dlog.Debugf("dbserver: COLOR list (0x100d)")
-	items := []*menuItem{
-		{ID: 0, Label1: "NO COLOR", ItemType: 0x13},
-		{ID: 1, Label1: "PINK", ItemType: 0x14},
-		{ID: 2, Label1: "RED", ItemType: 0x15},
-		{ID: 3, Label1: "ORANGE", ItemType: 0x16},
-		{ID: 4, Label1: "YELLOW", ItemType: 0x17},
-		{ID: 5, Label1: "GREEN", ItemType: 0x18},
-		{ID: 6, Label1: "AQUA", ItemType: 0x19},
-		{ID: 7, Label1: "BLUE", ItemType: 0x1a},
-		{ID: 8, Label1: "PURPLE", ItemType: 0x1b},
+	// rekordbox lists the eight named colours (Pink … Purple), title-cased,
+	// with no "no colour" row; each row type is 0x13 + the colour ID.
+	items := make([]*menuItem, 0, 8)
+	for id := uint8(1); id <= 8; id++ {
+		items = append(items, &menuItem{
+			ID:       uint32(id),
+			Label1:   trackColorName(id),
+			ItemType: uint32(0x13 + id),
+		})
 	}
 	h.setPendingAll(msg, items)
 	h.lastCategoryItems = items

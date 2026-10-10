@@ -3,7 +3,6 @@
 package dbserver
 
 import (
-	"fmt"
 	"github.com/vynulldev/vynull/internal/dlog"
 	"sort"
 	"strings"
@@ -122,7 +121,7 @@ func (h *Handler) handleGetBPM(msg *proto.DBMessage) []*proto.DBMessage {
 	for _, bpm := range bpms {
 		items = append(items, &menuItem{
 			ID:       uint32(bpm * 100),
-			Label1:   "", // rekordbox sends an empty label; the deck formats arg 1
+			Label1:   "",   // rekordbox sends an empty label; the deck formats arg 1
 			ItemType: 0x0d, // BPM item
 		})
 	}
@@ -161,11 +160,10 @@ func (h *Handler) handleGetBPMRanges(msg *proto.DBMessage) []*proto.DBMessage {
 	// Count tracks for each percentage range.
 	var items []*menuItem
 	for pct := 0; pct <= 6; pct++ {
-		count := h.countTracksForBPMRange(targetBPM, pct)
 		items = append(items, &menuItem{
 			ID:       uint32(pct),
 			ParentID: 0,
-			Label1:   fmt.Sprintf("%d", count),
+			Label1:   "", // empty label; the deck formats the ±% from arg 1
 			Label2:   "",
 			ItemType: 0x0d, // BPM item
 		})
@@ -461,13 +459,12 @@ func (h *Handler) handleGetFilename(msg *proto.DBMessage) []*proto.DBMessage {
 			if i := strings.LastIndex(name, "/"); i >= 0 {
 				name = name[i+1:]
 			}
-			items = append(items, &menuItem{
-				ID:       t.ID,
-				Label1:   name,
-				ItemType: 0x0004, // track row
-				ArtID:    t.ArtID,
-				FileType: t.FileType,
-			})
+			// A full track row (detail column + wire flags), labelled with the
+			// file name instead of the title. Not a hierarchy leaf, so no
+			// context track type in arg 7.
+			m := h.trackToStdItem(t)
+			m.Label1 = name
+			items = append(items, m)
 		}
 	}
 	sort.Slice(items, func(i, j int) bool { return items[i].Label1 < items[j].Label1 })

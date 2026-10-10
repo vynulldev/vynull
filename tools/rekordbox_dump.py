@@ -178,7 +178,7 @@ def main():
             "file_type_id": d.get("FileType") or 0,
             # Non-empty when the deck should auto-load this track's hot cues.
             "hot_cue_auto_load": d.get("HotCueAutoLoad") or "",
-            "rating":       (d.get("Rating") or 0) // 20,  # 0-100 → 0-5
+            "rating":       d.get("Rating") or 0,  # rekordbox stores the 0-5 star count directly
             "year":         d.get("ReleaseYear") or 0,
             "track_num":    d.get("TrackNo") or 0,
             "disc_num":     d.get("DiscNo") or 0,
