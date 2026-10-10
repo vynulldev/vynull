@@ -485,65 +485,96 @@ func (h *Handler) handleGetKeyDistances(msg *proto.DBMessage) []*proto.DBMessage
 		h.pendingItems = nil
 		return []*proto.DBMessage{h.successWithCount(msg)}
 	}
-	keyID := msg.Args[2].Int()
+	keyIndex := msg.Args[2].Int()
 
-	// Find the selected key name.
-	keyName := h.resolveKeyName(keyID)
-
-	// Build 3 distance groups with track counts.
-	// Label1 = key names (displayed by CDJ), Label2 = empty.
-	// ID = count (CDJ shows this as the track count).
-	groups := camelotDistanceGroups(keyName)
+	// The KEY menu is keyed by the 1-24 harmonic index; derive the Camelot
+	// position to compute the compatibility rings, then label them in the
+	// configured (Classic) notation. arg 1 is the selected index, arg 0 the
+	// distance (0 exact, 1 +relative, 2 +wheel neighbours).
+	groups := camelotDistanceGroups(keyIndexToCamelot(keyIndex))
 	var items []*menuItem
 	for dist, groupKeys := range groups {
-		count := h.countTracksForKeys(groupKeys)
-		label := strings.Join(groupKeys, ", ")
+		names := make([]string, len(groupKeys))
+		for i, c := range groupKeys {
+			names[i] = classicKeyName(c)
+		}
 		items = append(items, &menuItem{
-			ID:       uint32(count),
+			ID:       keyIndex,
 			ParentID: uint32(dist),
-			Label1:   label,
-			ItemType: 0x0f, // key item
+			Label1:   strings.Join(names, ", "),
+			ItemType: 0x0f,
 		})
 	}
 	h.setPendingAll(msg, items)
-	dlog.Debugf("dbserver: key distances for %q returning %d groups", keyName, len(items))
+	dlog.Debugf("dbserver: key distances for index %d returning %d groups", keyIndex, len(items))
 	return []*proto.DBMessage{h.successWithCount(msg)}
 }
 
 func (h *Handler) handleGetTracksByKey(msg *proto.DBMessage) []*proto.DBMessage {
-	// 0x1214: returns tracks matching key + distance group.
+	// 0x1214: returns tracks matching key index + distance group.
 	if len(msg.Args) < 4 {
 		h.pendingItems = nil
 		return []*proto.DBMessage{h.successWithCount(msg)}
 	}
-	keyID := msg.Args[2].Int()
+	keyIndex := msg.Args[2].Int()
 	distance := int(msg.Args[3].Int())
 
-	keyName := h.resolveKeyName(keyID)
-	groups := camelotDistanceGroups(keyName)
-	if distance >= len(groups) {
-		distance = 0
-	}
-	matchKeys := groups[distance]
-
-	// Build key set for matching.
-	keySet := make(map[string]bool)
-	for _, k := range matchKeys {
-		keySet[k] = true
-	}
-
+	// rekordbox's KEY track view is not a harmonic filter: it returns the
+	// whole collection, title-sorted, as a scalar leaf (no context type in
+	// arg 7). The key index and distance select the compatibility display in
+	// the deck UI, not the row set.
 	var tracks []*library.Track
 	if h.lib != nil {
-		for _, t := range h.lib.Tracks() {
-			if keySet[t.Key] {
-				tracks = append(tracks, t)
-			}
-		}
+		tracks = append(tracks, h.lib.Tracks()...)
 	}
 	items := h.tracksToStdItems(tracks)
+	sortItems(items, sortTitle)
 	h.setPendingAll(msg, items)
-	dlog.Debugf("dbserver: tracks for key %q dist=%d returning %d tracks", keyName, distance, len(items))
+	dlog.Debugf("dbserver: tracks for key index %d dist=%d returning %d tracks", keyIndex, distance, len(items))
 	return []*proto.DBMessage{h.successWithCount(msg)}
+}
+
+// keyIndexToCamelot maps the 1-24 harmonic index to Camelot notation ("1A" …
+// "12B"); keyIndexToCamelot/camelotToKeyIndex are inverses. classicKeyName
+// gives the Classic (musical) label for a Camelot string.
+func keyIndexToCamelot(idx uint32) string {
+	if idx < 1 || idx > 24 {
+		return ""
+	}
+	wheel := (idx-1)/2 + 1
+	mode := "A"
+	if (idx-1)%2 == 1 {
+		mode = "B"
+	}
+	return fmt.Sprintf("%d%s", wheel, mode)
+}
+
+func camelotToKeyIndex(camelot string) uint32 {
+	if len(camelot) < 2 {
+		return 0
+	}
+	mode := camelot[len(camelot)-1]
+	var m uint32
+	switch mode {
+	case 'A', 'a':
+		m = 1
+	case 'B', 'b':
+		m = 2
+	default:
+		return 0
+	}
+	num := 0
+	if _, err := fmt.Sscanf(camelot[:len(camelot)-1], "%d", &num); err != nil || num < 1 || num > 12 {
+		return 0
+	}
+	return uint32(num-1)*2 + m
+}
+
+func classicKeyName(camelot string) string {
+	if i := camelotToKeyIndex(camelot); i >= 1 && i <= 24 {
+		return classicKeyNames[i-1]
+	}
+	return camelot
 }
 
 // resolveKeyName finds the Camelot key name for a key ID.
