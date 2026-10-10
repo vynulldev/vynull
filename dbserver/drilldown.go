@@ -5,6 +5,7 @@ package dbserver
 import (
 	"fmt"
 	"github.com/vynulldev/vynull/internal/dlog"
+	"sort"
 	"strings"
 
 	"github.com/vynulldev/vynull/library"
@@ -126,44 +127,72 @@ func (h *Handler) handleSearch(msg *proto.DBMessage) []*proto.DBMessage {
 	query := ""
 	if len(msg.Args) >= 4 {
 		// Inline-tagged parser hands us the raw UTF-16 BE bytes as a
-		// Go string; decode to a normal string for case-insensitive
-		// matching below. Trailing NULs (the CDJ sends "T\0") get
-		// trimmed by DecodeUTF16BE.
+		// Go string; decode to a normal string. Trailing NULs (the CDJ
+		// sends "T\0") get trimmed by DecodeUTF16BE.
 		query = proto.DecodeUTF16BE([]byte(msg.Args[3].Str))
 	}
-	dlog.Debugf("dbserver: SEARCH query=%q", query)
+	tokens := searchTokens(query)
+	dlog.Debugf("dbserver: SEARCH query=%q tokens=%v", query, tokens)
 
-	var items []*menuItem
-	if h.lib != nil && query != "" {
-		q := strings.ToLower(query)
-		seenArtist := make(map[string]bool)
-		seenAlbum := make(map[string]bool)
-		var artists, albums, tracks []*menuItem
+	var artists, albums, tracks []*menuItem
+	if h.lib != nil && len(tokens) > 0 {
+		// Artist domain spans every djmdArtist name: the track artist, its
+		// remixer, and its original artist. rekordbox lists matching artists
+		// and albums ahead of matching content rows.
+		seenArtist := make(map[uint32]bool)
+		addArtist := func(kind, name string) {
+			if name == "" || !searchMatch(name, tokens) {
+				return
+			}
+			id := h.catID(kind, name)
+			if seenArtist[id] {
+				return
+			}
+			seenArtist[id] = true
+			artists = append(artists, &menuItem{ID: id, Label1: name, ItemType: 0x07})
+		}
+		seenAlbum := make(map[uint32]bool)
 		for _, t := range h.lib.Tracks() {
-			if t.Artist != "" && containsFold(t.Artist, q) && !seenArtist[t.Artist] {
-				seenArtist[t.Artist] = true
-				artists = append(artists, &menuItem{
-					ID:       h.catID("artist", t.Artist),
-					Label1:   t.Artist,
-					ItemType: 0x07,
-				})
+			addArtist("artist", t.Artist)
+			addArtist("remixer", t.Remixer)
+			addArtist("origartist", t.OriginalArtist)
+			if t.Album != "" && searchMatch(t.Album, tokens) {
+				id := h.catID("album", t.Album)
+				if !seenAlbum[id] {
+					seenAlbum[id] = true
+					albums = append(albums, &menuItem{ID: id, Label1: t.Album, ItemType: 0x02})
+				}
 			}
-			if t.Album != "" && containsFold(t.Album, q) && !seenAlbum[t.Album] {
-				seenAlbum[t.Album] = true
-				albums = append(albums, &menuItem{
-					ID:       h.catID("album", t.Album),
-					Label1:   t.Album,
-					ItemType: 0x02,
-				})
+			// A content row matches on either Title or file name, and is
+			// labelled with whichever matched (title takes precedence). It is a
+			// standard track row with the Key secondary column showing the key
+			// alone, not the "key - bpm" composite.
+			label := ""
+			if searchMatch(t.Title, tokens) {
+				label = t.Title
+			} else if fn := baseName(t.FilePath); searchMatch(fn, tokens) {
+				label = fn
 			}
-			if containsFold(t.Title, q) {
-				tracks = append(tracks, h.searchTrackItem(t))
+			if label != "" {
+				m := h.trackToStdItem(t)
+				m.ItemType = 0x0f04
+				m.ParentID = m.keyID
+				m.Label1 = label
+				m.Label2 = t.Key
+				tracks = append(tracks, m)
 			}
 		}
-		items = append(items, artists...)
-		items = append(items, albums...)
-		items = append(items, tracks...)
+		sortByID := func(s []*menuItem) {
+			sort.Slice(s, func(i, j int) bool { return s[i].ID < s[j].ID })
+		}
+		sortByID(artists)
+		sortByID(albums)
 	}
+
+	items := make([]*menuItem, 0, len(artists)+len(albums)+len(tracks))
+	items = append(items, artists...)
+	items = append(items, albums...)
+	items = append(items, tracks...)
 
 	h.setPendingAll(msg, items)
 	return []*proto.DBMessage{{
@@ -172,29 +201,46 @@ func (h *Handler) handleSearch(msg *proto.DBMessage) []*proto.DBMessage {
 	}}
 }
 
-// searchTrackItem builds a track menu item for SEARCH results. Forces
-// the ItemType to the "BPM detail" shape (0x0d04, low byte = 0x04 =
-// loadable track) so the deck always treats the row as a directly-
-// loadable track on selection — regardless of the user's configured
-// track-detail field. Without this, a user with track-detail = COLOR
-// gets ItemType 0x1304 for uncoloured tracks, which the deck routes
-// through a category drill-in (0x1200 with album context) and fails
-// to actually load the picked track.
-func (h *Handler) searchTrackItem(t *library.Track) *menuItem {
-	m := &menuItem{
-		ID:       t.ID,
-		Label1:   t.Title,
-		ArtID:    t.ArtID,
-		FileType: t.FileType,
-		ColorID:  uint32(t.ColorID),
-		ItemType: 0x0d04,
-		ParentID: uint32(t.BPM * 100),
-		Label2:   fmt.Sprintf("%.1f bpm", t.BPM),
+// searchTokens splits a query the way rekordbox does: on ASCII spaces, with
+// ASCII a-z upper-cased and all other code units left as-is (no Unicode case
+// folding). Empty tokens are dropped.
+func searchTokens(query string) []string {
+	var tokens []string
+	for _, f := range strings.Fields(query) {
+		tokens = append(tokens, asciiUpper(f))
 	}
-	if t.Key != "" {
-		m.Label2 += " - " + t.Key
+	return tokens
+}
+
+// searchMatch reports whether every token occurs as a substring of value
+// (ASCII-folded). Token order is irrelevant.
+func searchMatch(value string, tokens []string) bool {
+	v := asciiUpper(value)
+	for _, tok := range tokens {
+		if !strings.Contains(v, tok) {
+			return false
+		}
 	}
-	return m
+	return true
+}
+
+// asciiUpper upper-cases only ASCII a-z, leaving every other byte untouched.
+func asciiUpper(s string) string {
+	b := []byte(s)
+	for i, c := range b {
+		if c >= 'a' && c <= 'z' {
+			b[i] = c - 0x20
+		}
+	}
+	return string(b)
+}
+
+// baseName returns the file-name portion of a path (after the last '/').
+func baseName(path string) string {
+	if i := strings.LastIndex(path, "/"); i >= 0 {
+		return path[i+1:]
+	}
+	return path
 }
 
 // handleGetColors handles opcode 0x100d — the deck navigating into
@@ -317,16 +363,25 @@ func (h *Handler) handleSearchSelect(msg *proto.DBMessage) []*proto.DBMessage {
 	}}
 }
 
-// containsFold reports whether s contains the lowercased substring q.
-// Caller passes q already lowercased so we don't re-allocate per row;
-// for s we lowercase here. Used for case-insensitive substring search
-// against title/artist/album fields: a query of "PROB" matches tracks
-// with "Probspot" anywhere in the title, not just at the start.
-func containsFold(s, q string) bool {
-	if q == "" {
-		return false
+// searchTrackItem builds a track menu item for a selected SEARCH result
+// (0x1200). Forces the ItemType to the "BPM detail" shape (0x0d04, low byte
+// 0x04 = loadable track) so the deck always treats the row as a directly
+// loadable track on selection, regardless of the configured detail field.
+func (h *Handler) searchTrackItem(t *library.Track) *menuItem {
+	m := &menuItem{
+		ID:       t.ID,
+		Label1:   t.Title,
+		ArtID:    t.ArtID,
+		FileType: t.FileType,
+		ColorID:  uint32(t.ColorID),
+		ItemType: 0x0d04,
+		ParentID: uint32(t.BPM * 100),
+		Label2:   fmt.Sprintf("%.1f bpm", t.BPM),
 	}
-	return strings.Contains(strings.ToLower(s), q)
+	if t.Key != "" {
+		m.Label2 += " - " + t.Key
+	}
+	return m
 }
 
 // getArtistsForLabelItems returns [ALL] + artists for a label.
