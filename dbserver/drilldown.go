@@ -916,3 +916,106 @@ func (h *Handler) handleGetTracksByGenre(msg *proto.DBMessage) []*proto.DBMessag
 	dlog.Debugf("dbserver: tracks for genre 0x%08x artist 0x%08x album 0x%08x returning %d items", genreID, artistID, albumID, len(items))
 	return []*proto.DBMessage{h.successWithCount(msg)}
 }
+
+// The REMIXER and ORIGINAL ARTIST categories drill like an artist does:
+// entry -> album -> track, with an [ALL] row at the album level. Both the
+// remixer (djmdContent.RemixerID) and original artist (OrgArtistID) are
+// djmdArtist rows, matched here by the catID of the track's remixer/original
+// artist name. rekordbox serves remixer as 0x1702 (albums) / 0x1802 (tracks)
+// and original artist as 0x1402 / 0x1502.
+
+// albumsForArtistLike returns [ALL] + albums whose tracks have the given
+// remixer/original-artist (selected by field) matching id.
+func (h *Handler) albumsForArtistLike(kind string, id uint32, field func(*library.Track) string) []*menuItem {
+	albumSet := make(map[string]bool)
+	if h.lib != nil {
+		for _, t := range h.lib.Tracks() {
+			if v := field(t); v == "" || h.catID(kind, v) != id {
+				continue
+			}
+			if t.Album != "" {
+				albumSet[t.Album] = true
+			}
+		}
+	}
+	items := []*menuItem{{ID: 0xffffffff, Label1: "ALL", ItemType: 0x00a0}}
+	for name := range albumSet {
+		items = append(items, &menuItem{ID: h.catID("album", name), Label1: name, ItemType: 0x02})
+	}
+	sortItems(items[1:], sortTitle)
+	return items
+}
+
+// tracksForArtistLikeAlbum returns tracks with the given remixer/original
+// artist, optionally narrowed to one album (0xffffffff = all albums). A
+// specific album is album scope (track number in arg 9); all albums is not.
+func (h *Handler) tracksForArtistLikeAlbum(kind string, id, albumID uint32, field func(*library.Track) string) []*menuItem {
+	var tracks []*library.Track
+	if h.lib != nil {
+		for _, t := range h.lib.Tracks() {
+			if v := field(t); v == "" || h.catID(kind, v) != id {
+				continue
+			}
+			if albumID != 0xffffffff && h.catID("album", t.Album) != albumID {
+				continue
+			}
+			tracks = append(tracks, t)
+		}
+	}
+	items := h.tracksToStdItems(tracks)
+	if albumID != 0xffffffff {
+		for i, t := range tracks {
+			items[i].trackPos = uint32(t.TrackNum)
+		}
+	}
+	sortItems(items, sortTitle)
+	markContextType(items, 1)
+	return items
+}
+
+func remixerField(t *library.Track) string    { return t.Remixer }
+func origArtistField(t *library.Track) string { return t.OriginalArtist }
+
+func (h *Handler) handleGetAlbumsForRemixer(msg *proto.DBMessage) []*proto.DBMessage {
+	// 0x1702: [ALL] + albums for a remixer.
+	if len(msg.Args) < 3 {
+		h.pendingItems = nil
+		return []*proto.DBMessage{h.successWithCount(msg)}
+	}
+	items := h.albumsForArtistLike("remixer", msg.Args[2].Int(), remixerField)
+	h.setPendingAll(msg, items)
+	return []*proto.DBMessage{h.successWithCount(msg)}
+}
+
+func (h *Handler) handleGetTracksByRemixer(msg *proto.DBMessage) []*proto.DBMessage {
+	// 0x1802: tracks for a remixer + album.
+	if len(msg.Args) < 4 {
+		h.pendingItems = nil
+		return []*proto.DBMessage{h.successWithCount(msg)}
+	}
+	items := h.tracksForArtistLikeAlbum("remixer", msg.Args[2].Int(), msg.Args[3].Int(), remixerField)
+	h.setPendingAll(msg, items)
+	return []*proto.DBMessage{h.successWithCount(msg)}
+}
+
+func (h *Handler) handleGetAlbumsForOriginalArtist(msg *proto.DBMessage) []*proto.DBMessage {
+	// 0x1402: [ALL] + albums for an original artist.
+	if len(msg.Args) < 3 {
+		h.pendingItems = nil
+		return []*proto.DBMessage{h.successWithCount(msg)}
+	}
+	items := h.albumsForArtistLike("origartist", msg.Args[2].Int(), origArtistField)
+	h.setPendingAll(msg, items)
+	return []*proto.DBMessage{h.successWithCount(msg)}
+}
+
+func (h *Handler) handleGetTracksByOriginalArtist(msg *proto.DBMessage) []*proto.DBMessage {
+	// 0x1502: tracks for an original artist + album.
+	if len(msg.Args) < 4 {
+		h.pendingItems = nil
+		return []*proto.DBMessage{h.successWithCount(msg)}
+	}
+	items := h.tracksForArtistLikeAlbum("origartist", msg.Args[2].Int(), msg.Args[3].Int(), origArtistField)
+	h.setPendingAll(msg, items)
+	return []*proto.DBMessage{h.successWithCount(msg)}
+}

@@ -101,6 +101,12 @@ type masterDBTrack struct {
 	// non-empty when the deck should auto-load this track's hot cues.
 	FileTypeID     int    `json:"file_type_id"`
 	HotCueAutoLoad string `json:"hot_cue_auto_load"`
+	// Remixer and original artist (both djmdArtist rows), with their IDs, so
+	// the REMIXER and ORIGINAL ARTIST category drills resolve.
+	Remixer        string `json:"remixer"`
+	OriginalArtist string `json:"original_artist"`
+	RemixerID      string `json:"remixer_id"`
+	OrigArtistID   string `json:"orig_artist_id"`
 }
 
 // ImportedAsset pairs a library Track.ID with the rekordbox-relative paths
@@ -211,6 +217,8 @@ func ImportMasterDBDump(lib *Library, dump *MasterDBDump) (*ImportBundle, error)
 		lib.RegisterCategoryID("album", t.Album, parseRBID(t.AlbumID))
 		lib.RegisterCategoryID("key", t.Key, parseRBID(t.KeyID))
 		lib.RegisterCategoryID("label", t.Label, parseRBID(t.LabelID))
+		lib.RegisterCategoryID("remixer", t.Remixer, parseRBID(t.RemixerID))
+		lib.RegisterCategoryID("origartist", t.OriginalArtist, parseRBID(t.OrigArtistID))
 		if track.ColorID > 0 {
 			colors = append(colors, ColorImport{TrackID: id, ColorID: track.ColorID})
 		}
@@ -447,6 +455,8 @@ func masterDBToLibrary(t *masterDBTrack, path string) *Track {
 		ColorID:        uint8(t.ColorID),
 		FileTypeID:     t.FileTypeID,
 		AutoLoadHotCue: t.HotCueAutoLoad != "",
+		Remixer:        t.Remixer,
+		OriginalArtist: t.OriginalArtist,
 	}
 }
 

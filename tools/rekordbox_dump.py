@@ -136,13 +136,17 @@ def main():
                c.FileType, c.HotCueAutoLoad,
                a.Name AS Artist, al.Name AS Album, g.Name AS Genre,
                k.ScaleName AS Key, l.Name AS Label,
-               c.GenreID, c.ArtistID, c.AlbumID, c.KeyID, c.LabelID
+               c.GenreID, c.ArtistID, c.AlbumID, c.KeyID, c.LabelID,
+               rmx.Name AS Remixer, oa.Name AS OrigArtist,
+               c.RemixerID, c.OrgArtistID
         FROM djmdContent c
         LEFT JOIN djmdArtist a ON c.ArtistID = a.ID
         LEFT JOIN djmdAlbum al ON c.AlbumID = al.ID
         LEFT JOIN djmdGenre g ON c.GenreID = g.ID
         LEFT JOIN djmdKey k ON c.KeyID = k.ID
         LEFT JOIN djmdLabel l ON c.LabelID = l.ID
+        LEFT JOIN djmdArtist rmx ON c.RemixerID = rmx.ID
+        LEFT JOIN djmdArtist oa ON c.OrgArtistID = oa.ID
         WHERE COALESCE(c.rb_local_deleted, 0) = 0
     """)
     cols = [d[0] for d in cur.description]
@@ -190,6 +194,10 @@ def main():
             "album_id":     str(d.get("AlbumID") or ""),
             "key_id":       str(d.get("KeyID") or ""),
             "label_id":     str(d.get("LabelID") or ""),
+            "remixer":        d.get("Remixer") or "",
+            "original_artist": d.get("OrigArtist") or "",
+            "remixer_id":     str(d.get("RemixerID") or ""),
+            "orig_artist_id": str(d.get("OrgArtistID") or ""),
             # Paths are relative to the rekordbox `share/` root, e.g.
             # /PIONEER/USBANLZ/<bucket>/<uuid>/ANLZ0000.DAT and
             # /PIONEER/Artwork/<bucket>/<uuid>/artwork.jpg. The Go caller

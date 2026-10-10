@@ -551,7 +551,7 @@ func (h *Handler) handleGetRemixers(msg *proto.DBMessage) []*proto.DBMessage {
 	var items []*menuItem
 	for name := range remixerSet {
 		items = append(items, &menuItem{
-			ID: h.catID("remixer", name), Label1: name, ItemType: 0x08,
+			ID: h.catID("remixer", name), Label1: name, ItemType: 0x29,
 		})
 	}
 	sortItems(items, sortTitle)
@@ -573,7 +573,7 @@ func (h *Handler) handleGetOriginalArtists(msg *proto.DBMessage) []*proto.DBMess
 	var items []*menuItem
 	for name := range artistSet {
 		items = append(items, &menuItem{
-			ID: h.catID("origartist", name), Label1: name, ItemType: 0x0b,
+			ID: h.catID("origartist", name), Label1: name, ItemType: 0x28,
 		})
 	}
 	sortItems(items, sortTitle)

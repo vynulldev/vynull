@@ -228,15 +228,18 @@ func (h *Handler) Handle(msg *proto.DBMessage) []*proto.DBMessage {
 		return h.handleSearch(msg)
 	case 0x1200: // SEARCH-result drill-in: resolve the selected item's ID
 		return h.handleSearchSelect(msg)
-	case 0x1602: // session preflight (rekordbox-style ACK; semantics TBD)
-		// Respond with [0x1602, 0]. Leaving it
-		// unhandled appears to make the deck stall before entering
-		// some categories (SEARCH keyboard not opening in particular).
-		dlog.Debugf("dbserver: 0x1602 preflight ack")
-		return []*proto.DBMessage{{
-			TxID: msg.TxID, Type: proto.DBMsgSuccess,
-			Args: []proto.DBArg{proto.ArgI32(uint32(msg.Type)), proto.ArgI32(0)},
-		}}
+	case 0x1602: // REMIXER list (remixer drill-down level 0)
+		return h.handleGetRemixers(msg)
+	case 0x1702: // albums for remixer (remixer drill-down level 1)
+		return h.handleGetAlbumsForRemixer(msg)
+	case 0x1802: // tracks for remixer + album (remixer drill-down level 2)
+		return h.handleGetTracksByRemixer(msg)
+	case 0x1302: // ORIGINAL ARTIST list (original-artist drill-down level 0)
+		return h.handleGetOriginalArtists(msg)
+	case 0x1402: // albums for original artist (original-artist drill-down level 1)
+		return h.handleGetAlbumsForOriginalArtist(msg)
+	case 0x1502: // tracks for original artist + album (original-artist drill-down level 2)
+		return h.handleGetTracksByOriginalArtist(msg)
 	case 0x3001: // metadata notification (CDJ sends ~1min after loading); no response expected
 		dlog.Debugf("dbserver: 0x3001 notification (no response)")
 		return nil
