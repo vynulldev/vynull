@@ -98,11 +98,14 @@ func main() {
 		fatalf("dbserver failed to start: %v", err)
 	}
 
+	// The harness client feeds query_port into its port-query (RemoteDBServer
+	// discovery) to learn the dynamic port, so query_port is the discovery port
+	// (12523), not the dynamic one. dynamic_port is included for diagnostics.
 	readiness, _ := json.Marshal(map[string]any{
 		"status":         "ready",
 		"listen_address": "127.0.0.1",
-		"query_port":     int(db.QueryPort()),
-		"discovery_port": 12523,
+		"query_port":     12523,
+		"dynamic_port":   int(db.QueryPort()),
 	})
 	fmt.Println(string(readiness))
 	os.Stdout.Sync()
