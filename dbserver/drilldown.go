@@ -1015,3 +1015,31 @@ func (h *Handler) handleGetTracksByOriginalArtist(msg *proto.DBMessage) []*proto
 	h.setPendingAll(msg, items)
 	return []*proto.DBMessage{h.successWithCount(msg)}
 }
+
+// handleGetMatching serves the MATCHING browse (0x1017): the related tracks
+// for the given track from djmdRecommendLike, considered in both relationship
+// directions. A scalar leaf (no context type in arg 7); album-style track
+// number in arg 9, title-sorted.
+func (h *Handler) handleGetMatching(msg *proto.DBMessage) []*proto.DBMessage {
+	if len(msg.Args) < 3 {
+		h.pendingItems = nil
+		return []*proto.DBMessage{h.successWithCount(msg)}
+	}
+	srcID := msg.Args[2].Int()
+	var tracks []*library.Track
+	if h.lib != nil {
+		for _, id := range h.lib.Related(srcID) {
+			if t := h.lib.Track(id); t != nil {
+				tracks = append(tracks, t)
+			}
+		}
+	}
+	items := h.tracksToStdItems(tracks)
+	for i, t := range tracks {
+		items[i].trackPos = uint32(t.TrackNum)
+	}
+	sortItems(items, sortTitle)
+	h.setPendingAll(msg, items)
+	dlog.Debugf("dbserver: matching for track %d returning %d tracks", srcID, len(items))
+	return []*proto.DBMessage{h.successWithCount(msg)}
+}

@@ -24,6 +24,15 @@ type MasterDBDump struct {
 	// List"). Distinct from per-track MyTag assignments; drives the song-tag
 	// flag bit in served menu rows.
 	TagList []string `json:"tag_list"`
+	// Recommendations are djmdRecommendLike related-track pairs backing the
+	// MATCHING browse.
+	Recommendations []masterDBRecommend `json:"recommendations"`
+}
+
+// masterDBRecommend is one djmdRecommendLike related-track pair (ContentIDs).
+type masterDBRecommend struct {
+	ID1 string `json:"id1"`
+	ID2 string `json:"id2"`
 }
 
 type masterDBCue struct {
@@ -225,6 +234,15 @@ func ImportMasterDBDump(lib *Library, dump *MasterDBDump) (*ImportBundle, error)
 		}
 		if t.AnalyzePath != "" || t.ImagePath != "" {
 			assets = append(assets, ImportedAsset{TrackID: id, AnalyzePath: t.AnalyzePath, ImagePath: t.ImagePath})
+		}
+	}
+
+	// Record related-track recommendations (both directions) for MATCHING.
+	for _, r := range dump.Recommendations {
+		a, ok1 := idMap[r.ID1]
+		b, ok2 := idMap[r.ID2]
+		if ok1 && ok2 {
+			lib.AddRelated(a, b)
 		}
 	}
 

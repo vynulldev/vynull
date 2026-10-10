@@ -278,6 +278,17 @@ def main():
     except sqlcipher3.dbapi2.OperationalError:
         pass  # Older DBs may not have the djmdSongTagList table
 
+    # Related-track recommendations (djmdRecommendLike) back the MATCHING
+    # browse. The relation is directional (ContentID1 -> ContentID2) but the
+    # deck matches both ways, so both IDs are dumped as an unordered pair.
+    out["recommendations"] = []
+    try:
+        cur.execute("SELECT ContentID1, ContentID2 FROM djmdRecommendLike "
+                    "WHERE COALESCE(rb_local_deleted, 0) = 0")
+        out["recommendations"] = [{"id1": str(a), "id2": str(b)} for a, b in cur.fetchall()]
+    except sqlcipher3.dbapi2.OperationalError:
+        pass  # Older DBs may not have the djmdRecommendLike table
+
     # Cue points (hot + memory). Kind: 0 = memory cue; hot cues are 1,2,3
     # then 5,6,7,8,9 for A,B,C,D,E,F,G,H — rekordbox reserves Kind 4, so the
     # caller must map Kind>=5 down by one to get the contiguous A..H slot.

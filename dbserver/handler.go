@@ -259,6 +259,8 @@ func (h *Handler) Handle(msg *proto.DBMessage) []*proto.DBMessage {
 		return h.handleGetByAlbum(msg)
 	case 0x1202: // get tracks by album (artist→album→track drill-down)
 		return h.handleGetTracksByAlbum(msg)
+	case 0x1017: // MATCHING — related tracks (djmdRecommendLike) for a track
+		return h.handleGetMatching(msg)
 	case 0x1101: // artists for genre (genre drill-down level 1)
 		return h.handleGetByGenre(msg)
 	case 0x1201: // albums for genre + artist (genre drill-down level 2)
