@@ -47,7 +47,7 @@ func (h *Handler) handleGetArtists(msg *proto.DBMessage) []*proto.DBMessage {
 		h.pendingItems = make([]*menuItem, len(artists))
 		for i, name := range artists {
 			h.pendingItems[i] = &menuItem{
-				ID:       library.HashID("artist", name),
+				ID:       h.catID("artist", name),
 				Label1:   name,
 				ItemType: 0x07,
 			}
@@ -74,7 +74,7 @@ func (h *Handler) handleGetAlbums(msg *proto.DBMessage) []*proto.DBMessage {
 		h.pendingItems = make([]*menuItem, len(albums))
 		for i, name := range albums {
 			h.pendingItems[i] = &menuItem{
-				ID:       library.HashID("album", name),
+				ID:       h.catID("album", name),
 				Label1:   name,
 				ItemType: 0x02,
 			}
@@ -90,7 +90,7 @@ func (h *Handler) handleGetGenres(msg *proto.DBMessage) []*proto.DBMessage {
 	h.pendingItems = make([]*menuItem, len(genres))
 	for i, name := range genres {
 		h.pendingItems[i] = &menuItem{
-			ID:       library.HashID("genre", name),
+			ID:       h.catID("genre", name),
 			Label1:   name,
 			ItemType: 0x06, // genre
 		}
@@ -496,7 +496,7 @@ func (h *Handler) handleGetKeys(msg *proto.DBMessage) []*proto.DBMessage {
 		var items []*menuItem
 		for key := range keySet {
 			items = append(items, &menuItem{
-				ID:       library.HashID("key", key),
+				ID:       h.catID("key", key),
 				Label1:   key,
 				ItemType: 0x0f,
 			})
@@ -521,7 +521,7 @@ func (h *Handler) handleGetLabels(msg *proto.DBMessage) []*proto.DBMessage {
 		}
 		for label := range labelSet {
 			items = append(items, &menuItem{
-				ID: library.HashID("label", label), Label1: label, ItemType: 0x0e,
+				ID: h.catID("label", label), Label1: label, ItemType: 0x0e,
 			})
 		}
 	}
@@ -544,7 +544,7 @@ func (h *Handler) handleGetRemixers(msg *proto.DBMessage) []*proto.DBMessage {
 	var items []*menuItem
 	for name := range remixerSet {
 		items = append(items, &menuItem{
-			ID: library.HashID("remixer", name), Label1: name, ItemType: 0x08,
+			ID: h.catID("remixer", name), Label1: name, ItemType: 0x08,
 		})
 	}
 	sortItems(items, sortTitle)
@@ -566,7 +566,7 @@ func (h *Handler) handleGetOriginalArtists(msg *proto.DBMessage) []*proto.DBMess
 	var items []*menuItem
 	for name := range artistSet {
 		items = append(items, &menuItem{
-			ID: library.HashID("origartist", name), Label1: name, ItemType: 0x0b,
+			ID: h.catID("origartist", name), Label1: name, ItemType: 0x0b,
 		})
 	}
 	sortItems(items, sortTitle)

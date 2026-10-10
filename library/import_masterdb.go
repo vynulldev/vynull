@@ -85,6 +85,13 @@ type masterDBTrack struct {
 	ColorID     int     `json:"color_id"`     // rekordbox track-colour palette ID (1-8)
 	AnalyzePath string  `json:"analyze_path"` // /PIONEER/USBANLZ/.../ANLZ0000.DAT, relative to share/
 	ImagePath   string  `json:"image_path"`   // /PIONEER/Artwork/.../artwork.jpg, relative to share/
+	// rekordbox lookup-table row IDs (djmd*), so served category rows carry
+	// rekordbox's IDs rather than hashed names. Strings, like ID.
+	GenreID  string `json:"genre_id"`
+	ArtistID string `json:"artist_id"`
+	AlbumID  string `json:"album_id"`
+	KeyID    string `json:"key_id"`
+	LabelID  string `json:"label_id"`
 }
 
 // ImportedAsset pairs a library Track.ID with the rekordbox-relative paths
@@ -188,6 +195,13 @@ func ImportMasterDBDump(lib *Library, dump *MasterDBDump) (*ImportBundle, error)
 		if t.ID != "" {
 			idMap[t.ID] = id
 		}
+		// Record each category value's rekordbox lookup-table ID so the dbserver
+		// can serve rekordbox's real IDs (not hashed names) in category rows.
+		lib.RegisterCategoryID("genre", t.Genre, parseRBID(t.GenreID))
+		lib.RegisterCategoryID("artist", t.Artist, parseRBID(t.ArtistID))
+		lib.RegisterCategoryID("album", t.Album, parseRBID(t.AlbumID))
+		lib.RegisterCategoryID("key", t.Key, parseRBID(t.KeyID))
+		lib.RegisterCategoryID("label", t.Label, parseRBID(t.LabelID))
 		if track.ColorID > 0 {
 			colors = append(colors, ColorImport{TrackID: id, ColorID: track.ColorID})
 		}
@@ -356,6 +370,15 @@ func findDumpScript() string {
 	return ""
 }
 
+// parseRBID parses a rekordbox lookup-table ID (stored as a decimal string)
+// into a uint32, returning 0 when the string is empty or not a valid uint32.
+func parseRBID(s string) uint32 {
+	if n, err := strconv.ParseUint(strings.TrimSpace(s), 10, 32); err == nil {
+		return uint32(n)
+	}
+	return 0
+}
+
 func masterDBToLibrary(t *masterDBTrack, path string) *Track {
 	ext := strings.ToLower(filepath.Ext(path))
 	ft := strings.TrimPrefix(ext, ".")
@@ -374,10 +397,7 @@ func masterDBToLibrary(t *masterDBTrack, path string) *Track {
 	// rows carry the same IDs rekordbox does (addTrackLocked respects a preset
 	// ID; idMap then resolves to it identically). Fall back to auto-assign (0)
 	// if the ID is missing or not a uint32.
-	var trackID uint32
-	if n, err := strconv.ParseUint(strings.TrimSpace(t.ID), 10, 32); err == nil {
-		trackID = uint32(n)
-	}
+	trackID := parseRBID(t.ID)
 	return &Track{
 		ID:         trackID,
 		Title:      t.Title,

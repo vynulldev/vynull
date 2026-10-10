@@ -83,6 +83,20 @@ func getSortOrder(msg *proto.DBMessage) uint32 {
 	return 0
 }
 
+// catID returns the rekordbox lookup-table ID for a category value when the
+// library carries one (recorded during a master.db import), falling back to
+// the stable name hash otherwise. Both category-row generation and drill-in
+// matching route through this helper, so the IDs we serve and the IDs decks
+// send back when drilling in stay in lockstep.
+func (h *Handler) catID(kind, name string) uint32 {
+	if h.lib != nil {
+		if id := h.lib.CategoryID(kind, name); id != 0 {
+			return id
+		}
+	}
+	return library.HashID(kind, name)
+}
+
 func (h *Handler) pdbTracksToItems(tracks []*pdb.Track) []*menuItem {
 	items := make([]*menuItem, len(tracks))
 	for i, t := range tracks {
@@ -115,11 +129,20 @@ func (h *Handler) pdbTrackToStdItem(t *pdb.Track) *menuItem {
 // 0x0d04 for that classic look.
 func (h *Handler) trackToStdItem(t *library.Track) *menuItem {
 	m := &menuItem{
-		ID:       t.ID,
-		Label1:   t.Title,
-		ArtID:    t.ArtID,
-		FileType: t.FileType,
-		ColorID:  uint32(t.ColorID),
+		ID:         t.ID,
+		Label1:     t.Title,
+		ArtID:      t.ArtID,
+		FileType:   t.FileType,
+		ColorID:    uint32(t.ColorID),
+		sortArtist: t.Artist,
+		sortAlbum:  t.Album,
+		sortBPM:    uint32(t.BPM * 100),
+		sortKey:    t.Key,
+	}
+	// keyID feeds the extended-row key argument; leave it 0 for keyless
+	// tracks rather than hashing an empty string.
+	if t.Key != "" {
+		m.keyID = h.catID("key", t.Key)
 	}
 	h.applyTrackDetail(m, t)
 	return m
@@ -175,27 +198,27 @@ func (h *Handler) applyTrackDetail(m *menuItem, t *library.Track) {
 			m.Label2 += " - " + t.Key
 		}
 	case "key":
-		m.ParentID = library.HashID("key", t.Key)
+		m.ParentID = h.catID("key", t.Key)
 		if t.Key != "" {
 			m.Label2 = fmt.Sprintf("%s - %.1f bpm", t.Key, t.BPM)
 		}
 	case "artist":
-		m.ParentID = library.HashID("artist", t.Artist)
+		m.ParentID = h.catID("artist", t.Artist)
 		m.Label2 = t.Artist
 	case "album":
-		m.ParentID = library.HashID("album", t.Album)
+		m.ParentID = h.catID("album", t.Album)
 		m.Label2 = t.Album
 	case "genre":
-		m.ParentID = library.HashID("genre", t.Genre)
+		m.ParentID = h.catID("genre", t.Genre)
 		m.Label2 = t.Genre
 	case "label":
-		m.ParentID = library.HashID("label", t.Label)
+		m.ParentID = h.catID("label", t.Label)
 		m.Label2 = t.Label
 	case "remixer":
-		m.ParentID = library.HashID("remixer", t.Remixer)
+		m.ParentID = h.catID("remixer", t.Remixer)
 		m.Label2 = t.Remixer
 	case "original_artist":
-		m.ParentID = library.HashID("original_artist", t.OriginalArtist)
+		m.ParentID = h.catID("original_artist", t.OriginalArtist)
 		m.Label2 = t.OriginalArtist
 	case "time":
 		m.ParentID = uint32(t.Duration.Seconds())
@@ -249,18 +272,18 @@ func (h *Handler) applyTrackDetailFromPDB(m *menuItem, t *pdb.Track) {
 			m.Label2 += " - " + t.Key
 		}
 	case "key":
-		m.ParentID = library.HashID("key", t.Key)
+		m.ParentID = h.catID("key", t.Key)
 		if t.Key != "" {
 			m.Label2 = fmt.Sprintf("%s - %.1f bpm", t.Key, bpm)
 		}
 	case "artist":
-		m.ParentID = library.HashID("artist", t.Artist)
+		m.ParentID = h.catID("artist", t.Artist)
 		m.Label2 = t.Artist
 	case "album":
-		m.ParentID = library.HashID("album", t.Album)
+		m.ParentID = h.catID("album", t.Album)
 		m.Label2 = t.Album
 	case "genre":
-		m.ParentID = library.HashID("genre", t.Genre)
+		m.ParentID = h.catID("genre", t.Genre)
 		m.Label2 = t.Genre
 	case "time":
 		m.ParentID = uint32(t.Duration)

@@ -134,7 +134,8 @@ def main():
                c.TrackNo, c.DiscNo, c.Commnt, c.DJPlayCount, c.DateCreated,
                c.ColorID, c.AnalysisDataPath, c.ImagePath,
                a.Name AS Artist, al.Name AS Album, g.Name AS Genre,
-               k.ScaleName AS Key, l.Name AS Label
+               k.ScaleName AS Key, l.Name AS Label,
+               c.GenreID, c.ArtistID, c.AlbumID, c.KeyID, c.LabelID
         FROM djmdContent c
         LEFT JOIN djmdArtist a ON c.ArtistID = a.ID
         LEFT JOIN djmdAlbum al ON c.AlbumID = al.ID
@@ -175,6 +176,13 @@ def main():
             "date_added":   d.get("DateCreated") or "",
             # ColorID is stored as TEXT ("0".."8"); coerce to the palette int.
             "color_id":     int(d.get("ColorID") or 0),
+            # rekordbox lookup IDs (djmd* row IDs), so served category rows can
+            # carry rekordbox's IDs instead of hashed names. Strings, like `id`.
+            "genre_id":     str(d.get("GenreID") or ""),
+            "artist_id":    str(d.get("ArtistID") or ""),
+            "album_id":     str(d.get("AlbumID") or ""),
+            "key_id":       str(d.get("KeyID") or ""),
+            "label_id":     str(d.get("LabelID") or ""),
             # Paths are relative to the rekordbox `share/` root, e.g.
             # /PIONEER/USBANLZ/<bucket>/<uuid>/ANLZ0000.DAT and
             # /PIONEER/Artwork/<bucket>/<uuid>/artwork.jpg. The Go caller

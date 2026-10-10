@@ -7,7 +7,6 @@ import (
 	"github.com/vynulldev/vynull/internal/dlog"
 	"sort"
 
-	"github.com/vynulldev/vynull/library"
 	"github.com/vynulldev/vynull/proto"
 )
 
@@ -169,6 +168,11 @@ func (h *Handler) handleRenderMenu(msg *proto.DBMessage) []*proto.DBMessage {
 				}
 			}
 		}
+		// Album rows repeat the AlbumID in arg[8] (rekordbox uses it as the
+		// album-art handle), unlike artist/genre/label rows which leave it 0.
+		if item.ItemType == 0x02 {
+			flags8 = item.ID
+		}
 
 		args := []proto.DBArg{
 			proto.ArgI32(item.ParentID),         // 0: parent ID
@@ -297,7 +301,7 @@ func (h *Handler) populateGenres(menu uint8) {
 	genres := h.lib.Genres()
 	items := make([]*menuItem, len(genres))
 	for i, name := range genres {
-		items[i] = &menuItem{ID: library.HashID("genre", name), Label1: name, ItemType: 0x06}
+		items[i] = &menuItem{ID: h.catID("genre", name), Label1: name, ItemType: 0x06}
 	}
 	h.setPending(menu, items)
 }
@@ -347,7 +351,7 @@ func (h *Handler) populateLabels(menu uint8) {
 	}
 	var items []*menuItem
 	for name := range labelSet {
-		items = append(items, &menuItem{ID: library.HashID("label", name), Label1: name, ItemType: 0x0e})
+		items = append(items, &menuItem{ID: h.catID("label", name), Label1: name, ItemType: 0x0e})
 	}
 	sortItems(items, sortTitle)
 	h.setPending(menu, items)
@@ -364,7 +368,7 @@ func (h *Handler) populateKeys(menu uint8) {
 	}
 	var items []*menuItem
 	for name := range keySet {
-		items = append(items, &menuItem{ID: library.HashID("key", name), Label1: name, ItemType: 0x0f})
+		items = append(items, &menuItem{ID: h.catID("key", name), Label1: name, ItemType: 0x0f})
 	}
 	sortItems(items, sortTitle)
 	h.setPending(menu, items)

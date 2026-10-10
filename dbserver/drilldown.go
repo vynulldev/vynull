@@ -143,7 +143,7 @@ func (h *Handler) handleSearch(msg *proto.DBMessage) []*proto.DBMessage {
 			if t.Artist != "" && containsFold(t.Artist, q) && !seenArtist[t.Artist] {
 				seenArtist[t.Artist] = true
 				artists = append(artists, &menuItem{
-					ID:       library.HashID("artist", t.Artist),
+					ID:       h.catID("artist", t.Artist),
 					Label1:   t.Artist,
 					ItemType: 0x07,
 				})
@@ -151,7 +151,7 @@ func (h *Handler) handleSearch(msg *proto.DBMessage) []*proto.DBMessage {
 			if t.Album != "" && containsFold(t.Album, q) && !seenAlbum[t.Album] {
 				seenAlbum[t.Album] = true
 				albums = append(albums, &menuItem{
-					ID:       library.HashID("album", t.Album),
+					ID:       h.catID("album", t.Album),
 					Label1:   t.Album,
 					ItemType: 0x02,
 				})
@@ -335,7 +335,7 @@ func (h *Handler) getArtistsForLabelItems(labelID uint32) []*menuItem {
 	artistSet := make(map[string]bool)
 	if h.lib != nil {
 		for _, t := range h.lib.Tracks() {
-			if t.Label != "" && library.HashID("label", t.Label) == labelID && t.Artist != "" {
+			if t.Label != "" && h.catID("label", t.Label) == labelID && t.Artist != "" {
 				artistSet[t.Artist] = true
 			}
 		}
@@ -346,7 +346,7 @@ func (h *Handler) getArtistsForLabelItems(labelID uint32) []*menuItem {
 	})
 	for name := range artistSet {
 		items = append(items, &menuItem{
-			ID: library.HashID("artist", name), Label1: name, ItemType: 0x07,
+			ID: h.catID("artist", name), Label1: name, ItemType: 0x07,
 		})
 	}
 	sortItems(items[1:], sortTitle)
@@ -358,10 +358,10 @@ func (h *Handler) getAlbumsForLabelArtist(labelID, artistID uint32) []*menuItem 
 	albumSet := make(map[string]bool)
 	if h.lib != nil {
 		for _, t := range h.lib.Tracks() {
-			if t.Label == "" || library.HashID("label", t.Label) != labelID {
+			if t.Label == "" || h.catID("label", t.Label) != labelID {
 				continue
 			}
-			if artistID != 0xffffffff && library.HashID("artist", t.Artist) != artistID {
+			if artistID != 0xffffffff && h.catID("artist", t.Artist) != artistID {
 				continue
 			}
 			if t.Album != "" {
@@ -375,7 +375,7 @@ func (h *Handler) getAlbumsForLabelArtist(labelID, artistID uint32) []*menuItem 
 	})
 	for name := range albumSet {
 		items = append(items, &menuItem{
-			ID: library.HashID("album", name), Label1: name, ItemType: 0x02,
+			ID: h.catID("album", name), Label1: name, ItemType: 0x02,
 		})
 	}
 	sortItems(items[1:], sortTitle)
@@ -387,13 +387,13 @@ func (h *Handler) getTracksForLabelArtistAlbum(labelID, artistID, albumID uint32
 	var tracks []*library.Track
 	if h.lib != nil {
 		for _, t := range h.lib.Tracks() {
-			if t.Label == "" || library.HashID("label", t.Label) != labelID {
+			if t.Label == "" || h.catID("label", t.Label) != labelID {
 				continue
 			}
-			if artistID != 0xffffffff && library.HashID("artist", t.Artist) != artistID {
+			if artistID != 0xffffffff && h.catID("artist", t.Artist) != artistID {
 				continue
 			}
-			if albumID != 0xffffffff && library.HashID("album", t.Album) != albumID {
+			if albumID != 0xffffffff && h.catID("album", t.Album) != albumID {
 				continue
 			}
 			tracks = append(tracks, t)
@@ -414,7 +414,7 @@ func (h *Handler) handleGetArtistsForLabel(msg *proto.DBMessage) []*proto.DBMess
 	artistSet := make(map[string]bool)
 	if h.lib != nil {
 		for _, t := range h.lib.Tracks() {
-			if t.Label != "" && library.HashID("label", t.Label) == labelID && t.Artist != "" {
+			if t.Label != "" && h.catID("label", t.Label) == labelID && t.Artist != "" {
 				artistSet[t.Artist] = true
 			}
 		}
@@ -431,7 +431,7 @@ func (h *Handler) handleGetArtistsForLabel(msg *proto.DBMessage) []*proto.DBMess
 	// Then artist items.
 	for name := range artistSet {
 		items = append(items, &menuItem{
-			ID:       library.HashID("artist", name),
+			ID:       h.catID("artist", name),
 			Label1:   name,
 			ItemType: 0x07, // artist
 		})
@@ -474,13 +474,13 @@ func (h *Handler) handleGetTracksByLabel(msg *proto.DBMessage) []*proto.DBMessag
 	var tracks []*library.Track
 	if h.lib != nil {
 		for _, t := range h.lib.Tracks() {
-			if t.Label == "" || library.HashID("label", t.Label) != labelID {
+			if t.Label == "" || h.catID("label", t.Label) != labelID {
 				continue
 			}
-			if artistID != 0xffffffff && library.HashID("artist", t.Artist) != artistID {
+			if artistID != 0xffffffff && h.catID("artist", t.Artist) != artistID {
 				continue
 			}
-			if albumID != 0xffffffff && library.HashID("album", t.Album) != albumID {
+			if albumID != 0xffffffff && h.catID("album", t.Album) != albumID {
 				continue
 			}
 			tracks = append(tracks, t)
@@ -563,7 +563,7 @@ func (h *Handler) handleGetTracksByKey(msg *proto.DBMessage) []*proto.DBMessage 
 func (h *Handler) resolveKeyName(keyID uint32) string {
 	if h.lib != nil {
 		for _, t := range h.lib.Tracks() {
-			if t.Key != "" && library.HashID("key", t.Key) == keyID {
+			if t.Key != "" && h.catID("key", t.Key) == keyID {
 				return t.Key
 			}
 		}
@@ -684,7 +684,7 @@ func (h *Handler) handleGetByArtist(msg *proto.DBMessage) []*proto.DBMessage {
 	// Find artist name by hash ID.
 	artistName := ""
 	for _, name := range h.lib.Artists() {
-		if library.HashID("artist", name) == artistID {
+		if h.catID("artist", name) == artistID {
 			artistName = name
 			break
 		}
@@ -704,7 +704,7 @@ func (h *Handler) handleGetByArtist(msg *proto.DBMessage) []*proto.DBMessage {
 		if !albumSet[album] {
 			albumSet[album] = true
 			items = append(items, &menuItem{
-				ID:       library.HashID("album", album),
+				ID:       h.catID("album", album),
 				Label1:   album,
 				ItemType: 0x02,
 			})
@@ -748,7 +748,7 @@ func (h *Handler) handleGetTracksByAlbum(msg *proto.DBMessage) []*proto.DBMessag
 	// Fallback to library: find album name by hash ID.
 	albumName := ""
 	for _, name := range h.lib.Albums() {
-		if library.HashID("album", name) == albumID {
+		if h.catID("album", name) == albumID {
 			albumName = name
 			break
 		}
@@ -785,7 +785,7 @@ func (h *Handler) handleGetByAlbum(msg *proto.DBMessage) []*proto.DBMessage {
 
 	albumName := ""
 	for _, name := range h.lib.Albums() {
-		if library.HashID("album", name) == albumID {
+		if h.catID("album", name) == albumID {
 			albumName = name
 			break
 		}
@@ -808,7 +808,7 @@ func (h *Handler) handleGetByGenre(msg *proto.DBMessage) []*proto.DBMessage {
 	genreID := msg.Args[2].Int()
 	genreName := ""
 	for _, name := range h.lib.Genres() {
-		if library.HashID("genre", name) == genreID {
+		if h.catID("genre", name) == genreID {
 			genreName = name
 			break
 		}
