@@ -251,6 +251,7 @@ the client assumes the same host (or a shared mount).
 | `--device-name` | auto | Name shown on CDJs |
 | `--data-dir` | `~/.vynull` | Directory for analysis cache, cue points, settings, library DB |
 | `--web` | `false` | Serve the browser UI alongside the JSON API |
+| `--mpris` | `true` | Publish the audible deck's now-playing on the D-Bus session bus (media controls, playerctl, KDE Connect); `--mpris=false` to disable |
 | `--tui` | `true` | Show the interactive terminal monitor; `--tui=false` runs headless (logs to stdout, for systemd/nohup/non-TTY) |
 | `--listen` | `127.0.0.1:9443` | API + web listen address (use `0.0.0.0:9443` to expose on the LAN) |
 | `--log-level` | `info` | `error`, `warn`, `info`, `debug`, or `trace` (trace adds per-packet hex dumps) |
@@ -259,6 +260,7 @@ the client assumes the same host (or a shared mount).
 | `--history-format` | `text` | Track-history format: `text`, `csv`, or `json` (JSONL — one object per line) |
 | `--lazy-analysis` | `false` | Analyze tracks on-demand instead of at startup |
 | `--transcode` | `false` | Transcode FLAC/WAV/AIFF to MP3 (default: serve natively) |
+| `--bpm-range` | (dance window) | Constrain BPM detection to a tempo range, e.g. `90-180`, so fast genres lock onto the true tempo instead of its half/third |
 | `--settings` | `<data-dir>/settings.json` | Path to the JSON CDJ settings config |
 | `--import-settings` | | Import rekordbox MYSETTING/DEVSETTING `.DAT` files from a `/PIONEER` dir, then exit |
 | `--generate` | | Generate rekordbox USB structure at this path (no server) |
@@ -269,6 +271,8 @@ the client assumes the same host (or a shared mount).
 ## HTTP API
 
 The API server runs on `http://127.0.0.1:9443`.
+
+The full surface is described by an OpenAPI spec served at `/api/openapi.yaml`, with a browsable Swagger UI at `/api/docs` (both always on, even headless). The endpoints below are a quick reference.
 
 ### Endpoints
 
@@ -819,6 +823,15 @@ This wouldn't exist without the people who reverse-engineered Pioneer's Pro DJ L
 A few things aren't covered by the documented specs — the on-the-wire settings handshake, NXS2 cue writes, and some of the waveform encodings — and were worked out independently; the settings *file-format* field schema and the ANLZ section framing still follow the documented specs above. Without the projects listed here there'd have been nowhere to start. Thanks to everyone listed.
 
 This is an independent, unofficial project. It isn't affiliated with or endorsed by Pioneer DJ / AlphaTheta, Deep Symmetry, or any of the projects listed here.
+
+## Contributors
+
+Thanks to the people who have contributed code, fixes, and reports to Vynull directly:
+
+- **[@kayrozen](https://github.com/kayrozen)** — the web audio player, and the master.db import's automatic sqlcipher venv provisioning, both via fork and PR.
+- **[@evanpurkhiser](https://github.com/evanpurkhiser)** — pointing Vynull at [link-spec](https://github.com/evanpurkhiser/link-spec) and the enormous groundwork of the conformance suite itself, which drove the dbserver to byte-for-byte parity with rekordbox (and, along the way, fixed a long-standing track-load bug).
+
+Plus everyone who has filed a report or a patch (see each release's notes for per-version credits).
 
 ## License
 
