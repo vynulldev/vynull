@@ -420,10 +420,31 @@ func (h *Handler) handleSetup(msg *proto.DBMessage) []*proto.DBMessage {
 	}
 	dlog.Tracef("dbserver setup RECV: txid=0x%08x argc=%d%s remarshal=[% x]",
 		msg.TxID, len(msg.Args), args, proto.MarshalDBMessage(msg))
-	// Response must have TWO int32 args: [0, server_player_number]
+
+	// The setup reply shape depends on the request's arity (per the link-spec
+	// rekordbox-7.2.19 oracle, docs/PROTOCOL_REFERENCE.md "Setup variants"):
+	//
+	//   legacy  (1-arg request):  reply kind 0x4000, args [0, server_device]
+	//   extended (2-arg request): reply kind 0x0000, args [server_device, echo]
+	//
+	// where "echo" is the request's second argument. Real players we've tested
+	// (e.g. the XDJ-RX3) send the legacy form, so that path is unchanged and
+	// hardware behaviour is preserved; the extended branch matches rekordbox
+	// for clients that send two args (the conformance client, and any CDJ that
+	// uses the extended setup).
+	if len(msg.Args) >= 2 {
+		return []*proto.DBMessage{{
+			TxID: msg.TxID,
+			Type: proto.DBMsgSetup, // 0x0000, echoing the request kind
+			Args: []proto.DBArg{
+				proto.ArgI32(uint32(h.deviceNumber)),
+				proto.ArgI32(msg.Args[1].Int()),
+			},
+		}}
+	}
 	return []*proto.DBMessage{{
 		TxID: msg.TxID,
-		Type: proto.DBMsgSuccess,
+		Type: proto.DBMsgSuccess, // 0x4000
 		Args: []proto.DBArg{
 			proto.ArgI32(0),
 			proto.ArgI32(uint32(h.deviceNumber)),
