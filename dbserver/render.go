@@ -148,7 +148,10 @@ func (h *Handler) handleRenderMenu(msg *proto.DBMessage) []*proto.DBMessage {
 		//     half-honoured.
 		flags7 := uint32(0)
 		flags8 := item.ArtID
-		flags9 := uint32(0)
+		// arg 9 carries a scope position/sequence for several row kinds (album
+		// track number, playlist position, playlist-menu display sequence);
+		// the producing handler stashes it in trackPos, 0 for rows without one.
+		flags9 := item.trackPos
 		flags10 := uint32(0)
 		flags11 := uint32(0)
 		if item.ItemType&0xff == 0x04 {
@@ -165,8 +168,7 @@ func (h *Handler) handleRenderMenu(msg *proto.DBMessage) []*proto.DBMessage {
 				if item.hasSongTag {
 					flags7 |= 0x1 // arg 7 bit 0: track carries at least one MyTag
 				}
-				flags8 = item.ID       // arg 8: djmdContent.ID, repeated (not the artwork ID)
-				flags9 = item.trackPos // arg 9: scope position / track number (album scope only; 0 elsewhere)
+				flags8 = item.ID // arg 8: djmdContent.ID, repeated (not the artwork ID)
 				if newCDJIncompatible(item.fileTypeID, item.FileType, item.sampleRate) {
 					flags10 |= 0x1 // arg 10 bit 0: not playable on new-CDJ decode path
 				}

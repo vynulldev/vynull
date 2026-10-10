@@ -126,6 +126,7 @@ type MasterDBPlaylist struct {
 	ParentID string       `json:"parent_id"`
 	IsFolder bool         `json:"is_folder"`
 	IsSmart  bool         `json:"is_smart"`
+	Seq      int          `json:"seq"` // rekordbox display sequence within the parent
 	TrackIDs []string     `json:"track_ids"`
 	Smart    *RBSmartList `json:"smart"` // present for smart playlists
 }

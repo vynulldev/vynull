@@ -29,6 +29,9 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"sort"
+	"strconv"
+	"strings"
 	"syscall"
 
 	"github.com/vynulldev/vynull/analysis"
@@ -42,6 +45,56 @@ type confMenu struct{ second string }
 
 func (m confMenu) RootMenu() []dbserver.RootMenuEntry { return dbserver.DefaultRootMenu() }
 func (m confMenu) TrackDetail() string                { return m.second }
+
+// confPlaylists serves the fixture's playlist tree straight from the dump
+// (which keeps rekordbox's playlist IDs, parent IDs, and membership order,
+// in Seq order). A ParentID of "root" maps to folder ID 0, which is what the
+// deck sends for the top level.
+type confPlaylists struct{ nodes []library.MasterDBPlaylist }
+
+func playlistID(s string) uint32 {
+	if s == "" || s == "root" {
+		return 0
+	}
+	n, _ := strconv.ParseUint(strings.TrimSpace(s), 10, 32)
+	return uint32(n)
+}
+
+func (p confPlaylists) Children(parentID uint32) []dbserver.PlaylistEntry {
+	var out []dbserver.PlaylistEntry
+	for _, n := range p.nodes {
+		if playlistID(n.ParentID) == parentID {
+			out = append(out, dbserver.PlaylistEntry{
+				ID: playlistID(n.ID), Name: n.Name, IsFolder: n.IsFolder, Seq: uint32(n.Seq),
+			})
+		}
+	}
+	// rekordbox lists folders before playlists, each group in Seq order (the
+	// stored Seq still rides along in arg 9).
+	sort.SliceStable(out, func(i, j int) bool {
+		if out[i].IsFolder != out[j].IsFolder {
+			return out[i].IsFolder
+		}
+		return out[i].Seq < out[j].Seq
+	})
+	return out
+}
+
+func (p confPlaylists) Tracks(playlistID_ uint32) []uint32 {
+	for _, n := range p.nodes {
+		if playlistID(n.ID) != playlistID_ {
+			continue
+		}
+		ids := make([]uint32, 0, len(n.TrackIDs))
+		for _, t := range n.TrackIDs {
+			ids = append(ids, playlistID(t))
+		}
+		return ids
+	}
+	return nil
+}
+
+func (confPlaylists) HistoryFolderID() uint32 { return 0 }
 
 func main() {
 	// stdout is reserved for the single readiness line; everything else (ours
@@ -84,6 +137,7 @@ func main() {
 		DeviceNumber: 17, // rekordbox device number, matching the oracle
 		Analysis:     analysisStore,
 		Menu:         confMenu{second: *secondColumn},
+		Playlists:    confPlaylists{nodes: dump.Playlists},
 		BindHost:     "127.0.0.1", // loopback only
 		Ready:        make(chan struct{}),
 		// LinkedFn left nil so the server accepts connections (no UNLINK gate).

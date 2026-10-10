@@ -89,6 +89,7 @@ type PlaylistEntry struct {
 	ID       uint32
 	Name     string
 	IsFolder bool
+	Seq      uint32 // rekordbox display sequence, served in menu-row arg 9 (0 if unknown)
 }
 
 // PlaylistSource exposes user-defined playlists to the dbserver. The

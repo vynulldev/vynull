@@ -133,7 +133,7 @@ func (h *Handler) handleGetPlaylist(msg *proto.DBMessage) []*proto.DBMessage {
 				items = h.trackIDsToMenuItems(node.TrackIDs)
 				break
 			}
-			sortItems(items, getSortOrder(msg))
+			h.applyPlaylistTrackScope(items, getSortOrder(msg))
 			dlog.Debugf("dbserver: pdb playlist %d returning %d tracks", folderID, len(items))
 		}
 		h.pendingItems = items
@@ -158,6 +158,7 @@ func (h *Handler) handleGetPlaylist(msg *proto.DBMessage) []*proto.DBMessage {
 					ID:       c.ID,
 					Label1:   c.Name,
 					ItemType: itemType,
+					trackPos: c.Seq, // rekordbox serves the display sequence in arg 9
 				})
 			}
 			h.pendingItems = items
@@ -165,7 +166,7 @@ func (h *Handler) handleGetPlaylist(msg *proto.DBMessage) []*proto.DBMessage {
 		} else {
 			trackIDs := h.playlists.Tracks(folderID)
 			items := h.trackIDsToMenuItems(trackIDs)
-			sortItems(items, getSortOrder(msg))
+			h.applyPlaylistTrackScope(items, getSortOrder(msg))
 			h.pendingItems = items
 			dlog.Debugf("dbserver: user-playlist %d returning %d tracks", folderID, len(items))
 		}
@@ -216,6 +217,21 @@ func (h *Handler) handleGetPlaylist(msg *proto.DBMessage) []*proto.DBMessage {
 // (library mode has no PDB). Without the library fallback, every
 // user-playlist on a library-mode server rendered as EMPTY on the CDJ
 // even when the store had the right track IDs.
+// applyPlaylistTrackScope stamps the playlist-track-leaf wire conventions on
+// a playlist's track rows: a 1-based position in argument 9 (in playlist
+// order) and the packed context track type in argument 7, matching rekordbox.
+// Tracks stay in playlist order for the default sort (sort=0); a requested
+// sort reorders them while each row keeps its original position.
+func (h *Handler) applyPlaylistTrackScope(items []*menuItem, order uint32) {
+	for i := range items {
+		items[i].trackPos = uint32(i + 1)
+	}
+	markContextType(items, 1)
+	if order != sortDefault {
+		sortItems(items, order)
+	}
+}
+
 func (h *Handler) trackIDsToMenuItems(trackIDs []uint32) []*menuItem {
 	items := make([]*menuItem, 0, len(trackIDs))
 	for _, tid := range trackIDs {

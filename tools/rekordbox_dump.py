@@ -211,7 +211,7 @@ def main():
     # Cloud Library Sync trial) — skip them. Seq orders siblings as the user
     # arranged them in rekordbox.
     cur.execute("""
-        SELECT ID, Name, ParentID, Attribute, SmartList
+        SELECT ID, Name, ParentID, Attribute, SmartList, Seq
         FROM djmdPlaylist
         ORDER BY Seq
     """)
@@ -234,7 +234,7 @@ def main():
     except sqlcipher3.dbapi2.OperationalError:
         pass
 
-    for pid, name, parent, attr, smartlist in pl_rows:
+    for pid, name, parent, attr, smartlist, seq in pl_rows:
         if attr is not None and attr < 0:
             continue  # system playlist (cloud-sync trial etc.)
         entry = {
@@ -243,6 +243,7 @@ def main():
             "parent_id": parent,
             "is_folder": attr == 1,
             "is_smart":  attr == 4,
+            "seq":       int(seq) if seq is not None else 0,
             "track_ids": pl_tracks.get(str(pid), []),
         }
         if attr == 4 and smartlist:
