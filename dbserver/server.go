@@ -37,6 +37,27 @@ type RootMenuEntry struct {
 	ItemType uint32
 }
 
+// DefaultRootMenu is the built-in root-menu category set served when no
+// MenuSource is wired. Exported so the conformance server can reuse the exact
+// default while still supplying its own second (detail) column.
+func DefaultRootMenu() []RootMenuEntry {
+	return []RootMenuEntry{
+		{ID: 2, Label: "ARTIST", ItemType: 0x81},
+		{ID: 3, Label: "ALBUM", ItemType: 0x82},
+		{ID: 4, Label: "TRACK", ItemType: 0x83},
+		{ID: 5, Label: "PLAYLIST", ItemType: 0x84},
+		{ID: 6, Label: "BPM", ItemType: 0x85},
+		{ID: 7, Label: "RATING", ItemType: 0x86},
+		{ID: 9, Label: "REMIXER", ItemType: 0x88},
+		{ID: 10, Label: "LABEL", ItemType: 0x89},
+		{ID: 11, Label: "ORIGINAL ARTIST", ItemType: 0x8a},
+		{ID: 12, Label: "KEY", ItemType: 0x8b},
+		{ID: 13, Label: "FOLDER", ItemType: 0x8d},
+		{ID: 1, Label: "GENRE", ItemType: 0x80},
+		{ID: 8, Label: "YEAR", ItemType: 0x87},
+	}
+}
+
 // MenuSource lets handleRootMenu pull the user-configured root menu.
 // When the Server has no MenuSource wired, handleRootMenu falls back
 // to a hardcoded default set so existing installs keep working.
@@ -102,6 +123,14 @@ type Server struct {
 	// if it tries to reconnect.
 	LinkedFn func() bool
 
+	// BindHost, if set, restricts the listeners to that host (e.g. "127.0.0.1"
+	// for the conformance server). Empty binds all interfaces, as a real
+	// rekordbox source must.
+	BindHost string
+	// Ready, if non-nil, is closed once the listeners are bound and QueryPort
+	// is valid. Used by the conformance server to learn the dynamic port.
+	Ready chan struct{}
+
 	discoveryLn net.Listener
 	dynamicLn   net.Listener
 	dynamicPort uint16 // OS-assigned ephemeral port
@@ -117,13 +146,15 @@ type Server struct {
 func (s *Server) Start(ctx context.Context) error {
 	var err error
 
-	s.discoveryLn, err = net.Listen("tcp4", fmt.Sprintf(":%d", discoveryPort))
+	// BindHost is empty for normal serving (all interfaces, ":port"); the
+	// conformance server sets it to "127.0.0.1" to stay on loopback.
+	s.discoveryLn, err = net.Listen("tcp4", fmt.Sprintf("%s:%d", s.BindHost, discoveryPort))
 	if err != nil {
 		return fmt.Errorf("bind discovery port %d: %w", discoveryPort, err)
 	}
 
 	// Let the OS pick a random ephemeral port.
-	s.dynamicLn, err = net.Listen("tcp4", ":0")
+	s.dynamicLn, err = net.Listen("tcp4", s.BindHost+":0")
 	if err != nil {
 		s.discoveryLn.Close()
 		return fmt.Errorf("bind dynamic port: %w", err)
@@ -131,6 +162,12 @@ func (s *Server) Start(ctx context.Context) error {
 	s.dynamicPort = uint16(s.dynamicLn.Addr().(*net.TCPAddr).Port)
 
 	log.Printf("dbserver listening on ports %d (discovery) and %d (queries)", discoveryPort, s.dynamicPort)
+
+	// Signal readiness (the conformance server waits on this before reading
+	// QueryPort). nil in normal serving.
+	if s.Ready != nil {
+		close(s.Ready)
+	}
 
 	var wg sync.WaitGroup
 	wg.Add(2)
@@ -199,6 +236,10 @@ func (s *Server) untrackConn(conn net.Conn) {
 	defer s.activeConnsMu.Unlock()
 	delete(s.activeConns, conn)
 }
+
+// QueryPort returns the OS-assigned dynamic query port (valid once Ready has
+// been signalled / Start has bound the listeners).
+func (s *Server) QueryPort() uint16 { return s.dynamicPort }
 
 // ActiveSessions returns the count of live dynamic-port client connections.
 // Used by the periodic resource logger to spot session accumulation.

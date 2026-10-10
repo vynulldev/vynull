@@ -493,21 +493,12 @@ func (h *Handler) rootMenu() []*menuItem {
 		}
 		return items
 	}
-	return []*menuItem{
-		{ID: 2, Label1: "ARTIST", ItemType: 0x81},
-		{ID: 3, Label1: "ALBUM", ItemType: 0x82},
-		{ID: 4, Label1: "TRACK", ItemType: 0x83},
-		{ID: 5, Label1: "PLAYLIST", ItemType: 0x84},
-		{ID: 6, Label1: "BPM", ItemType: 0x85},
-		{ID: 7, Label1: "RATING", ItemType: 0x86},
-		{ID: 9, Label1: "REMIXER", ItemType: 0x88},
-		{ID: 10, Label1: "LABEL", ItemType: 0x89},
-		{ID: 11, Label1: "ORIGINAL ARTIST", ItemType: 0x8a},
-		{ID: 12, Label1: "KEY", ItemType: 0x8b},
-		{ID: 13, Label1: "FOLDER", ItemType: 0x8d},
-		{ID: 1, Label1: "GENRE", ItemType: 0x80},
-		{ID: 8, Label1: "YEAR", ItemType: 0x87},
+	entries := DefaultRootMenu()
+	items := make([]*menuItem, 0, len(entries))
+	for _, e := range entries {
+		items = append(items, &menuItem{ID: e.ID, Label1: e.Label, ItemType: e.ItemType})
 	}
+	return items
 }
 
 func (h *Handler) handleRootMenu(msg *proto.DBMessage) []*proto.DBMessage {

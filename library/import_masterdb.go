@@ -150,6 +150,15 @@ func ImportRekordboxMasterDB(lib *Library, dbPath, key string) (*ImportBundle, e
 	if err != nil {
 		return nil, err
 	}
+	return ImportMasterDBDump(lib, dump)
+}
+
+// ImportMasterDBDump builds the library from an already-decoded master.db dump
+// (the JSON that tools/rekordbox_dump.py emits). Split out of
+// ImportRekordboxMasterDB so a caller that already holds the dump — e.g. the
+// conformance server loading a --fixture-json — can reuse it without re-running
+// the Python helper.
+func ImportMasterDBDump(lib *Library, dump *MasterDBDump) (*ImportBundle, error) {
 	res := &ImportResult{TracksTotal: len(dump.Tracks)}
 	idMap := make(map[string]uint32, len(dump.Tracks)) // rekordbox ContentID → library Track.ID
 	var colors []ColorImport
