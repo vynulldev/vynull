@@ -111,11 +111,16 @@ def parse_smartlist(xml_str, tags_by_id):
 
 
 def main():
-    if len(sys.argv) < 3:
+    if len(sys.argv) < 2:
         sys.stderr.write(__doc__)
         sys.exit(2)
     db_path = sys.argv[1]
-    provided = sys.argv[2]
+    # The key may be passed as the second argument, or (for the conformance
+    # harness, which does not want it on the command line) in VYNULL_REKORDBOX_KEY.
+    provided = sys.argv[2] if len(sys.argv) >= 3 else os.environ.get("VYNULL_REKORDBOX_KEY", "")
+    if not provided:
+        sys.stderr.write(__doc__)
+        sys.exit(2)
 
     conn = open_db(db_path, provided)
     cur = conn.cursor()
