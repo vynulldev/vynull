@@ -577,40 +577,6 @@ func classicKeyName(camelot string) string {
 	return camelot
 }
 
-// resolveKeyName finds the Camelot key name for a key ID.
-func (h *Handler) resolveKeyName(keyID uint32) string {
-	if h.lib != nil {
-		for _, t := range h.lib.Tracks() {
-			if t.Key != "" && h.catID("key", t.Key) == keyID {
-				return t.Key
-			}
-		}
-	}
-	if h.pdb != nil {
-		if name, ok := h.pdb.Keys[keyID]; ok {
-			return name
-		}
-	}
-	return ""
-}
-
-// countTracksForKeys counts how many tracks match any of the given keys.
-func (h *Handler) countTracksForKeys(keys []string) int {
-	keySet := make(map[string]bool)
-	for _, k := range keys {
-		keySet[k] = true
-	}
-	count := 0
-	if h.lib != nil {
-		for _, t := range h.lib.Tracks() {
-			if keySet[t.Key] {
-				count++
-			}
-		}
-	}
-	return count
-}
-
 // camelotDistanceGroups returns 3 groups of Camelot keys at increasing distances.
 // Distance 0: exact key
 // Distance 1: +/-1 on Camelot wheel (adjacent keys)
