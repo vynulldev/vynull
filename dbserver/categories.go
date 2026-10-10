@@ -122,7 +122,7 @@ func (h *Handler) handleGetBPM(msg *proto.DBMessage) []*proto.DBMessage {
 	for _, bpm := range bpms {
 		items = append(items, &menuItem{
 			ID:       uint32(bpm * 100),
-			Label1:   fmt.Sprintf("%d", bpm),
+			Label1:   "", // rekordbox sends an empty label; the deck formats arg 1
 			ItemType: 0x0d, // BPM item
 		})
 	}
@@ -254,7 +254,7 @@ func (h *Handler) handleGetYearsForDecade(msg *proto.DBMessage) []*proto.DBMessa
 	for _, y := range years {
 		items = append(items, &menuItem{
 			ID:       uint32(y),
-			Label1:   fmt.Sprintf("%d", y),
+			Label1:   "", // empty label; the deck formats the year from arg 1
 			ItemType: 0x11,
 		})
 	}
@@ -298,7 +298,9 @@ func (h *Handler) handleGetYears(msg *proto.DBMessage) []*proto.DBMessage {
 	decadeSet := make(map[int]bool)
 	if h.lib != nil {
 		for _, t := range h.lib.Tracks() {
-			if t.Year > 0 {
+			// rekordbox treats years outside 1..2999 as unset (year 0) or
+			// invalid (>= 3000) and leaves them out of the decade list.
+			if t.Year > 0 && t.Year < 3000 {
 				decadeSet[(t.Year/10)*10] = true
 			}
 		}
@@ -307,7 +309,7 @@ func (h *Handler) handleGetYears(msg *proto.DBMessage) []*proto.DBMessage {
 	for decade := range decadeSet {
 		items = append(items, &menuItem{
 			ID:       uint32(decade),
-			Label1:   fmt.Sprintf("%ds", decade),
+			Label1:   "", // empty label; the deck formats the decade from arg 1
 			ItemType: 0x11,
 		})
 	}
@@ -317,14 +319,16 @@ func (h *Handler) handleGetYears(msg *proto.DBMessage) []*proto.DBMessage {
 	return []*proto.DBMessage{h.successWithCount(msg)}
 }
 func (h *Handler) handleGetRating(msg *proto.DBMessage) []*proto.DBMessage {
-	// 0x1007: RATING list. The deck shows 1★ … 5★ rows; selecting
-	// one drills via 0x1107 to the tracks of that rating.
+	// 0x1007: RATING list. rekordbox always shows all six rows, 5★ down to
+	// 0 (unrated), descending, with empty labels (the deck draws the stars).
+	// Selecting one drills via 0x1107 to the tracks of that rating.
 	items := []*menuItem{
-		{ID: 1, Label1: "1", ItemType: 0x0a},
-		{ID: 2, Label1: "2", ItemType: 0x0a},
-		{ID: 3, Label1: "3", ItemType: 0x0a},
-		{ID: 4, Label1: "4", ItemType: 0x0a},
-		{ID: 5, Label1: "5", ItemType: 0x0a},
+		{ID: 5, ItemType: 0x0a},
+		{ID: 4, ItemType: 0x0a},
+		{ID: 3, ItemType: 0x0a},
+		{ID: 2, ItemType: 0x0a},
+		{ID: 1, ItemType: 0x0a},
+		{ID: 0, ItemType: 0x0a},
 	}
 	h.setPendingAll(msg, items)
 	dlog.Debugf("dbserver: RATING list returning %d items", len(items))
@@ -359,8 +363,10 @@ func (h *Handler) handleGetTime(msg *proto.DBMessage) []*proto.DBMessage {
 	if h.lib != nil {
 		for _, t := range h.lib.Tracks() {
 			secs := int(t.Duration.Seconds())
-			if secs > 0 {
-				bucketSet[secs/60] = true
+			// Group by whole minute; rekordbox caps the list below 180 min
+			// (durations of 3 hours or more drop out).
+			if m := secs / 60; secs > 0 && m < 180 {
+				bucketSet[m] = true
 			}
 		}
 	}
@@ -368,11 +374,11 @@ func (h *Handler) handleGetTime(msg *proto.DBMessage) []*proto.DBMessage {
 	for m := range bucketSet {
 		items = append(items, &menuItem{
 			ID:       uint32(m),
-			Label1:   fmt.Sprintf("%d:00", m),
+			Label1:   "", // empty label; the deck formats the time from arg 1
 			ItemType: 0x0b,
 		})
 	}
-	sort.Slice(items, func(i, j int) bool { return items[i].ID < items[j].ID })
+	sort.Slice(items, func(i, j int) bool { return items[i].ID > items[j].ID })
 	h.setPendingAll(msg, items)
 	dlog.Debugf("dbserver: TIME list returning %d items", len(items))
 	return []*proto.DBMessage{h.successWithCount(msg)}
@@ -426,20 +432,18 @@ func (h *Handler) handleGetBitrate(msg *proto.DBMessage) []*proto.DBMessage {
 	set := make(map[int]bool)
 	if h.lib != nil {
 		for _, t := range h.lib.Tracks() {
-			if t.Bitrate > 0 {
-				set[int(t.Bitrate)] = true
-			}
+			set[int(t.Bitrate)] = true // rekordbox includes a 0 bucket for unknown bitrates
 		}
 	}
 	items := make([]*menuItem, 0, len(set))
 	for b := range set {
 		items = append(items, &menuItem{
 			ID:       uint32(b),
-			Label1:   fmt.Sprintf("%d", b),
+			Label1:   "", // empty label; the deck formats the kbps from arg 1
 			ItemType: 0x10,
 		})
 	}
-	sort.Slice(items, func(i, j int) bool { return items[i].ID < items[j].ID })
+	sort.Slice(items, func(i, j int) bool { return items[i].ID > items[j].ID })
 	h.setPendingAll(msg, items)
 	dlog.Debugf("dbserver: BITRATE list returning %d items", len(items))
 	return []*proto.DBMessage{h.successWithCount(msg)}
