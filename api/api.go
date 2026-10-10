@@ -294,6 +294,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/peers", s.handlePeers)
 	mux.HandleFunc("/api/players", s.handlePlayers)
 	mux.HandleFunc("/api/nowplaying", s.handleNowPlaying)
+	mux.HandleFunc("/api/events", s.handleEvents)
 	mux.HandleFunc("/api/overlay/config", s.handleOverlayConfig)
 	mux.HandleFunc("/api/history", s.handleHistory)
 	mux.HandleFunc("/api/tracks", s.handleTracks)
