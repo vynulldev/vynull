@@ -12,7 +12,7 @@ openapi: 3.0.3
 
 info:
   title: Vynull API
-  version: "0.5.x"
+  version: "0.6.0"
   description: |
     The HTTP/JSON control and library API for Vynull, a headless virtual
     CDJ / rekordbox source on the Pro DJ Link network.
