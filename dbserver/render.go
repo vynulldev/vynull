@@ -170,23 +170,40 @@ func (h *Handler) handleRenderMenu(msg *proto.DBMessage) []*proto.DBMessage {
 			}
 		}
 
+		args := []proto.DBArg{
+			proto.ArgI32(item.ParentID),         // 0: parent ID
+			proto.ArgI32(item.ID),               // 1: main ID
+			proto.ArgI32(labelLen(label1)),      // 2: label 1 byte length
+			strFunc(label1),                     // 3: label 1 text
+			proto.ArgI32(labelLen(label2)),      // 4: label 2 byte length
+			strFunc(label2),                     // 5: label 2 text
+			proto.ArgI32(uint32(item.ItemType)), // 6: item type
+			proto.ArgI32(flags7),                // 7: flags
+			proto.ArgI32(flags8),                // 8: artwork ID
+			proto.ArgI32(flags9),                // 9: unknown
+			proto.ArgI32(flags10),               // 10: unknown
+			proto.ArgI32(flags11),               // 11: unknown
+		}
+		// Extended (16-argument) row: the 2-argument setup selects rekordbox's
+		// extended layout, which appends a key/BPM tail. Track rows carry the
+		// track's KeyID, key display string, and BPM*100; every other row type
+		// uses the empty tail [0, 2, "", 0] (len 2 = the NUL of an empty UTF-16
+		// string). Args 12-15 always use the plain (non-category) string
+		// encoding. Legacy sessions keep the 12-argument row unchanged.
+		// Layout per the link-spec ROW_LAYOUT.md "Wire arguments" table.
+		if h.extended {
+			plainLen := func(s string) uint32 { return uint32((len([]rune(s)) + 1) * 2) }
+			args = append(args,
+				proto.ArgI32(item.keyID),             // 12: original djmdContent.KeyID
+				proto.ArgI32(plainLen(item.sortKey)), // 13: byte length of arg 14
+				proto.ArgStr(item.sortKey),           // 14: key display string
+				proto.ArgI32(item.sortBPM),           // 15: BPM * 100
+			)
+		}
 		responses = append(responses, &proto.DBMessage{
 			TxID: msg.TxID,
 			Type: proto.DBMsgMenuItem,
-			Args: []proto.DBArg{
-				proto.ArgI32(item.ParentID),         // 0: parent ID
-				proto.ArgI32(item.ID),               // 1: main ID
-				proto.ArgI32(labelLen(label1)),      // 2: label 1 byte length
-				strFunc(label1),                     // 3: label 1 text
-				proto.ArgI32(labelLen(label2)),      // 4: label 2 byte length
-				strFunc(label2),                     // 5: label 2 text
-				proto.ArgI32(uint32(item.ItemType)), // 6: item type
-				proto.ArgI32(flags7),                // 7: flags
-				proto.ArgI32(flags8),                // 8: artwork ID
-				proto.ArgI32(flags9),                // 9: unknown
-				proto.ArgI32(flags10),               // 10: unknown
-				proto.ArgI32(flags11),               // 11: unknown
-			},
+			Args: args,
 		})
 	}
 

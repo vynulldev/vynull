@@ -49,6 +49,12 @@ type Handler struct {
 	// Context from the last 0x2705 cue write request.
 	lastCueTrackID uint32
 	lastCueTxID    uint32
+
+	// extended is set when the session's setup request was the 2-argument
+	// (extended) form, which selects rekordbox's 16-argument row layout. A
+	// 1-argument (legacy) setup leaves it false and rows stay 12 arguments —
+	// the form real players we've tested use, so their behaviour is unchanged.
+	extended bool
 }
 
 // lazyAnalyze returns analysis data for a track, running on-demand analysis
@@ -433,6 +439,7 @@ func (h *Handler) handleSetup(msg *proto.DBMessage) []*proto.DBMessage {
 	// for clients that send two args (the conformance client, and any CDJ that
 	// uses the extended setup).
 	if len(msg.Args) >= 2 {
+		h.extended = true // 2-arg setup selects the 16-argument row layout
 		return []*proto.DBMessage{{
 			TxID: msg.TxID,
 			Type: proto.DBMsgSetup, // 0x0000, echoing the request kind
@@ -442,6 +449,7 @@ func (h *Handler) handleSetup(msg *proto.DBMessage) []*proto.DBMessage {
 			},
 		}}
 	}
+	h.extended = false
 	return []*proto.DBMessage{{
 		TxID: msg.TxID,
 		Type: proto.DBMsgSuccess, // 0x4000

@@ -33,6 +33,7 @@ type menuItem struct {
 	sortAlbum  string
 	sortBPM    uint32 // BPM * 100
 	sortKey    string
+	keyID      uint32 // djmdContent.KeyID — extended-row arg 12 (0 until ID preservation lands)
 }
 
 // Sort order constants from CDJ protocol.
