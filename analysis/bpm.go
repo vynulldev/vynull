@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 )
 
 // BeatResult holds the detected BPM and actual beat positions.
@@ -29,12 +30,87 @@ const (
 	tempoPriorSigma  = 0.5
 )
 
+// defaultTempoLo / defaultTempoHi bound the candidate BPMs the detector will
+// accept by default — the window a sub-/super-harmonic has to fall inside to be
+// chosen. They match the historical hard-coded 80-170 range and are only
+// widened/narrowed when a caller sets an explicit tempo range (TempoMinBPM /
+// TempoMaxBPM).
+const (
+	defaultTempoLo = 80.0
+	defaultTempoHi = 170.0
+)
+
+// The opt-in tempo range (set from --bpm-range or the web Analysis Setting).
+// When both bounds are set (max > min > 0) the detector only accepts tempo
+// candidates inside [min, max] and re-centres the perceptual prior on that
+// range. This forces genres the default dance window gets wrong — most notably
+// drum & bass, which otherwise locks onto its half (~87) or third (~58) tempo
+// because the real ~174 is above the default 170 ceiling. Zero (the default)
+// leaves the historical behaviour untouched. Guarded by a mutex because the web
+// settings handler can change it at runtime while analysis workers read it.
+// Changing it changes analysis output, so AnalyzeTrack records the range in each
+// Result and the cache treats a mismatch as stale (see analysis.go).
+var (
+	tempoRangeMu sync.RWMutex
+	tempoMinBPM  float64
+	tempoMaxBPM  float64
+)
+
+// SetTempoRange sets the opt-in BPM detection range. (0, 0) — or any max <= min
+// — clears it, restoring the default window. Safe to call at runtime.
+func SetTempoRange(min, max float64) {
+	tempoRangeMu.Lock()
+	defer tempoRangeMu.Unlock()
+	tempoMinBPM, tempoMaxBPM = min, max
+}
+
+// TempoRange returns the configured range (0, 0 when unset).
+func TempoRange() (min, max float64) {
+	tempoRangeMu.RLock()
+	defer tempoRangeMu.RUnlock()
+	return tempoMinBPM, tempoMaxBPM
+}
+
+// tempoRangeSet reports whether a usable explicit tempo range is configured.
+func tempoRangeSet() bool {
+	min, max := TempoRange()
+	return min > 0 && max > min
+}
+
+// tempoWindow returns the inclusive BPM range a candidate must fall within to
+// be accepted — the configured range when set, else the default dance window.
+func tempoWindow() (lo, hi float64) {
+	min, max := TempoRange()
+	if min > 0 && max > min {
+		return min, max
+	}
+	return defaultTempoLo, defaultTempoHi
+}
+
+// tempoPriorParams returns the log-Gaussian prior's centre and sigma (octaves).
+// With an explicit range the centre is the range's geometric mean and sigma is
+// half its width in octaves (floored so a narrow range stays usefully tight),
+// so the prior peaks in the middle of the user's range instead of at 130.
+func tempoPriorParams() (center, sigma float64) {
+	min, max := TempoRange()
+	if min > 0 && max > min {
+		center = math.Sqrt(min * max)
+		sigma = math.Log2(max/min) / 2
+		if sigma < 0.05 {
+			sigma = 0.05
+		}
+		return center, sigma
+	}
+	return tempoPriorCenter, tempoPriorSigma
+}
+
 // tempoPrior weights a candidate BPM by perceptual likelihood. Without it,
 // autocorrelation alone often locks onto a sub-/super-harmonic (most commonly
 // the 2/3 sub-harmonic — a 124 BPM track also peaks at ~82.7); the prior pulls
 // the choice back to the musically-correct tempo.
 func tempoPrior(bpm float64) float64 {
-	x := math.Log2(bpm/tempoPriorCenter) / tempoPriorSigma
+	center, sigma := tempoPriorParams()
+	x := math.Log2(bpm/center) / sigma
 	return math.Exp(-0.5 * x * x)
 }
 
@@ -241,6 +317,9 @@ func DetectBeatsWithEncoderDelay(samples []float32, sampleRate int, encoderDelay
 
 	// Use autocorrelation on onset to find the dominant periodicity.
 	// This is more robust than raw median for tracks with off-beat hits.
+	// The 60-200 BPM search span is the detector's hard range (also bounded by
+	// minSpacingFrames above); the web Analysis-Setting presets and custom-range
+	// clamp mirror this 60-200 window — keep them in step if it ever changes.
 	minLag := int(framesPerSec * 60.0 / 200.0)
 	maxLag := int(framesPerSec * 60.0 / 60.0)
 	if maxLag >= numFrames/2 {
@@ -291,11 +370,17 @@ func DetectBeatsWithEncoderDelay(samples []float32, sampleRate int, encoderDelay
 	// autocorrelation support.
 	ratios := []float64{1, 0.5, 2, 1.0 / 3, 3, 0.75, 4.0 / 3, 1.5, 2.0 / 3}
 
+	// Accept candidates within the configured tempo window (default 80-170).
+	// The ratio list already covers the half/third harmonics, so an explicit
+	// fast range (e.g. 160-185 for DnB) makes the real tempo the only ratio
+	// that lands in-window and lets it win instead of its half.
+	tempoLo, tempoHi := tempoWindow()
+
 	bpm := rawBPM
 	bestCandScore := 0.0
 	for _, r := range ratios {
 		c := rawBPM * r
-		if c < 80 || c > 170 {
+		if c < tempoLo || c > tempoHi {
 			continue
 		}
 		// Check autocorrelation support at this candidate's lag.

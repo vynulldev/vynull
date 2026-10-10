@@ -7464,6 +7464,25 @@ async function saveMenuItems() {
 }
 
 // Section catalog for the SETTINGS tab sidebar.
+// Our beat detector searches 60-200 BPM (autocorrelation + peak spacing); it
+// can't see outside that, so the presets and the custom inputs stay inside it —
+// unlike rekordbox's list, whose 48-95 and 108-255 entries would have dead
+// zones for us. Custom values are clamped to this range.
+const BPM_DETECT_MIN = 60;
+const BPM_DETECT_MAX = 200;
+
+// BPM analysis-range presets. "Default" (0,0) leaves the analyzer's own
+// detection window in place; every other entry is a one-octave-wide window
+// inside the detector's 60-200 range that forces the octave.
+const BPM_RANGE_PRESETS = [
+  { label: 'Default (80–170)', min: 0,   max: 0   },
+  { label: '60–120',           min: 60,  max: 120 },
+  { label: '70–140',           min: 70,  max: 140 },
+  { label: '80–160',           min: 80,  max: 160 },
+  { label: '90–180',           min: 90,  max: 180 },
+  { label: '100–200',          min: 100, max: 200 },
+];
+
 const SETTINGS_SECTIONS = [
   { key: 'webui',          label: 'WEB UI'         }, // browser-local display prefs (not a CDJ setting)
   { key: 'source',         label: 'LIBRARY SOURCE' }, // rekordbox import + path fix (not a CDJ setting)
@@ -7571,6 +7590,14 @@ function renderSettings(cfg) {
 
   // LIBRARY SOURCE: import from rekordbox + bulk path fix (not a CDJ setting).
   if (section.key === 'source') {
+    // renderSettings receives the full config itself on the 1 Hz poll
+    // (renderSettings(settings.full)) and the API response (has .full) on
+    // other paths — accept both shapes, or the dropdown always shows Default.
+    const bpmFull = (cfg && (cfg.full || cfg)) || {};
+    const bpmCurMin = Number(bpmFull.bpm_range_min) || 0;
+    const bpmCurMax = Number(bpmFull.bpm_range_max) || 0;
+    const bpmCustomActive = bpmCurMin > 0 && bpmCurMax > bpmCurMin &&
+      !BPM_RANGE_PRESETS.some(p => p.min === bpmCurMin && p.max === bpmCurMax);
     el.innerHTML = `<div class="settings-block">
       <div class="head"><span class="inner">LIBRARY SOURCE</span></div>
       <div class="body">
@@ -7592,8 +7619,34 @@ function renderSettings(cfg) {
           <button type="button" id="set-fix-paths" class="source-btn">↪ Fix track paths…</button>
           <div class="export-hint">Search-and-replace a path prefix across the whole library — e.g. after moving your music, or importing from another machine.</div>
         </div>
+        <div class="source-action">
+          <label class="export-label">Analysis · BPM range</label>
+          <div class="selector"><select id="bpm-range-select">${bpmRangeOptionsHTML(cfg)}</select></div>
+          <div id="bpm-range-custom" style="display:${bpmCustomActive ? 'flex' : 'none'}; gap:6px; margin-top:6px; align-items:center;">
+            <input type="number" id="bpm-range-min" class="input" placeholder="${BPM_DETECT_MIN}" min="${BPM_DETECT_MIN}" max="${BPM_DETECT_MAX}" step="1" value="${bpmCustomActive ? bpmCurMin : ''}" style="width:74px">
+            <span style="opacity:.6">–</span>
+            <input type="number" id="bpm-range-max" class="input" placeholder="${BPM_DETECT_MAX}" min="${BPM_DETECT_MIN}" max="${BPM_DETECT_MAX}" step="1" value="${bpmCustomActive ? bpmCurMax : ''}" style="width:74px">
+            <button type="button" id="bpm-range-apply" class="source-btn">Apply</button>
+          </div>
+          <div class="export-hint">Constrain BPM detection to a tempo range so fast genres (e.g. drum &amp; bass) stop analyzing at half or a third of their tempo. Pick a preset or Custom…. Our detector supports ${BPM_DETECT_MIN}–${BPM_DETECT_MAX} BPM; values outside that are clamped. Changing it re-analyzes affected tracks as they're next loaded.</div>
+        </div>
       </div>
     </div>`;
+    const bpmSel = el.querySelector('#bpm-range-select');
+    const bpmCustomRow = el.querySelector('#bpm-range-custom');
+    if (bpmSel) bpmSel.onchange = () => {
+      if (bpmSel.value === 'custom') {
+        // Reveal the inputs and wait for Apply — don't POST a half-typed range.
+        if (bpmCustomRow) bpmCustomRow.style.display = 'flex';
+        const mi = el.querySelector('#bpm-range-min');
+        if (mi) mi.focus();
+      } else {
+        if (bpmCustomRow) bpmCustomRow.style.display = 'none';
+        onBPMRangeChange(bpmSel);
+      }
+    };
+    const bpmApply = el.querySelector('#bpm-range-apply');
+    if (bpmApply) bpmApply.onclick = () => applyCustomBPMRange(el);
     const imp = el.querySelector('#set-import-rb');
     if (imp) imp.onclick = () => openImportRekordboxDialog();
     const fix = el.querySelector('#set-fix-paths');
@@ -7676,6 +7729,72 @@ async function handleSettingChange(select) {
     toast('SAVE FAILED', 'error');
     refresh();
   }
+}
+
+// bpmRangeOptionsHTML builds the <option> list for the BPM-range dropdown: the
+// presets plus a "Custom…" entry. Selects the matching preset, or "Custom…"
+// when the persisted range matches no preset (e.g. a custom value entered here
+// or via --bpm-range on the CLI).
+function bpmRangeOptionsHTML(cfg) {
+  const full = (cfg && (cfg.full || cfg)) || {};
+  const curMin = Number(full.bpm_range_min) || 0;
+  const curMax = Number(full.bpm_range_max) || 0;
+  let matched = false;
+  let opts = BPM_RANGE_PRESETS.map(p => {
+    const isSel = p.min === curMin && p.max === curMax;
+    if (isSel) matched = true;
+    return `<option value="${p.min}-${p.max}"${isSel ? ' selected' : ''}>${p.label}</option>`;
+  }).join('');
+  const customActive = !matched && curMin > 0 && curMax > curMin;
+  opts += `<option value="custom"${customActive ? ' selected' : ''}>Custom…</option>`;
+  return opts;
+}
+
+// postBPMRange persists a range via the full-config POST (the same path every
+// settings field uses) and reflects it immediately.
+async function postBPMRange(min, max, label) {
+  // currentSettings is the full config itself on the poll path, or the API
+  // response (has .full) otherwise. Base the POST on the whole config — the
+  // full-config POST does a SetConfig REPLACE, so sending only the two BPM
+  // fields would wipe every other setting (my_setting, dev_setting, ...).
+  const base = (currentSettings && (currentSettings.full || currentSettings)) || {};
+  const full = JSON.parse(JSON.stringify(base));
+  full.bpm_range_min = min;
+  full.bpm_range_max = max;
+  const r = await fetch('/api/settings', {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ full }),
+  });
+  if (!r.ok) { toast('SAVE FAILED', 'error'); return; }
+  // Reflect immediately into whichever shape currentSettings holds.
+  const cur = (currentSettings && currentSettings.full) || currentSettings;
+  if (cur) { cur.bpm_range_min = min; cur.bpm_range_max = max; lastSettingsKey = ''; }
+  toast('BPM RANGE · ' + label, 'success');
+}
+
+// onBPMRangeChange handles a preset selection (Default or an octave preset).
+async function onBPMRangeChange(sel) {
+  const [min, max] = sel.value.split('-').map(Number);
+  postBPMRange(min, max, sel.options[sel.selectedIndex].text);
+}
+
+// applyCustomBPMRange validates, clamps to the detector's range, and saves the
+// min/max from the custom inputs.
+async function applyCustomBPMRange(scope) {
+  let min = Number(scope.querySelector('#bpm-range-min').value);
+  let max = Number(scope.querySelector('#bpm-range-max').value);
+  if (!(min > 0 && max > 0 && max > min)) {
+    toast('RANGE MUST BE MIN < MAX, BOTH ABOVE 0', 'error');
+    return;
+  }
+  const cMin = Math.max(BPM_DETECT_MIN, Math.min(BPM_DETECT_MAX, Math.round(min)));
+  const cMax = Math.max(BPM_DETECT_MIN, Math.min(BPM_DETECT_MAX, Math.round(max)));
+  if (cMax <= cMin) {
+    toast(`RANGE OUTSIDE ${BPM_DETECT_MIN}–${BPM_DETECT_MAX} BPM`, 'error');
+    return;
+  }
+  const clamped = cMin !== Math.round(min) || cMax !== Math.round(max);
+  postBPMRange(cMin, cMax, `${cMin}–${cMax}${clamped ? ' (clamped)' : ''}`);
 }
 
 // WEB UI section — browser-local display preferences. These mirror the statusbar
