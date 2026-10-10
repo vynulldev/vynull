@@ -44,7 +44,7 @@ var cliCommands = []struct {
 	{name: "players", desc: "connected players and what they're playing"},
 	{name: "playlists", desc: "playlists with counts"},
 	{name: "status", desc: "server, analysis, and link state"},
-	{name: "sim", args: "<status|add|remove|renumber|load|play|pause|cue|seek|pitch|onair|master|eject> [args] [--deck N]", desc: "manage and drive virtual playing CDJs (server needs --simulate)"},
+	{name: "sim", args: "<status|add|remove|renumber|name|load|play|pause|cue|seek|pitch|onair|master|eject> [args] [--deck N]", desc: "manage and drive virtual playing CDJs (server needs --simulate)"},
 }
 
 // The handlers are bound here rather than in the literal: cliFlags reads
@@ -453,6 +453,7 @@ func (c *cliClient) resolveOneTrack(sel string) (uint32, string, error) {
 // manager-level /api/sim/status payload.
 type cliSimStatus struct {
 	Number       uint8   `json:"number"`
+	Name         string  `json:"name"`
 	Loaded       bool    `json:"loaded"`
 	TrackID      uint32  `json:"track_id"`
 	State        string  `json:"state"`
@@ -513,7 +514,7 @@ func cliSim(args []string) error {
 		}
 	}
 
-	c, rest, err := cliFlags("sim <status|add|remove|renumber|load|play|pause|cue|seek|pitch|onair|master|eject> [args] [--deck N]", filtered, true)
+	c, rest, err := cliFlags("sim <status|add|remove|renumber|name|load|play|pause|cue|seek|pitch|onair|master|eject> [args] [--deck N]", filtered, true)
 	if err != nil {
 		return err
 	}
@@ -616,6 +617,11 @@ func cliSim(args []string) error {
 			}
 		}
 		err = c.post(base+action, map[string]any{"on": on}, &st)
+	case "name", "model":
+		if len(rest) < 1 {
+			return fmt.Errorf("usage: vynull sim name <model> [--deck N]  (use \"\" to reset to the server name)")
+		}
+		err = c.post(base+"identity", map[string]any{"name": strings.Join(rest, " ")}, &st)
 	default:
 		return fmt.Errorf("unknown sim action %q", action)
 	}
@@ -626,12 +632,17 @@ func cliSim(args []string) error {
 	if c.json {
 		return json.NewEncoder(os.Stdout).Encode(st)
 	}
+	model := st.Name
+	if model == "" {
+		model = "server name"
+	}
+	id := fmt.Sprintf("player %d [%s]", st.Number, model)
 	if !st.Loaded {
-		fmt.Printf("player %d: %s%s (no track)\n", st.Number, st.State, simFlagsStr(st))
+		fmt.Printf("%s: %s%s (no track)\n", id, st.State, simFlagsStr(st))
 		return nil
 	}
-	fmt.Printf("player %d: %s%s  %s/%s  %.1f→%.1f BPM  pitch %s  beat %d (%d/4)  track #%d\n",
-		st.Number, st.State, simFlagsStr(st), fmtMs(st.PositionMs), fmtMs(st.DurationMs),
+	fmt.Printf("%s: %s%s  %s/%s  %.1f→%.1f BPM  pitch %s  beat %d (%d/4)  track #%d\n",
+		id, st.State, simFlagsStr(st), fmtMs(st.PositionMs), fmtMs(st.DurationMs),
 		st.BPM, st.EffectiveBPM, simPitchStr(st.PitchPct), st.BeatInTrack, st.BeatInBar, st.TrackID)
 	return nil
 }
@@ -680,7 +691,7 @@ func (c *cliClient) cliSimList() error {
 		return nil
 	}
 	w := tabwriter.NewWriter(os.Stdout, 2, 4, 2, ' ', 0)
-	fmt.Fprintln(w, "DECK\tSTATE\tPOS/DUR\tBPM\tPITCH\tFLAGS\tTRACK")
+	fmt.Fprintln(w, "DECK\tMODEL\tSTATE\tPOS/DUR\tBPM\tPITCH\tFLAGS\tTRACK")
 	for _, d := range list.Decks {
 		track, bpm := "-", "-"
 		if d.Loaded {
@@ -691,8 +702,12 @@ func (c *cliClient) cliSimList() error {
 		if flags == "" {
 			flags = "-"
 		}
-		fmt.Fprintf(w, "%d\t%s\t%s/%s\t%s\t%s\t%s\t%s\n",
-			d.Number, d.State, fmtMs(d.PositionMs), fmtMs(d.DurationMs), bpm, simPitchStr(d.PitchPct), flags, track)
+		model := d.Name
+		if model == "" {
+			model = "(server)" // falls back to the host device name
+		}
+		fmt.Fprintf(w, "%d\t%s\t%s\t%s/%s\t%s\t%s\t%s\t%s\n",
+			d.Number, model, d.State, fmtMs(d.PositionMs), fmtMs(d.DurationMs), bpm, simPitchStr(d.PitchPct), flags, track)
 	}
 	return w.Flush()
 }

@@ -289,3 +289,38 @@ func TestSimManagerInjectedClock(t *testing.T) {
 		t.Errorf("manager deck not driven by injected clock: pos %.1f", st.PositionMs)
 	}
 }
+
+func TestSimDeckName(t *testing.T) {
+	d := NewSimDeck()
+	if d.Name() != "" {
+		t.Fatalf("default name = %q, want empty (falls back to host name)", d.Name())
+	}
+	d.SetName("CDJ-3000")
+	if d.Name() != "CDJ-3000" {
+		t.Fatalf("after set = %q, want CDJ-3000", d.Name())
+	}
+	// Name survives load/eject, like a physical device's.
+	d.Load(1, 3, proto.SlotUSB, 1, grid(600, 120), 0, 300000, 120)
+	d.Eject()
+	if d.Name() != "CDJ-3000" {
+		t.Fatalf("name should persist across load/eject: got %q", d.Name())
+	}
+	if st := d.Status(); st.Name != "CDJ-3000" {
+		t.Fatalf("status name = %q", st.Name)
+	}
+}
+
+func TestSimManagerSetName(t *testing.T) {
+	mgr := NewSimManager()
+	n, _ := mgr.Add(0)
+	if err := mgr.SetName(n, "CDJ-2000nexus"); err != nil {
+		t.Fatalf("SetName: %v", err)
+	}
+	snaps := mgr.Snapshots()
+	if len(snaps) != 1 || snaps[0].Name != "CDJ-2000nexus" {
+		t.Fatalf("snapshot name not carried: %+v", snaps)
+	}
+	if err := mgr.SetName(99, "x"); err == nil {
+		t.Error("SetName on missing deck should fail")
+	}
+}

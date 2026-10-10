@@ -507,14 +507,23 @@ func (d *VirtualDevice) hostname() string {
 // then list a rekordbox instance (the metadata source) plus the CDJ players,
 // not a phantom. All decks share our MAC/IP with distinct player numbers, the
 // same one-IP-many-numbers pattern rekordbox uses for its claimed slots.
+// simName resolves a virtual deck's advertised name, falling back to the host
+// device's name when the deck has none set.
+func (d *VirtualDevice) simName(name string) string {
+	if name == "" {
+		return d.Name
+	}
+	return name
+}
+
 func (d *VirtualDevice) announceSimDecks(dst *net.UDPAddr) {
 	if d.Sim == nil {
 		return
 	}
-	for _, n := range d.Sim.Numbers() {
-		kp := proto.MarshalKeepAlive(d.Name, n, proto.DeviceCDJ, d.MAC, d.IP, d.Peers.Count()+1)
+	for _, sn := range d.Sim.Snapshots() {
+		kp := proto.MarshalKeepAlive(d.simName(sn.Name), sn.Number, proto.DeviceCDJ, d.MAC, d.IP, d.Peers.Count()+1)
 		if err := d.send(kp, dst); err != nil {
-			log.Printf("keep-alive send error (player %d): %v", n, err)
+			log.Printf("keep-alive send error (player %d): %v", sn.Number, err)
 		}
 	}
 }
@@ -641,7 +650,7 @@ func (d *VirtualDevice) simBroadcastLoop(ctx context.Context, dst *net.UDPAddr, 
 			for _, sn := range d.Sim.Snapshots() {
 				d.simPktNum++
 				sn.State.PacketNum = d.simPktNum
-				pkt := proto.MarshalStatusCDJPlaying(d.Name, sn.Number, d.MediaSlot, d.TrackCount, ds, sn.State)
+				pkt := proto.MarshalStatusCDJPlaying(d.simName(sn.Name), sn.Number, d.MediaSlot, d.TrackCount, ds, sn.State)
 				if d.Monitor != nil {
 					if st, ok := proto.ParseCDJStatus(pkt); ok {
 						d.Monitor.Update(st)

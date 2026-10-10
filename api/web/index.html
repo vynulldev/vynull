@@ -3592,6 +3592,16 @@
     .sim-flags { display: flex; gap: 6px; margin-bottom: 14px; }
     .sim-chip { flex: 1 1 auto; padding: 6px 8px; background: #1c1f26; color: var(--dim, #8a8f99); border: 1px solid var(--line, #2a2d35); border-radius: 6px; font: inherit; font-size: 11px; letter-spacing: .08em; cursor: pointer; }
     .sim-chip:hover { border-color: var(--accent, #ff7714); }
+    .sim-identity { display: flex; gap: 6px; margin: 4px 0 2px; }
+    .sim-identity .sim-name { flex: 1; min-width: 0; }
+    .sim-modal { display: none; position: fixed; inset: 0; z-index: 50; background: rgba(0,0,0,.55); align-items: center; justify-content: center; }
+    .sim-modal.open { display: flex; }
+    .sim-modal-card { background: #14171c; border: 1px solid #2a2f37; border-radius: 10px; padding: 18px; width: 320px; max-width: 90vw; display: flex; flex-direction: column; gap: 12px; }
+    .sim-modal-title { font-weight: 700; font-size: 14px; }
+    .sim-modal-card label { display: flex; flex-direction: column; gap: 4px; font-size: 11px; letter-spacing: .04em; opacity: .75; }
+    .sim-modal-card input, .sim-modal-card select { font: inherit; font-size: 13px; }
+    .sim-modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 4px; }
+    .sim-modal-cancel { padding: 8px 14px; background: transparent; color: inherit; border: 1px solid #2a2f37; border-radius: 7px; font: inherit; font-size: 13px; cursor: pointer; }
     .sim-onair.active { background: #e2554e; color: #fff; border-color: #e2554e; }
     .sim-master.active { background: var(--accent, #ff7714); color: #0d0f12; border-color: var(--accent, #ff7714); }
     .sim-pitch label { display: flex; justify-content: space-between; font-size: 12px; color: var(--dim, #8a8f99); margin-bottom: 4px; }
@@ -3612,8 +3622,19 @@
       VIRTUAL PLAYING CDJS · DRIVE THIS SERVER'S OWN MONITOR / OVERLAY / MPRIS / HISTORY · SAFE PROFILE (NOT MASTER, NOT ON-AIR)
     </div>
     <div class="sim-toolbar">
-      <span class="lbl">VIRTUAL CDJS <b id="sim-count">0</b> / <span id="sim-max">4</span></span>
-      <button type="button" class="sim-add" id="sim-add">+ ADD CDJ</button>
+      <span class="lbl">VIRTUAL DEVICES <b id="sim-count">0</b> / <span id="sim-max">4</span></span>
+      <button type="button" class="sim-add" id="sim-add">+ ADD DEVICE</button>
+    </div>
+    <div class="sim-modal" id="sim-modal">
+      <div class="sim-modal-card">
+        <div class="sim-modal-title">ADD VIRTUAL DEVICE</div>
+        <label>PLAYER NUMBER <select id="sim-new-num"></select></label>
+        <label>MODEL NAME <input type="text" id="sim-new-name" maxlength="20" placeholder="e.g. CDJ-3000 (blank = server name)"></label>
+        <div class="sim-modal-actions">
+          <button type="button" class="sim-modal-cancel" id="sim-new-cancel">Cancel</button>
+          <button type="button" class="sim-add" id="sim-new-add">Add</button>
+        </div>
+      </div>
     </div>
     <div class="sim-decks" id="sim-decks"></div>
     <div class="sim-loader">
@@ -4017,6 +4038,23 @@ function simFreeNumbers(own) {
   return free;
 }
 
+// simOpenAddModal shows the ADD DEVICE form, populated with the free player
+// numbers. Identity is chosen here so the device advertises the right model and
+// type from its first announce (editing it afterwards is too late for clients
+// that latch a device's identity when they first see it).
+function simOpenAddModal() {
+  const sel = document.getElementById('sim-new-num');
+  sel.innerHTML = '<option value="0">Auto (lowest free)</option>' +
+    simFreeNumbers(0).map(n => '<option value="' + n + '">' + n + '</option>').join('');
+  document.getElementById('sim-new-name').value = '';
+  document.getElementById('sim-modal').classList.add('open');
+  document.getElementById('sim-new-name').focus();
+}
+
+function simCloseAddModal() {
+  document.getElementById('sim-modal').classList.remove('open');
+}
+
 function simBuildCards(decks) {
   const host = document.getElementById('sim-decks');
   host.innerHTML = '';
@@ -4030,6 +4068,9 @@ function simBuildCards(decks) {
       '<div class="sim-card-head">' +
         '<span class="sim-card-title">PLAYER <select class="sim-num">' + opts + '</select></span>' +
         '<button type="button" class="sim-remove" title="Remove this deck">✕</button>' +
+      '</div>' +
+      '<div class="sim-identity">' +
+        '<input type="text" class="sim-name" maxlength="20" placeholder="model (e.g. CDJ-3000)" title="Advertised model name; blank uses the server name">' +
       '</div>' +
       '<div class="sim-readout">' +
         '<div class="sim-state">NO TRACK</div>' +
@@ -4091,12 +4132,17 @@ function simWireCard(card, num) {
   card.querySelector('.sim-pitch-reset').addEventListener('click', () => simDo(base + 'pitch', { pitch_pct: 0 }));
   card.querySelector('.sim-onair').addEventListener('click', (e) => simDo(base + 'onair', { on: !e.currentTarget.classList.contains('active') }));
   card.querySelector('.sim-master').addEventListener('click', (e) => simDo(base + 'master', { on: !e.currentTarget.classList.contains('active') }));
+  const name = card.querySelector('.sim-name');
+  name.addEventListener('change', () => simDo(base + 'identity', { name: name.value.trim() }));
 }
 
 function simUpdateCard(d) {
   const card = document.querySelector('.sim-card[data-deck="' + d.number + '"]');
   if (!card) return;
   const loaded = d.loaded;
+  // Model name: don't clobber the field while the user is typing in it.
+  const nameEl = card.querySelector('.sim-name');
+  if (document.activeElement !== nameEl) nameEl.value = d.name || '';
   card.querySelector('.sim-state').textContent = d.state || 'NO TRACK';
   card.querySelector('.sim-title').textContent = loaded ? simTrackTitle(d.track_id) : '—';
   const bpmEl = card.querySelector('.sim-bpm');
@@ -4168,7 +4214,7 @@ function simRenderLoadList(q) {
 
 function simLoadInto(trackID) {
   const num = Number(document.getElementById('sim-load-target').value);
-  if (!num) { toast('add a virtual CDJ first'); return; }
+  if (!num) { toast('add a virtual device first'); return; }
   simDo(num + '/load', { track_id: trackID });
 }
 
@@ -4180,7 +4226,19 @@ async function simActivate() {
   simStartBeat(); // (re)start the beat animator each time the tab is opened
   if (simActivated) return;
   simActivated = true;
-  document.getElementById('sim-add').addEventListener('click', () => simDo('add'));
+  document.getElementById('sim-add').addEventListener('click', simOpenAddModal);
+  document.getElementById('sim-new-cancel').addEventListener('click', simCloseAddModal);
+  document.getElementById('sim-modal').addEventListener('click', (e) => { if (e.target.id === 'sim-modal') simCloseAddModal(); });
+  document.getElementById('sim-new-add').addEventListener('click', () => {
+    const num = Number(document.getElementById('sim-new-num').value) || 0; // 0 = auto (lowest free)
+    const name = document.getElementById('sim-new-name').value.trim();
+    simCloseAddModal();
+    simDo('add', { number: num, name });
+  });
+  document.getElementById('sim-new-name').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') document.getElementById('sim-new-add').click();
+    else if (e.key === 'Escape') simCloseAddModal();
+  });
   const search = document.getElementById('sim-load-search');
   search.addEventListener('input', () => simRenderLoadList(search.value));
   search.addEventListener('keydown', (e) => {

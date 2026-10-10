@@ -27,6 +27,12 @@ type SimDeck struct {
 
 	mu sync.Mutex
 
+	// name is the model string the virtual deck advertises (e.g. "CDJ-3000");
+	// empty falls back to the host device's name. It persists across
+	// load/eject, like a physical device's. (Virtual devices are always CDJs
+	// on the wire for now; a track-playing deck can't meaningfully be a mixer.)
+	name string
+
 	// Loaded track.
 	trackID     uint32
 	trackDevice uint8
@@ -61,6 +67,22 @@ func NewSimDeck() *SimDeck {
 		trackType: 1,
 		state:     proto.PlayStateNoTrack,
 	}
+}
+
+// Name returns the deck's advertised model name. An empty string means the
+// host device's name is used.
+func (d *SimDeck) Name() string {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return d.name
+}
+
+// SetName sets the deck's advertised model name. An empty string falls back to
+// the host device's name.
+func (d *SimDeck) SetName(name string) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.name = name
 }
 
 // Load places a track at the cue point (position 0, cued, not playing). The
@@ -300,6 +322,7 @@ func (d *SimDeck) Snapshot() proto.CDJPlayState {
 // SimDeckStatus is a human-friendly view of the deck for the API/CLI.
 type SimDeckStatus struct {
 	Number       uint8   `json:"number"` // Pro DJ Link player number (1-4); set by SimManager
+	Name         string  `json:"name"`   // advertised model name ("" = host device name)
 	Loaded       bool    `json:"loaded"`
 	TrackID      uint32  `json:"track_id"`
 	State        string  `json:"state"`
@@ -325,6 +348,7 @@ func (d *SimDeck) Status() SimDeckStatus {
 	beatInTrack, beatInBar, frac := d.beatPositionLocked()
 	eff := d.bpm * d.rate()
 	return SimDeckStatus{
+		Name:         d.name,
 		Loaded:       d.state != proto.PlayStateNoTrack,
 		TrackID:      d.trackID,
 		State:        proto.PlayStateName(d.state),
@@ -472,6 +496,7 @@ func (mgr *SimManager) snapshotDecks() ([]uint8, []*SimDeck) {
 // the broadcast loop.
 type SimSnapshot struct {
 	Number uint8
+	Name   string // advertised model name ("" = host device name)
 	State  proto.CDJPlayState
 }
 
@@ -480,9 +505,19 @@ func (mgr *SimManager) Snapshots() []SimSnapshot {
 	nums, decks := mgr.snapshotDecks()
 	out := make([]SimSnapshot, len(nums))
 	for i := range nums {
-		out[i] = SimSnapshot{Number: nums[i], State: decks[i].Snapshot()}
+		out[i] = SimSnapshot{Number: nums[i], Name: decks[i].Name(), State: decks[i].Snapshot()}
 	}
 	return out
+}
+
+// SetName sets a deck's advertised model name.
+func (mgr *SimManager) SetName(number uint8, name string) error {
+	d := mgr.Get(number)
+	if d == nil {
+		return fmt.Errorf("no virtual player %d", number)
+	}
+	d.SetName(name)
+	return nil
 }
 
 // Statuses returns the human-friendly status of every deck, in player-number

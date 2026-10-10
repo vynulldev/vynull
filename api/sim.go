@@ -37,6 +37,7 @@ type simListResponse struct {
 //	pitch                   POST  {pitch_pct}
 //	onair                   POST  {on}            mixer channel up (now-playing)
 //	master                  POST  {on}            tempo master
+//	identity                POST  {name}          advertised model name
 //
 // See docs/design/cdj-emulator.md.
 func (s *Server) handleSim(w http.ResponseWriter, r *http.Request) {
@@ -76,12 +77,20 @@ func (s *Server) handleSim(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		var req struct {
-			Number uint8 `json:"number"`
+			Number uint8  `json:"number"`
+			Name   string `json:"name"`
 		}
 		json.NewDecoder(r.Body).Decode(&req) // body optional
-		if _, err := mgr.Add(req.Number); err != nil {
+		assigned, err := mgr.Add(req.Number)
+		if err != nil {
 			http.Error(w, err.Error(), http.StatusConflict)
 			return
+		}
+		// Set the model name immediately so the deck's very first
+		// keep-alive/status advertises it (clients latch a device's identity at
+		// first announce, so setting it after the fact is too late).
+		if name := strings.TrimSpace(req.Name); name != "" {
+			mgr.SetName(assigned, name)
 		}
 	case "remove":
 		if r.Method != http.MethodPost {
@@ -191,6 +200,15 @@ func (s *Server) handleSimDeck(w http.ResponseWriter, r *http.Request, num uint8
 			return
 		}
 		deck.SetMaster(req.On)
+	case "identity":
+		var req struct {
+			Name string `json:"name"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, "invalid JSON: "+err.Error(), http.StatusBadRequest)
+			return
+		}
+		deck.SetName(strings.TrimSpace(req.Name))
 	case "load":
 		if !s.simLoad(w, r, deck) {
 			return
