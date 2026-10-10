@@ -141,6 +141,7 @@ def main():
         LEFT JOIN djmdGenre g ON c.GenreID = g.ID
         LEFT JOIN djmdKey k ON c.KeyID = k.ID
         LEFT JOIN djmdLabel l ON c.LabelID = l.ID
+        WHERE COALESCE(c.rb_local_deleted, 0) = 0
     """)
     cols = [d[0] for d in cur.description]
     for row in cur.fetchall():

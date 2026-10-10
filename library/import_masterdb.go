@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -369,7 +370,16 @@ func masterDBToLibrary(t *masterDBTrack, path string) *Track {
 	if dateAdded.IsZero() {
 		dateAdded = time.Now()
 	}
+	// Preserve the rekordbox djmdContent.ID as the library track ID so served
+	// rows carry the same IDs rekordbox does (addTrackLocked respects a preset
+	// ID; idMap then resolves to it identically). Fall back to auto-assign (0)
+	// if the ID is missing or not a uint32.
+	var trackID uint32
+	if n, err := strconv.ParseUint(strings.TrimSpace(t.ID), 10, 32); err == nil {
+		trackID = uint32(n)
+	}
 	return &Track{
+		ID:         trackID,
 		Title:      t.Title,
 		Artist:     t.Artist,
 		Album:      t.Album,
