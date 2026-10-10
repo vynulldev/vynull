@@ -222,7 +222,14 @@ func (h *Handler) Handle(msg *proto.DBMessage) []*proto.DBMessage {
 			return h.handleGetFilename(msg)
 		}
 		return h.handleNXS2DrillDown(msg)
-	case 0x2001: // HOT CUE BANK list
+	case 0x1018: // HOT CUE BANK root — rekordbox serves no catalogue here and
+		// replies with a menu-unavailable error whose sole arg echoes the kind.
+		return []*proto.DBMessage{{
+			TxID: msg.TxID,
+			Type: proto.DBMsgMenuError,
+			Args: []proto.DBArg{proto.ArgI32(uint32(msg.Type))},
+		}}
+	case 0x2001: // HOT CUE BANK list (NXS2 hot-cue-bank catalogue)
 		return h.handleGetHotCueBank(msg)
 	case 0x1300: // SEARCH category: per-keystroke search query
 		return h.handleSearch(msg)

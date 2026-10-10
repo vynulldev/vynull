@@ -32,6 +32,7 @@ const (
 	DBMsgRenderMenu     uint16 = 0x3000
 	DBMsgSuccess        uint16 = 0x4000
 	DBMsgMenuHeader     uint16 = 0x4001
+	DBMsgMenuError      uint16 = 0x4003 // menu unavailable; sole arg echoes the request kind
 	DBMsgMenuItem       uint16 = 0x4101
 	DBMsgMenuFooter     uint16 = 0x4201
 	DBMsgBeatGridResp   uint16 = 0x4602
