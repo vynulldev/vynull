@@ -482,6 +482,15 @@ func (h *Handler) handleGetHotCueBank(msg *proto.DBMessage) []*proto.DBMessage {
 	return []*proto.DBMessage{h.successWithCount(msg)}
 }
 
+// classicKeyNames lists rekordbox's 24 harmonic positions in order, in Classic
+// (musical) notation. The 1-based position is the "new key" index served as
+// the KEY menu's row ID (1A=1, 1B=2, ... 12B=24); the deck reverses it to the
+// configured notation. From link-spec's KEY_NOTATION_ORACLE.md.
+var classicKeyNames = [24]string{
+	"Abm", "B", "Ebm", "F#", "Bbm", "Db", "Fm", "Ab", "Cm", "Eb", "Gm", "Bb",
+	"Dm", "F", "Am", "C", "Em", "G", "Bm", "D", "F#m", "A", "Dbm", "E",
+}
+
 func (h *Handler) handleGetKeys(msg *proto.DBMessage) []*proto.DBMessage {
 	if h.pdb != nil {
 		var items []*menuItem
@@ -493,27 +502,20 @@ func (h *Handler) handleGetKeys(msg *proto.DBMessage) []*proto.DBMessage {
 			})
 		}
 		h.pendingItems = items
-	} else if h.lib != nil {
-		// Build key list from library tracks.
-		keySet := make(map[string]bool)
-		for _, t := range h.lib.Tracks() {
-			if t.Key != "" {
-				keySet[t.Key] = true
-			}
-		}
-		var items []*menuItem
-		for key := range keySet {
+		sortItems(h.pendingItems, sortTitle)
+	} else {
+		// rekordbox shows all 24 harmonic positions, in wheel order, not just
+		// the keys present in the library.
+		items := make([]*menuItem, 0, 24)
+		for i, name := range classicKeyNames {
 			items = append(items, &menuItem{
-				ID:       h.catID("key", key),
-				Label1:   key,
+				ID:       uint32(i + 1),
+				Label1:   name,
 				ItemType: 0x0f,
 			})
 		}
 		h.pendingItems = items
-	} else {
-		h.pendingItems = nil
 	}
-	sortItems(h.pendingItems, sortTitle)
 	dlog.Debugf("dbserver: get keys returning %d items", len(h.pendingItems))
 	return []*proto.DBMessage{h.successWithCount(msg)}
 }
