@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -19,6 +20,19 @@ type MasterDBDump struct {
 	Playlists []MasterDBPlaylist `json:"playlists"`
 	Tags      []MasterDBTag      `json:"tags"`
 	Cues      []masterDBCue      `json:"cues"`
+	// TagList holds the rekordbox ContentIDs in djmdSongTagList (the "Tag
+	// List"). Distinct from per-track MyTag assignments; drives the song-tag
+	// flag bit in served menu rows.
+	TagList []string `json:"tag_list"`
+	// Recommendations are djmdRecommendLike related-track pairs backing the
+	// MATCHING browse.
+	Recommendations []masterDBRecommend `json:"recommendations"`
+}
+
+// masterDBRecommend is one djmdRecommendLike related-track pair (ContentIDs).
+type masterDBRecommend struct {
+	ID1 string `json:"id1"`
+	ID2 string `json:"id2"`
 }
 
 type masterDBCue struct {
@@ -84,6 +98,24 @@ type masterDBTrack struct {
 	ColorID     int     `json:"color_id"`     // rekordbox track-colour palette ID (1-8)
 	AnalyzePath string  `json:"analyze_path"` // /PIONEER/USBANLZ/.../ANLZ0000.DAT, relative to share/
 	ImagePath   string  `json:"image_path"`   // /PIONEER/Artwork/.../artwork.jpg, relative to share/
+	// rekordbox lookup-table row IDs (djmd*), so served category rows carry
+	// rekordbox's IDs rather than hashed names. Strings, like ID.
+	GenreID  string `json:"genre_id"`
+	ArtistID string `json:"artist_id"`
+	AlbumID  string `json:"album_id"`
+	KeyID    string `json:"key_id"`
+	LabelID  string `json:"label_id"`
+	// FileTypeID is rekordbox's FileType enum (1=mp3, 4=m4a, 5=flac, 11=wav,
+	// 12=aiff), authoritative over the file extension. HotCueAutoLoad is
+	// non-empty when the deck should auto-load this track's hot cues.
+	FileTypeID     int    `json:"file_type_id"`
+	HotCueAutoLoad string `json:"hot_cue_auto_load"`
+	// Remixer and original artist (both djmdArtist rows), with their IDs, so
+	// the REMIXER and ORIGINAL ARTIST category drills resolve.
+	Remixer        string `json:"remixer"`
+	OriginalArtist string `json:"original_artist"`
+	RemixerID      string `json:"remixer_id"`
+	OrigArtistID   string `json:"orig_artist_id"`
 }
 
 // ImportedAsset pairs a library Track.ID with the rekordbox-relative paths
@@ -103,6 +135,7 @@ type MasterDBPlaylist struct {
 	ParentID string       `json:"parent_id"`
 	IsFolder bool         `json:"is_folder"`
 	IsSmart  bool         `json:"is_smart"`
+	Seq      int          `json:"seq"` // rekordbox display sequence within the parent
 	TrackIDs []string     `json:"track_ids"`
 	Smart    *RBSmartList `json:"smart"` // present for smart playlists
 }
@@ -150,6 +183,15 @@ func ImportRekordboxMasterDB(lib *Library, dbPath, key string) (*ImportBundle, e
 	if err != nil {
 		return nil, err
 	}
+	return ImportMasterDBDump(lib, dump)
+}
+
+// ImportMasterDBDump builds the library from an already-decoded master.db dump
+// (the JSON that tools/rekordbox_dump.py emits). Split out of
+// ImportRekordboxMasterDB so a caller that already holds the dump — e.g. the
+// conformance server loading a --fixture-json — can reuse it without re-running
+// the Python helper.
+func ImportMasterDBDump(lib *Library, dump *MasterDBDump) (*ImportBundle, error) {
 	res := &ImportResult{TracksTotal: len(dump.Tracks)}
 	idMap := make(map[string]uint32, len(dump.Tracks)) // rekordbox ContentID → library Track.ID
 	var colors []ColorImport
@@ -178,11 +220,38 @@ func ImportRekordboxMasterDB(lib *Library, dbPath, key string) (*ImportBundle, e
 		if t.ID != "" {
 			idMap[t.ID] = id
 		}
+		// Record each category value's rekordbox lookup-table ID so the dbserver
+		// can serve rekordbox's real IDs (not hashed names) in category rows.
+		lib.RegisterCategoryID("genre", t.Genre, parseRBID(t.GenreID))
+		lib.RegisterCategoryID("artist", t.Artist, parseRBID(t.ArtistID))
+		lib.RegisterCategoryID("album", t.Album, parseRBID(t.AlbumID))
+		lib.RegisterCategoryID("key", t.Key, parseRBID(t.KeyID))
+		lib.RegisterCategoryID("label", t.Label, parseRBID(t.LabelID))
+		lib.RegisterCategoryID("remixer", t.Remixer, parseRBID(t.RemixerID))
+		lib.RegisterCategoryID("origartist", t.OriginalArtist, parseRBID(t.OrigArtistID))
 		if track.ColorID > 0 {
 			colors = append(colors, ColorImport{TrackID: id, ColorID: track.ColorID})
 		}
 		if t.AnalyzePath != "" || t.ImagePath != "" {
 			assets = append(assets, ImportedAsset{TrackID: id, AnalyzePath: t.AnalyzePath, ImagePath: t.ImagePath})
+		}
+	}
+
+	// Record related-track recommendations (both directions) for MATCHING.
+	for _, r := range dump.Recommendations {
+		a, ok1 := idMap[r.ID1]
+		b, ok2 := idMap[r.ID2]
+		if ok1 && ok2 {
+			lib.AddRelated(a, b)
+		}
+	}
+
+	// Flag the tracks in the "Tag List" (djmdSongTagList) so their served menu
+	// rows carry rekordbox's song-tag bit (argument 7). This is distinct from
+	// per-track MyTag assignments below.
+	for _, cid := range dump.TagList {
+		if id, ok := idMap[cid]; ok {
+			lib.MarkSongTag(id)
 		}
 	}
 
@@ -346,11 +415,26 @@ func findDumpScript() string {
 	return ""
 }
 
+// parseRBID parses a rekordbox lookup-table ID (stored as a decimal string)
+// into a uint32, returning 0 when the string is empty or not a valid uint32.
+func parseRBID(s string) uint32 {
+	if n, err := strconv.ParseUint(strings.TrimSpace(s), 10, 32); err == nil {
+		return uint32(n)
+	}
+	return 0
+}
+
 func masterDBToLibrary(t *masterDBTrack, path string) *Track {
 	ext := strings.ToLower(filepath.Ext(path))
 	ft := strings.TrimPrefix(ext, ".")
 	if ft == "aif" {
 		ft = "aiff"
+	}
+	// rekordbox's FileType enum is authoritative over the extension (it stores
+	// .wav-named files as FileType 1, say); fall back to the extension when the
+	// dump carries no FileType.
+	if s := fileTypeString(t.FileTypeID); s != "" {
+		ft = s
 	}
 	dateAdded, _ := time.Parse("2006-01-02", t.DateAdded)
 	if dateAdded.IsZero() {
@@ -360,27 +444,55 @@ func masterDBToLibrary(t *masterDBTrack, path string) *Track {
 	if dateAdded.IsZero() {
 		dateAdded = time.Now()
 	}
+	// Preserve the rekordbox djmdContent.ID as the library track ID so served
+	// rows carry the same IDs rekordbox does (addTrackLocked respects a preset
+	// ID; idMap then resolves to it identically). Fall back to auto-assign (0)
+	// if the ID is missing or not a uint32.
+	trackID := parseRBID(t.ID)
 	return &Track{
-		Title:      t.Title,
-		Artist:     t.Artist,
-		Album:      t.Album,
-		Genre:      t.Genre,
-		Duration:   DurationSec(time.Duration(t.DurationSec) * time.Second),
-		BPM:        t.BPM,
-		Key:        t.Key,
-		Rating:     uint8(t.Rating),
-		Year:       t.Year,
-		TrackNum:   t.TrackNum,
-		DiscNum:    t.DiscNum,
-		FilePath:   path,
-		FileType:   ft,
-		FileSize:   t.FileSize,
-		Comment:    t.Comment,
-		Label:      t.Label,
-		DateAdded:  dateAdded,
-		Bitrate:    t.Bitrate,
-		SampleRate: t.SampleRate,
-		PlayCount:  t.PlayCount,
-		ColorID:    uint8(t.ColorID),
+		ID:             trackID,
+		Title:          t.Title,
+		Artist:         t.Artist,
+		Album:          t.Album,
+		Genre:          t.Genre,
+		Duration:       DurationSec(time.Duration(t.DurationSec) * time.Second),
+		BPM:            t.BPM,
+		Key:            t.Key,
+		Rating:         uint8(t.Rating),
+		Year:           t.Year,
+		TrackNum:       t.TrackNum,
+		DiscNum:        t.DiscNum,
+		FilePath:       path,
+		FileType:       ft,
+		FileSize:       t.FileSize,
+		Comment:        t.Comment,
+		Label:          t.Label,
+		DateAdded:      dateAdded,
+		Bitrate:        t.Bitrate,
+		SampleRate:     t.SampleRate,
+		PlayCount:      t.PlayCount,
+		ColorID:        uint8(t.ColorID),
+		FileTypeID:     t.FileTypeID,
+		AutoLoadHotCue: t.HotCueAutoLoad != "",
+		Remixer:        t.Remixer,
+		OriginalArtist: t.OriginalArtist,
 	}
+}
+
+// fileTypeString maps a rekordbox FileType enum value to the library's codec
+// string. Returns "" for 0/unknown so callers keep the extension-derived type.
+func fileTypeString(id int) string {
+	switch id {
+	case 1:
+		return "mp3"
+	case 4:
+		return "m4a"
+	case 5:
+		return "flac"
+	case 11:
+		return "wav"
+	case 12:
+		return "aiff"
+	}
+	return ""
 }

@@ -44,6 +44,21 @@ type Library struct {
 	albums  []string
 	genres  []string
 
+	// catIDs maps a category kind ("genre"/"artist"/"album"/"key"/"label") and
+	// value name to the rekordbox lookup-table row ID, populated from a
+	// master.db import. Lets the dbserver serve rekordbox's real category IDs
+	// instead of hashed names. Empty for non-rekordbox-sourced libraries.
+	catIDs map[string]map[string]uint32
+
+	// songTags holds the library track IDs that carry at least one MyTag
+	// (djmdSongMyTag) assignment, populated from a master.db import. The
+	// dbserver sets argument 7's song-tag bit on these tracks' menu rows.
+	songTags map[uint32]struct{}
+
+	// related holds the symmetric related-track graph (djmdRecommendLike),
+	// backing the MATCHING browse. Populated from a master.db import.
+	related map[uint32][]uint32
+
 	dbPath string // if set, persist track list to this JSON file
 
 	// rev is a monotonic revision counter bumped whenever track data
@@ -61,6 +76,95 @@ func (l *Library) Rev() uint64 { return l.rev.Load() }
 // Touch bumps the revision without writing to disk — for callers that
 // mutate track data in place (or in a side store) without a Save().
 func (l *Library) Touch() { l.rev.Add(1) }
+
+// RegisterCategoryID records the rekordbox lookup-table ID for a category
+// value, where kind is one of "genre"/"artist"/"album"/"key"/"label". Empty
+// names and zero IDs are ignored. Populated during a master.db import so the
+// dbserver can serve rekordbox's real category IDs instead of hashed names.
+func (l *Library) RegisterCategoryID(kind, name string, id uint32) {
+	if name == "" || id == 0 {
+		return
+	}
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if l.catIDs == nil {
+		l.catIDs = make(map[string]map[string]uint32)
+	}
+	m := l.catIDs[kind]
+	if m == nil {
+		m = make(map[string]uint32)
+		l.catIDs[kind] = m
+	}
+	m[name] = id
+}
+
+// CategoryID returns the rekordbox lookup-table ID recorded for a category
+// value, or 0 if none was imported (e.g. a non-rekordbox-sourced library).
+func (l *Library) CategoryID(kind, name string) uint32 {
+	l.mu.RLock()
+	defer l.mu.RUnlock()
+	if l.catIDs == nil {
+		return 0
+	}
+	if m := l.catIDs[kind]; m != nil {
+		return m[name]
+	}
+	return 0
+}
+
+// MarkSongTag records that the given track carries at least one MyTag
+// assignment. Idempotent; populated during a master.db import.
+func (l *Library) MarkSongTag(id uint32) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if l.songTags == nil {
+		l.songTags = make(map[uint32]struct{})
+	}
+	l.songTags[id] = struct{}{}
+}
+
+// HasSongTag reports whether the track carries at least one MyTag assignment.
+func (l *Library) HasSongTag(id uint32) bool {
+	l.mu.RLock()
+	defer l.mu.RUnlock()
+	_, ok := l.songTags[id]
+	return ok
+}
+
+// AddRelated records a symmetric related-track relationship (both a->b and
+// b->a), deduping. Populated during a master.db import for the MATCHING browse.
+func (l *Library) AddRelated(a, b uint32) {
+	if a == 0 || b == 0 || a == b {
+		return
+	}
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if l.related == nil {
+		l.related = make(map[uint32][]uint32)
+	}
+	add := func(from, to uint32) {
+		for _, x := range l.related[from] {
+			if x == to {
+				return
+			}
+		}
+		l.related[from] = append(l.related[from], to)
+	}
+	add(a, b)
+	add(b, a)
+}
+
+// Related returns the track IDs related to the given track (either direction),
+// or nil if none were imported.
+func (l *Library) Related(id uint32) []uint32 {
+	l.mu.RLock()
+	defer l.mu.RUnlock()
+	ids := l.related[id]
+	if ids == nil {
+		return nil
+	}
+	return append([]uint32(nil), ids...)
+}
 
 // New creates an empty Library for adding tracks dynamically.
 func New() *Library {

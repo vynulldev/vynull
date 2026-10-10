@@ -5,8 +5,10 @@ package dbserver
 import (
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 
+	"github.com/vynulldev/vynull/analysis"
 	"github.com/vynulldev/vynull/library"
 	"github.com/vynulldev/vynull/pdb"
 	"github.com/vynulldev/vynull/proto"
@@ -33,6 +35,16 @@ type menuItem struct {
 	sortAlbum  string
 	sortBPM    uint32 // BPM * 100
 	sortKey    string
+	keyID      uint32 // djmdContent.KeyID — extended-row arg 12
+
+	// Track-row wire-flag inputs (see render.go's flag assembly).
+	contextTrackType uint32 // packed context track type — arg 7 high byte (TT<<24) on hierarchy track leaves
+	trackPos         uint32 // arg 9: scope position / track number (album scope uses TrackNo; 0 elsewhere)
+	hasSongTag       bool   // track carries a MyTag — arg 7 bit 0x1
+	autoLoadHotCue   bool   // deck auto-loads hot cues — arg 10 bit 0x100
+	fileTypeID       int    // rekordbox FileType enum — arg 10 compatibility bit
+	sampleRate       int    // Hz — arg 10 compatibility bit for wav/aiff
+	newKeyID         uint32 // converted (Camelot 1-24) key index — arg 11
 }
 
 // Sort order constants from CDJ protocol.
@@ -82,6 +94,20 @@ func getSortOrder(msg *proto.DBMessage) uint32 {
 	return 0
 }
 
+// catID returns the rekordbox lookup-table ID for a category value when the
+// library carries one (recorded during a master.db import), falling back to
+// the stable name hash otherwise. Both category-row generation and drill-in
+// matching route through this helper, so the IDs we serve and the IDs decks
+// send back when drilling in stay in lockstep.
+func (h *Handler) catID(kind, name string) uint32 {
+	if h.lib != nil {
+		if id := h.lib.CategoryID(kind, name); id != 0 {
+			return id
+		}
+	}
+	return library.HashID(kind, name)
+}
+
 func (h *Handler) pdbTracksToItems(tracks []*pdb.Track) []*menuItem {
 	items := make([]*menuItem, len(tracks))
 	for i, t := range tracks {
@@ -103,6 +129,11 @@ func (h *Handler) pdbTrackToStdItem(t *pdb.Track) *menuItem {
 		ArtID:    t.ArtworkID,
 		FileType: h.resolveFileType(t.ID),
 		ColorID:  uint32(t.ColorID),
+		// USB exports carry hot-cue autoload; the compatibility bit and
+		// new-key index fall out of the codec string and Camelot key. The PDB
+		// row has no FileTypeID/sample-rate, so those use the string fallback.
+		autoLoadHotCue: true,
+		newKeyID:       newKeyID(t.Key),
 	}
 	h.applyTrackDetailFromPDB(m, t)
 	return m
@@ -114,14 +145,85 @@ func (h *Handler) pdbTrackToStdItem(t *pdb.Track) *menuItem {
 // 0x0d04 for that classic look.
 func (h *Handler) trackToStdItem(t *library.Track) *menuItem {
 	m := &menuItem{
-		ID:       t.ID,
-		Label1:   t.Title,
-		ArtID:    t.ArtID,
-		FileType: t.FileType,
-		ColorID:  uint32(t.ColorID),
+		ID:             t.ID,
+		Label1:         t.Title,
+		ArtID:          t.ArtID,
+		FileType:       t.FileType,
+		ColorID:        uint32(t.ColorID),
+		sortArtist:     t.Artist,
+		sortAlbum:      t.Album,
+		sortBPM:        uint32(t.BPM * 100),
+		sortKey:        t.Key,
+		hasSongTag:     h.lib != nil && h.lib.HasSongTag(t.ID),
+		autoLoadHotCue: t.AutoLoadHotCue,
+		fileTypeID:     t.FileTypeID,
+		sampleRate:     t.SampleRate,
+		newKeyID:       newKeyID(t.Key),
+	}
+	// keyID feeds the extended-row key argument; leave it 0 for keyless
+	// tracks rather than hashing an empty string.
+	if t.Key != "" {
+		m.keyID = h.catID("key", t.Key)
 	}
 	h.applyTrackDetail(m, t)
 	return m
+}
+
+// newKeyID computes rekordbox's 1-24 "new key" index for a track's key. The
+// index is derived from the musical key (via its Camelot position), not the
+// configured display notation, so a track shown as "C" (Camelot 8B) still maps
+// to 16. Keys interleave A then B per wheel position: 1A=1, 1B=2, ... 8A=15,
+// 8B=16, ... 12A=23, 12B=24. Returns 0 for an unrecognized key.
+func newKeyID(key string) uint32 {
+	camelot, _ := analysis.KeyNamesFrom(key)
+	if camelot == "" {
+		return 0
+	}
+	letter := camelot[len(camelot)-1]
+	var mode uint32
+	switch letter {
+	case 'A', 'a':
+		mode = 1
+	case 'B', 'b':
+		mode = 2
+	default:
+		return 0
+	}
+	num, err := strconv.Atoi(strings.TrimSpace(camelot[:len(camelot)-1]))
+	if err != nil || num < 1 || num > 12 {
+		return 0
+	}
+	return uint32(num-1)*2 + mode
+}
+
+// newCDJIncompatible reports whether a track is rejected by rekordbox's
+// new-CDJ decode-compatibility path (argument 10 bit 0). FLAC (type 5) and
+// type 6 are always rejected; WAV (11) and AIFF (12) are rejected unless the
+// sample rate is 44100 or 48000 Hz. The rekordbox FileType enum is
+// authoritative; the codec string is a fallback when no enum was imported.
+func newCDJIncompatible(fileTypeID int, fileType string, sampleRate int) bool {
+	id := fileTypeID
+	if id == 0 {
+		switch fileType {
+		case "mp3":
+			id = 1
+		case "m4a":
+			id = 4
+		case "flac":
+			id = 5
+		case "wav":
+			id = 11
+		case "aiff":
+			id = 12
+		}
+	}
+	switch id {
+	case 5, 6:
+		return true
+	case 11, 12:
+		return sampleRate != 44100 && sampleRate != 48000
+	}
+	return false
 }
 
 // trackDetailKey returns the configured detail-field key, falling back
@@ -174,27 +276,27 @@ func (h *Handler) applyTrackDetail(m *menuItem, t *library.Track) {
 			m.Label2 += " - " + t.Key
 		}
 	case "key":
-		m.ParentID = library.HashID("key", t.Key)
+		m.ParentID = h.catID("key", t.Key)
 		if t.Key != "" {
 			m.Label2 = fmt.Sprintf("%s - %.1f bpm", t.Key, t.BPM)
 		}
 	case "artist":
-		m.ParentID = library.HashID("artist", t.Artist)
+		m.ParentID = h.catID("artist", t.Artist)
 		m.Label2 = t.Artist
 	case "album":
-		m.ParentID = library.HashID("album", t.Album)
+		m.ParentID = h.catID("album", t.Album)
 		m.Label2 = t.Album
 	case "genre":
-		m.ParentID = library.HashID("genre", t.Genre)
+		m.ParentID = h.catID("genre", t.Genre)
 		m.Label2 = t.Genre
 	case "label":
-		m.ParentID = library.HashID("label", t.Label)
+		m.ParentID = h.catID("label", t.Label)
 		m.Label2 = t.Label
 	case "remixer":
-		m.ParentID = library.HashID("remixer", t.Remixer)
+		m.ParentID = h.catID("remixer", t.Remixer)
 		m.Label2 = t.Remixer
 	case "original_artist":
-		m.ParentID = library.HashID("original_artist", t.OriginalArtist)
+		m.ParentID = h.catID("original_artist", t.OriginalArtist)
 		m.Label2 = t.OriginalArtist
 	case "time":
 		m.ParentID = uint32(t.Duration.Seconds())
@@ -248,18 +350,18 @@ func (h *Handler) applyTrackDetailFromPDB(m *menuItem, t *pdb.Track) {
 			m.Label2 += " - " + t.Key
 		}
 	case "key":
-		m.ParentID = library.HashID("key", t.Key)
+		m.ParentID = h.catID("key", t.Key)
 		if t.Key != "" {
 			m.Label2 = fmt.Sprintf("%s - %.1f bpm", t.Key, bpm)
 		}
 	case "artist":
-		m.ParentID = library.HashID("artist", t.Artist)
+		m.ParentID = h.catID("artist", t.Artist)
 		m.Label2 = t.Artist
 	case "album":
-		m.ParentID = library.HashID("album", t.Album)
+		m.ParentID = h.catID("album", t.Album)
 		m.Label2 = t.Album
 	case "genre":
-		m.ParentID = library.HashID("genre", t.Genre)
+		m.ParentID = h.catID("genre", t.Genre)
 		m.Label2 = t.Genre
 	case "time":
 		m.ParentID = uint32(t.Duration)
@@ -315,6 +417,17 @@ func trackColorName(id uint8) string {
 		return "Purple"
 	}
 	return ""
+}
+
+// markContextType stamps the packed context track type (TT) on every item, so
+// their served rows carry TT<<24 in argument 7. Applied to hierarchy track
+// leaves (genre/artist/album/label/original-artist/remixer), which rekordbox
+// tags with the context type; the direct track list and scalar filters leave
+// it 0.
+func markContextType(items []*menuItem, tt uint32) {
+	for _, m := range items {
+		m.contextTrackType = tt
+	}
 }
 
 // tracksToStdItems converts library tracks to standard menu items (0x0d04 format).

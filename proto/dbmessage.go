@@ -32,6 +32,7 @@ const (
 	DBMsgRenderMenu     uint16 = 0x3000
 	DBMsgSuccess        uint16 = 0x4000
 	DBMsgMenuHeader     uint16 = 0x4001
+	DBMsgMenuError      uint16 = 0x4003 // menu unavailable; sole arg echoes the request kind
 	DBMsgMenuItem       uint16 = 0x4101
 	DBMsgMenuFooter     uint16 = 0x4201
 	DBMsgBeatGridResp   uint16 = 0x4602
@@ -86,8 +87,12 @@ func (a DBArg) Int() uint32 {
 // ParseDBMessage parses a dbserver message from bytes.
 // The caller should have already stripped the leading magic bytes.
 func ParseDBMessage(data []byte) (*DBMessage, error) {
-	if len(data) < 11 {
-		return nil, fmt.Errorf("dbmessage too short: %d bytes", len(data))
+	// The fixed header is 19 bytes: TxID(4) + Type(2) + argCount(1) + 12 tag
+	// bytes. A shorter message can't carry a valid header, and reading the tag
+	// slice below assumes all 19 are present — guarding at 11 let an 11-18 byte
+	// (malformed/truncated) message panic the decoder, crashing the session.
+	if len(data) < 19 {
+		return nil, fmt.Errorf("dbmessage too short: %d bytes (need >= 19)", len(data))
 	}
 
 	msg := &DBMessage{

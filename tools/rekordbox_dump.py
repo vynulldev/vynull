@@ -111,11 +111,16 @@ def parse_smartlist(xml_str, tags_by_id):
 
 
 def main():
-    if len(sys.argv) < 3:
+    if len(sys.argv) < 2:
         sys.stderr.write(__doc__)
         sys.exit(2)
     db_path = sys.argv[1]
-    provided = sys.argv[2]
+    # The key may be passed as the second argument, or (for the conformance
+    # harness, which does not want it on the command line) in VYNULL_REKORDBOX_KEY.
+    provided = sys.argv[2] if len(sys.argv) >= 3 else os.environ.get("VYNULL_REKORDBOX_KEY", "")
+    if not provided:
+        sys.stderr.write(__doc__)
+        sys.exit(2)
 
     conn = open_db(db_path, provided)
     cur = conn.cursor()
@@ -128,14 +133,21 @@ def main():
                c.Length, c.BitRate, c.SampleRate, c.Rating, c.ReleaseYear,
                c.TrackNo, c.DiscNo, c.Commnt, c.DJPlayCount, c.DateCreated,
                c.ColorID, c.AnalysisDataPath, c.ImagePath,
+               c.FileType, c.HotCueAutoLoad,
                a.Name AS Artist, al.Name AS Album, g.Name AS Genre,
-               k.ScaleName AS Key, l.Name AS Label
+               k.ScaleName AS Key, l.Name AS Label,
+               c.GenreID, c.ArtistID, c.AlbumID, c.KeyID, c.LabelID,
+               rmx.Name AS Remixer, oa.Name AS OrigArtist,
+               c.RemixerID, c.OrgArtistID
         FROM djmdContent c
         LEFT JOIN djmdArtist a ON c.ArtistID = a.ID
         LEFT JOIN djmdAlbum al ON c.AlbumID = al.ID
         LEFT JOIN djmdGenre g ON c.GenreID = g.ID
         LEFT JOIN djmdKey k ON c.KeyID = k.ID
         LEFT JOIN djmdLabel l ON c.LabelID = l.ID
+        LEFT JOIN djmdArtist rmx ON c.RemixerID = rmx.ID
+        LEFT JOIN djmdArtist oa ON c.OrgArtistID = oa.ID
+        WHERE COALESCE(c.rb_local_deleted, 0) = 0
     """)
     cols = [d[0] for d in cur.description]
     for row in cur.fetchall():
@@ -160,7 +172,13 @@ def main():
             "duration_sec": d.get("Length") or 0,
             "bitrate":      d.get("BitRate") or 0,
             "sample_rate":  d.get("SampleRate") or 0,
-            "rating":       (d.get("Rating") or 0) // 20,  # 0-100 → 0-5
+            # rekordbox FileType enum (1=mp3, 4=m4a, 5=flac, 11=wav, 12=aiff).
+            # Authoritative for codec/compat flags; the file extension can lie
+            # (rekordbox stores .wav-named files as FileType 1, say).
+            "file_type_id": d.get("FileType") or 0,
+            # Non-empty when the deck should auto-load this track's hot cues.
+            "hot_cue_auto_load": d.get("HotCueAutoLoad") or "",
+            "rating":       d.get("Rating") or 0,  # rekordbox stores the 0-5 star count directly
             "year":         d.get("ReleaseYear") or 0,
             "track_num":    d.get("TrackNo") or 0,
             "disc_num":     d.get("DiscNo") or 0,
@@ -169,6 +187,17 @@ def main():
             "date_added":   d.get("DateCreated") or "",
             # ColorID is stored as TEXT ("0".."8"); coerce to the palette int.
             "color_id":     int(d.get("ColorID") or 0),
+            # rekordbox lookup IDs (djmd* row IDs), so served category rows can
+            # carry rekordbox's IDs instead of hashed names. Strings, like `id`.
+            "genre_id":     str(d.get("GenreID") or ""),
+            "artist_id":    str(d.get("ArtistID") or ""),
+            "album_id":     str(d.get("AlbumID") or ""),
+            "key_id":       str(d.get("KeyID") or ""),
+            "label_id":     str(d.get("LabelID") or ""),
+            "remixer":        d.get("Remixer") or "",
+            "original_artist": d.get("OrigArtist") or "",
+            "remixer_id":     str(d.get("RemixerID") or ""),
+            "orig_artist_id": str(d.get("OrgArtistID") or ""),
             # Paths are relative to the rekordbox `share/` root, e.g.
             # /PIONEER/USBANLZ/<bucket>/<uuid>/ANLZ0000.DAT and
             # /PIONEER/Artwork/<bucket>/<uuid>/artwork.jpg. The Go caller
@@ -182,7 +211,7 @@ def main():
     # Cloud Library Sync trial) — skip them. Seq orders siblings as the user
     # arranged them in rekordbox.
     cur.execute("""
-        SELECT ID, Name, ParentID, Attribute, SmartList
+        SELECT ID, Name, ParentID, Attribute, SmartList, Seq
         FROM djmdPlaylist
         ORDER BY Seq
     """)
@@ -205,7 +234,7 @@ def main():
     except sqlcipher3.dbapi2.OperationalError:
         pass
 
-    for pid, name, parent, attr, smartlist in pl_rows:
+    for pid, name, parent, attr, smartlist, seq in pl_rows:
         if attr is not None and attr < 0:
             continue  # system playlist (cloud-sync trial etc.)
         entry = {
@@ -214,6 +243,7 @@ def main():
             "parent_id": parent,
             "is_folder": attr == 1,
             "is_smart":  attr == 4,
+            "seq":       int(seq) if seq is not None else 0,
             "track_ids": pl_tracks.get(str(pid), []),
         }
         if attr == 4 and smartlist:
@@ -237,6 +267,27 @@ def main():
             })
     except sqlcipher3.dbapi2.OperationalError:
         pass  # Older DBs may not have MyTag tables
+
+    # Tag List membership (djmdSongTagList). Distinct from djmdSongMyTag: this
+    # is the "Tag List" the deck reflects as the song-tag flag (menu-row
+    # argument 7 bit 0), so it is dumped separately from MyTag assignments.
+    out["tag_list"] = []
+    try:
+        cur.execute("SELECT ContentID FROM djmdSongTagList")
+        out["tag_list"] = [str(cid) for (cid,) in cur.fetchall()]
+    except sqlcipher3.dbapi2.OperationalError:
+        pass  # Older DBs may not have the djmdSongTagList table
+
+    # Related-track recommendations (djmdRecommendLike) back the MATCHING
+    # browse. The relation is directional (ContentID1 -> ContentID2) but the
+    # deck matches both ways, so both IDs are dumped as an unordered pair.
+    out["recommendations"] = []
+    try:
+        cur.execute("SELECT ContentID1, ContentID2 FROM djmdRecommendLike "
+                    "WHERE COALESCE(rb_local_deleted, 0) = 0")
+        out["recommendations"] = [{"id1": str(a), "id2": str(b)} for a, b in cur.fetchall()]
+    except sqlcipher3.dbapi2.OperationalError:
+        pass  # Older DBs may not have the djmdRecommendLike table
 
     # Cue points (hot + memory). Kind: 0 = memory cue; hot cues are 1,2,3
     # then 5,6,7,8,9 for A,B,C,D,E,F,G,H — rekordbox reserves Kind 4, so the

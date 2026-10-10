@@ -7,7 +7,6 @@ import (
 	"github.com/vynulldev/vynull/internal/dlog"
 	"sort"
 
-	"github.com/vynulldev/vynull/library"
 	"github.com/vynulldev/vynull/proto"
 )
 
@@ -100,13 +99,14 @@ func (h *Handler) handleRenderMenu(msg *proto.DBMessage) []*proto.DBMessage {
 
 	var responses []*proto.DBMessage
 
-	// Menu header. rekordbox sends arg[0]=1 (constant), not item count.
+	// Menu header. rekordbox sends arg[0]=1 (constant) and arg[1]=the page's
+	// starting row offset (0 for the first page), not an item count.
 	responses = append(responses, &proto.DBMessage{
 		TxID: msg.TxID,
 		Type: proto.DBMsgMenuHeader,
 		Args: []proto.DBArg{
 			proto.ArgI32(1),
-			proto.ArgI32(0),
+			proto.ArgI32(uint32(offset)),
 		},
 	})
 
@@ -148,45 +148,76 @@ func (h *Handler) handleRenderMenu(msg *proto.DBMessage) []*proto.DBMessage {
 		//     half-honoured.
 		flags7 := uint32(0)
 		flags8 := item.ArtID
-		flags9 := uint32(0)
+		// arg 9 carries a scope position/sequence for several row kinds (album
+		// track number, playlist position, playlist-menu display sequence);
+		// the producing handler stashes it in trackPos, 0 for rows without one.
+		flags9 := item.trackPos
 		flags10 := uint32(0)
-		// rekordbox sends flags11 = 0 for every menu item, not the
-		// track colour as we previously assumed — colour is encoded in
-		// the ItemType high byte (see applyTrackDetail "color" case).
 		flags11 := uint32(0)
 		if item.ItemType&0xff == 0x04 {
 			if item.TrackInfo {
 				flags8 = 0 // track-info title: decoder ID only, no flags
 			} else {
-				flags7 = 0x01000000
-				flags8 = item.ArtID // artwork ID for CDJ to request via 0x2003 (0 = no art)
-				flags9 = 2
-				switch item.FileType {
-				case "flac", "wav", "aiff":
-					flags10 = 0x00000101
-				default:
-					flags10 = 0x00000100
+				// Standard track row. These wire values match rekordbox's own
+				// output, verified against the link-spec conformance oracle and
+				// documented in its ROW_LAYOUT.md.
+				// arg 7 high byte: packed context track type, carried by
+				// genre/artist/album/label/original-artist/remixer track leaves
+				// (not the direct track list or scalar filters like BPM/year).
+				flags7 = item.contextTrackType << 24
+				if item.hasSongTag {
+					flags7 |= 0x1 // arg 7 bit 0: track carries at least one MyTag
 				}
+				flags8 = item.ID // arg 8: djmdContent.ID, repeated (not the artwork ID)
+				if newCDJIncompatible(item.fileTypeID, item.FileType, item.sampleRate) {
+					flags10 |= 0x1 // arg 10 bit 0: not playable on new-CDJ decode path
+				}
+				if item.autoLoadHotCue {
+					flags10 |= 0x100 // arg 10 bit 8: deck auto-loads this track's hot cues
+				}
+				flags11 = item.newKeyID // arg 11: converted (Camelot 1-24) key index
 			}
 		}
+		// Album rows repeat the AlbumID in arg[8] (rekordbox uses it as the
+		// album-art handle), unlike artist/genre/label rows which leave it 0.
+		if item.ItemType == 0x02 {
+			flags8 = item.ID
+		}
 
+		args := []proto.DBArg{
+			proto.ArgI32(item.ParentID),         // 0: parent ID
+			proto.ArgI32(item.ID),               // 1: main ID
+			proto.ArgI32(labelLen(label1)),      // 2: label 1 byte length
+			strFunc(label1),                     // 3: label 1 text
+			proto.ArgI32(labelLen(label2)),      // 4: label 2 byte length
+			strFunc(label2),                     // 5: label 2 text
+			proto.ArgI32(uint32(item.ItemType)), // 6: item type
+			proto.ArgI32(flags7),                // 7: flags
+			proto.ArgI32(flags8),                // 8: artwork ID
+			proto.ArgI32(flags9),                // 9: unknown
+			proto.ArgI32(flags10),               // 10: unknown
+			proto.ArgI32(flags11),               // 11: unknown
+		}
+		// Extended (16-argument) row: the 2-argument setup selects rekordbox's
+		// extended layout, which appends a key/BPM tail. Track rows carry the
+		// track's KeyID, key display string, and BPM*100; every other row type
+		// uses the empty tail [0, 2, "", 0] (len 2 = the NUL of an empty UTF-16
+		// string). Args 12-15 always use the plain (non-category) string
+		// encoding. Legacy sessions keep the 12-argument row unchanged.
+		// Layout per the link-spec ROW_LAYOUT.md "Wire arguments" table.
+		if h.extended {
+			plainLen := func(s string) uint32 { return uint32((len([]rune(s)) + 1) * 2) }
+			args = append(args,
+				proto.ArgI32(item.keyID),             // 12: original djmdContent.KeyID
+				proto.ArgI32(plainLen(item.sortKey)), // 13: byte length of arg 14
+				proto.ArgStr(item.sortKey),           // 14: key display string
+				proto.ArgI32(item.sortBPM),           // 15: BPM * 100
+			)
+		}
 		responses = append(responses, &proto.DBMessage{
 			TxID: msg.TxID,
 			Type: proto.DBMsgMenuItem,
-			Args: []proto.DBArg{
-				proto.ArgI32(item.ParentID),         // 0: parent ID
-				proto.ArgI32(item.ID),               // 1: main ID
-				proto.ArgI32(labelLen(label1)),      // 2: label 1 byte length
-				strFunc(label1),                     // 3: label 1 text
-				proto.ArgI32(labelLen(label2)),      // 4: label 2 byte length
-				strFunc(label2),                     // 5: label 2 text
-				proto.ArgI32(uint32(item.ItemType)), // 6: item type
-				proto.ArgI32(flags7),                // 7: flags
-				proto.ArgI32(flags8),                // 8: artwork ID
-				proto.ArgI32(flags9),                // 9: unknown
-				proto.ArgI32(flags10),               // 10: unknown
-				proto.ArgI32(flags11),               // 11: unknown
-			},
+			Args: args,
 		})
 	}
 
@@ -280,7 +311,7 @@ func (h *Handler) populateGenres(menu uint8) {
 	genres := h.lib.Genres()
 	items := make([]*menuItem, len(genres))
 	for i, name := range genres {
-		items[i] = &menuItem{ID: library.HashID("genre", name), Label1: name, ItemType: 0x06}
+		items[i] = &menuItem{ID: h.catID("genre", name), Label1: name, ItemType: 0x06}
 	}
 	h.setPending(menu, items)
 }
@@ -330,7 +361,7 @@ func (h *Handler) populateLabels(menu uint8) {
 	}
 	var items []*menuItem
 	for name := range labelSet {
-		items = append(items, &menuItem{ID: library.HashID("label", name), Label1: name, ItemType: 0x0e})
+		items = append(items, &menuItem{ID: h.catID("label", name), Label1: name, ItemType: 0x0e})
 	}
 	sortItems(items, sortTitle)
 	h.setPending(menu, items)
@@ -347,7 +378,7 @@ func (h *Handler) populateKeys(menu uint8) {
 	}
 	var items []*menuItem
 	for name := range keySet {
-		items = append(items, &menuItem{ID: library.HashID("key", name), Label1: name, ItemType: 0x0f})
+		items = append(items, &menuItem{ID: h.catID("key", name), Label1: name, ItemType: 0x0f})
 	}
 	sortItems(items, sortTitle)
 	h.setPending(menu, items)

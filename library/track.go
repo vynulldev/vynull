@@ -48,8 +48,10 @@ type Track struct {
 	Year           int         `json:"year"`
 	TrackNum       int         `json:"track_num"`
 	DiscNum        int         `json:"disc_num"`
-	FilePath       string      `json:"file_path"` // absolute path on disk
-	FileType       string      `json:"file_type"` // "mp3", "m4a", "flac", "wav", "aiff"
+	FilePath       string      `json:"file_path"`                  // absolute path on disk
+	FileType       string      `json:"file_type"`                  // "mp3", "m4a", "flac", "wav", "aiff"
+	FileTypeID     int         `json:"file_type_id,omitempty"`     // rekordbox FileType enum, when imported (authoritative over the extension)
+	AutoLoadHotCue bool        `json:"auto_load_hotcue,omitempty"` // deck auto-loads this track's hot cues
 	FileSize       int64       `json:"file_size"`
 	ArtID          uint32      `json:"art_id"` // artwork lookup ID, 0 if none
 	Comment        string      `json:"comment"`

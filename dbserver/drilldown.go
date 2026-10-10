@@ -5,6 +5,7 @@ package dbserver
 import (
 	"fmt"
 	"github.com/vynulldev/vynull/internal/dlog"
+	"sort"
 	"strings"
 
 	"github.com/vynulldev/vynull/library"
@@ -126,44 +127,72 @@ func (h *Handler) handleSearch(msg *proto.DBMessage) []*proto.DBMessage {
 	query := ""
 	if len(msg.Args) >= 4 {
 		// Inline-tagged parser hands us the raw UTF-16 BE bytes as a
-		// Go string; decode to a normal string for case-insensitive
-		// matching below. Trailing NULs (the CDJ sends "T\0") get
-		// trimmed by DecodeUTF16BE.
+		// Go string; decode to a normal string. Trailing NULs (the CDJ
+		// sends "T\0") get trimmed by DecodeUTF16BE.
 		query = proto.DecodeUTF16BE([]byte(msg.Args[3].Str))
 	}
-	dlog.Debugf("dbserver: SEARCH query=%q", query)
+	tokens := searchTokens(query)
+	dlog.Debugf("dbserver: SEARCH query=%q tokens=%v", query, tokens)
 
-	var items []*menuItem
-	if h.lib != nil && query != "" {
-		q := strings.ToLower(query)
-		seenArtist := make(map[string]bool)
-		seenAlbum := make(map[string]bool)
-		var artists, albums, tracks []*menuItem
+	var artists, albums, tracks []*menuItem
+	if h.lib != nil && len(tokens) > 0 {
+		// Artist domain spans every djmdArtist name: the track artist, its
+		// remixer, and its original artist. rekordbox lists matching artists
+		// and albums ahead of matching content rows.
+		seenArtist := make(map[uint32]bool)
+		addArtist := func(kind, name string) {
+			if name == "" || !searchMatch(name, tokens) {
+				return
+			}
+			id := h.catID(kind, name)
+			if seenArtist[id] {
+				return
+			}
+			seenArtist[id] = true
+			artists = append(artists, &menuItem{ID: id, Label1: name, ItemType: 0x07})
+		}
+		seenAlbum := make(map[uint32]bool)
 		for _, t := range h.lib.Tracks() {
-			if t.Artist != "" && containsFold(t.Artist, q) && !seenArtist[t.Artist] {
-				seenArtist[t.Artist] = true
-				artists = append(artists, &menuItem{
-					ID:       library.HashID("artist", t.Artist),
-					Label1:   t.Artist,
-					ItemType: 0x07,
-				})
+			addArtist("artist", t.Artist)
+			addArtist("remixer", t.Remixer)
+			addArtist("origartist", t.OriginalArtist)
+			if t.Album != "" && searchMatch(t.Album, tokens) {
+				id := h.catID("album", t.Album)
+				if !seenAlbum[id] {
+					seenAlbum[id] = true
+					albums = append(albums, &menuItem{ID: id, Label1: t.Album, ItemType: 0x02})
+				}
 			}
-			if t.Album != "" && containsFold(t.Album, q) && !seenAlbum[t.Album] {
-				seenAlbum[t.Album] = true
-				albums = append(albums, &menuItem{
-					ID:       library.HashID("album", t.Album),
-					Label1:   t.Album,
-					ItemType: 0x02,
-				})
+			// A content row matches on either Title or file name, and is
+			// labelled with whichever matched (title takes precedence). It is a
+			// standard track row with the Key secondary column showing the key
+			// alone, not the "key - bpm" composite.
+			label := ""
+			if searchMatch(t.Title, tokens) {
+				label = t.Title
+			} else if fn := baseName(t.FilePath); searchMatch(fn, tokens) {
+				label = fn
 			}
-			if containsFold(t.Title, q) {
-				tracks = append(tracks, h.searchTrackItem(t))
+			if label != "" {
+				m := h.trackToStdItem(t)
+				m.ItemType = 0x0f04
+				m.ParentID = m.keyID
+				m.Label1 = label
+				m.Label2 = t.Key
+				tracks = append(tracks, m)
 			}
 		}
-		items = append(items, artists...)
-		items = append(items, albums...)
-		items = append(items, tracks...)
+		sortByID := func(s []*menuItem) {
+			sort.Slice(s, func(i, j int) bool { return s[i].ID < s[j].ID })
+		}
+		sortByID(artists)
+		sortByID(albums)
 	}
+
+	items := make([]*menuItem, 0, len(artists)+len(albums)+len(tracks))
+	items = append(items, artists...)
+	items = append(items, albums...)
+	items = append(items, tracks...)
 
 	h.setPendingAll(msg, items)
 	return []*proto.DBMessage{{
@@ -172,29 +201,46 @@ func (h *Handler) handleSearch(msg *proto.DBMessage) []*proto.DBMessage {
 	}}
 }
 
-// searchTrackItem builds a track menu item for SEARCH results. Forces
-// the ItemType to the "BPM detail" shape (0x0d04, low byte = 0x04 =
-// loadable track) so the deck always treats the row as a directly-
-// loadable track on selection — regardless of the user's configured
-// track-detail field. Without this, a user with track-detail = COLOR
-// gets ItemType 0x1304 for uncoloured tracks, which the deck routes
-// through a category drill-in (0x1200 with album context) and fails
-// to actually load the picked track.
-func (h *Handler) searchTrackItem(t *library.Track) *menuItem {
-	m := &menuItem{
-		ID:       t.ID,
-		Label1:   t.Title,
-		ArtID:    t.ArtID,
-		FileType: t.FileType,
-		ColorID:  uint32(t.ColorID),
-		ItemType: 0x0d04,
-		ParentID: uint32(t.BPM * 100),
-		Label2:   fmt.Sprintf("%.1f bpm", t.BPM),
+// searchTokens splits a query the way rekordbox does: on ASCII spaces, with
+// ASCII a-z upper-cased and all other code units left as-is (no Unicode case
+// folding). Empty tokens are dropped.
+func searchTokens(query string) []string {
+	var tokens []string
+	for _, f := range strings.Fields(query) {
+		tokens = append(tokens, asciiUpper(f))
 	}
-	if t.Key != "" {
-		m.Label2 += " - " + t.Key
+	return tokens
+}
+
+// searchMatch reports whether every token occurs as a substring of value
+// (ASCII-folded). Token order is irrelevant.
+func searchMatch(value string, tokens []string) bool {
+	v := asciiUpper(value)
+	for _, tok := range tokens {
+		if !strings.Contains(v, tok) {
+			return false
+		}
 	}
-	return m
+	return true
+}
+
+// asciiUpper upper-cases only ASCII a-z, leaving every other byte untouched.
+func asciiUpper(s string) string {
+	b := []byte(s)
+	for i, c := range b {
+		if c >= 'a' && c <= 'z' {
+			b[i] = c - 0x20
+		}
+	}
+	return string(b)
+}
+
+// baseName returns the file-name portion of a path (after the last '/').
+func baseName(path string) string {
+	if i := strings.LastIndex(path, "/"); i >= 0 {
+		return path[i+1:]
+	}
+	return path
 }
 
 // handleGetColors handles opcode 0x100d — the deck navigating into
@@ -205,16 +251,15 @@ func (h *Handler) searchTrackItem(t *library.Track) *menuItem {
 // to handleGetTracksByColor.
 func (h *Handler) handleGetColors(msg *proto.DBMessage) []*proto.DBMessage {
 	dlog.Debugf("dbserver: COLOR list (0x100d)")
-	items := []*menuItem{
-		{ID: 0, Label1: "NO COLOR", ItemType: 0x13},
-		{ID: 1, Label1: "PINK", ItemType: 0x14},
-		{ID: 2, Label1: "RED", ItemType: 0x15},
-		{ID: 3, Label1: "ORANGE", ItemType: 0x16},
-		{ID: 4, Label1: "YELLOW", ItemType: 0x17},
-		{ID: 5, Label1: "GREEN", ItemType: 0x18},
-		{ID: 6, Label1: "AQUA", ItemType: 0x19},
-		{ID: 7, Label1: "BLUE", ItemType: 0x1a},
-		{ID: 8, Label1: "PURPLE", ItemType: 0x1b},
+	// rekordbox lists the eight named colours (Pink … Purple), title-cased,
+	// with no "no colour" row; each row type is 0x13 + the colour ID.
+	items := make([]*menuItem, 0, 8)
+	for id := uint8(1); id <= 8; id++ {
+		items = append(items, &menuItem{
+			ID:       uint32(id),
+			Label1:   trackColorName(id),
+			ItemType: uint32(0x13 + id),
+		})
 	}
 	h.setPendingAll(msg, items)
 	h.lastCategoryItems = items
@@ -318,16 +363,25 @@ func (h *Handler) handleSearchSelect(msg *proto.DBMessage) []*proto.DBMessage {
 	}}
 }
 
-// containsFold reports whether s contains the lowercased substring q.
-// Caller passes q already lowercased so we don't re-allocate per row;
-// for s we lowercase here. Used for case-insensitive substring search
-// against title/artist/album fields: a query of "PROB" matches tracks
-// with "Probspot" anywhere in the title, not just at the start.
-func containsFold(s, q string) bool {
-	if q == "" {
-		return false
+// searchTrackItem builds a track menu item for a selected SEARCH result
+// (0x1200). Forces the ItemType to the "BPM detail" shape (0x0d04, low byte
+// 0x04 = loadable track) so the deck always treats the row as a directly
+// loadable track on selection, regardless of the configured detail field.
+func (h *Handler) searchTrackItem(t *library.Track) *menuItem {
+	m := &menuItem{
+		ID:       t.ID,
+		Label1:   t.Title,
+		ArtID:    t.ArtID,
+		FileType: t.FileType,
+		ColorID:  uint32(t.ColorID),
+		ItemType: 0x0d04,
+		ParentID: uint32(t.BPM * 100),
+		Label2:   fmt.Sprintf("%.1f bpm", t.BPM),
 	}
-	return strings.Contains(strings.ToLower(s), q)
+	if t.Key != "" {
+		m.Label2 += " - " + t.Key
+	}
+	return m
 }
 
 // getArtistsForLabelItems returns [ALL] + artists for a label.
@@ -335,7 +389,7 @@ func (h *Handler) getArtistsForLabelItems(labelID uint32) []*menuItem {
 	artistSet := make(map[string]bool)
 	if h.lib != nil {
 		for _, t := range h.lib.Tracks() {
-			if t.Label != "" && library.HashID("label", t.Label) == labelID && t.Artist != "" {
+			if t.Label != "" && h.catID("label", t.Label) == labelID && t.Artist != "" {
 				artistSet[t.Artist] = true
 			}
 		}
@@ -346,7 +400,7 @@ func (h *Handler) getArtistsForLabelItems(labelID uint32) []*menuItem {
 	})
 	for name := range artistSet {
 		items = append(items, &menuItem{
-			ID: library.HashID("artist", name), Label1: name, ItemType: 0x07,
+			ID: h.catID("artist", name), Label1: name, ItemType: 0x07,
 		})
 	}
 	sortItems(items[1:], sortTitle)
@@ -358,10 +412,10 @@ func (h *Handler) getAlbumsForLabelArtist(labelID, artistID uint32) []*menuItem 
 	albumSet := make(map[string]bool)
 	if h.lib != nil {
 		for _, t := range h.lib.Tracks() {
-			if t.Label == "" || library.HashID("label", t.Label) != labelID {
+			if t.Label == "" || h.catID("label", t.Label) != labelID {
 				continue
 			}
-			if artistID != 0xffffffff && library.HashID("artist", t.Artist) != artistID {
+			if artistID != 0xffffffff && h.catID("artist", t.Artist) != artistID {
 				continue
 			}
 			if t.Album != "" {
@@ -375,7 +429,7 @@ func (h *Handler) getAlbumsForLabelArtist(labelID, artistID uint32) []*menuItem 
 	})
 	for name := range albumSet {
 		items = append(items, &menuItem{
-			ID: library.HashID("album", name), Label1: name, ItemType: 0x02,
+			ID: h.catID("album", name), Label1: name, ItemType: 0x02,
 		})
 	}
 	sortItems(items[1:], sortTitle)
@@ -387,19 +441,22 @@ func (h *Handler) getTracksForLabelArtistAlbum(labelID, artistID, albumID uint32
 	var tracks []*library.Track
 	if h.lib != nil {
 		for _, t := range h.lib.Tracks() {
-			if t.Label == "" || library.HashID("label", t.Label) != labelID {
+			if t.Label == "" || h.catID("label", t.Label) != labelID {
 				continue
 			}
-			if artistID != 0xffffffff && library.HashID("artist", t.Artist) != artistID {
+			if artistID != 0xffffffff && h.catID("artist", t.Artist) != artistID {
 				continue
 			}
-			if albumID != 0xffffffff && library.HashID("album", t.Album) != albumID {
+			if albumID != 0xffffffff && h.catID("album", t.Album) != albumID {
 				continue
 			}
 			tracks = append(tracks, t)
 		}
 	}
-	return h.tracksToStdItems(tracks)
+	items := h.tracksToStdItems(tracks)
+	sortItems(items, sortTitle)
+	markContextType(items, 1)
+	return items
 }
 
 func (h *Handler) handleGetArtistsForLabel(msg *proto.DBMessage) []*proto.DBMessage {
@@ -414,7 +471,7 @@ func (h *Handler) handleGetArtistsForLabel(msg *proto.DBMessage) []*proto.DBMess
 	artistSet := make(map[string]bool)
 	if h.lib != nil {
 		for _, t := range h.lib.Tracks() {
-			if t.Label != "" && library.HashID("label", t.Label) == labelID && t.Artist != "" {
+			if t.Label != "" && h.catID("label", t.Label) == labelID && t.Artist != "" {
 				artistSet[t.Artist] = true
 			}
 		}
@@ -431,7 +488,7 @@ func (h *Handler) handleGetArtistsForLabel(msg *proto.DBMessage) []*proto.DBMess
 	// Then artist items.
 	for name := range artistSet {
 		items = append(items, &menuItem{
-			ID:       library.HashID("artist", name),
+			ID:       h.catID("artist", name),
 			Label1:   name,
 			ItemType: 0x07, // artist
 		})
@@ -471,22 +528,7 @@ func (h *Handler) handleGetTracksByLabel(msg *proto.DBMessage) []*proto.DBMessag
 		albumID = msg.Args[4].Int()
 	}
 
-	var tracks []*library.Track
-	if h.lib != nil {
-		for _, t := range h.lib.Tracks() {
-			if t.Label == "" || library.HashID("label", t.Label) != labelID {
-				continue
-			}
-			if artistID != 0xffffffff && library.HashID("artist", t.Artist) != artistID {
-				continue
-			}
-			if albumID != 0xffffffff && library.HashID("album", t.Album) != albumID {
-				continue
-			}
-			tracks = append(tracks, t)
-		}
-	}
-	items := h.tracksToStdItems(tracks)
+	items := h.getTracksForLabelArtistAlbum(labelID, artistID, albumID)
 	h.setPendingAll(msg, items)
 	dlog.Debugf("dbserver: tracks for label 0x%08x artist 0x%08x returning %d items", labelID, artistID, len(items))
 	return []*proto.DBMessage{h.successWithCount(msg)}
@@ -498,99 +540,96 @@ func (h *Handler) handleGetKeyDistances(msg *proto.DBMessage) []*proto.DBMessage
 		h.pendingItems = nil
 		return []*proto.DBMessage{h.successWithCount(msg)}
 	}
-	keyID := msg.Args[2].Int()
+	keyIndex := msg.Args[2].Int()
 
-	// Find the selected key name.
-	keyName := h.resolveKeyName(keyID)
-
-	// Build 3 distance groups with track counts.
-	// Label1 = key names (displayed by CDJ), Label2 = empty.
-	// ID = count (CDJ shows this as the track count).
-	groups := camelotDistanceGroups(keyName)
+	// The KEY menu is keyed by the 1-24 harmonic index; derive the Camelot
+	// position to compute the compatibility rings, then label them in the
+	// configured (Classic) notation. arg 1 is the selected index, arg 0 the
+	// distance (0 exact, 1 +relative, 2 +wheel neighbours).
+	groups := camelotDistanceGroups(keyIndexToCamelot(keyIndex))
 	var items []*menuItem
 	for dist, groupKeys := range groups {
-		count := h.countTracksForKeys(groupKeys)
-		label := strings.Join(groupKeys, ", ")
+		names := make([]string, len(groupKeys))
+		for i, c := range groupKeys {
+			names[i] = classicKeyName(c)
+		}
 		items = append(items, &menuItem{
-			ID:       uint32(count),
+			ID:       keyIndex,
 			ParentID: uint32(dist),
-			Label1:   label,
-			ItemType: 0x0f, // key item
+			Label1:   strings.Join(names, ", "),
+			ItemType: 0x0f,
 		})
 	}
 	h.setPendingAll(msg, items)
-	dlog.Debugf("dbserver: key distances for %q returning %d groups", keyName, len(items))
+	dlog.Debugf("dbserver: key distances for index %d returning %d groups", keyIndex, len(items))
 	return []*proto.DBMessage{h.successWithCount(msg)}
 }
 
 func (h *Handler) handleGetTracksByKey(msg *proto.DBMessage) []*proto.DBMessage {
-	// 0x1214: returns tracks matching key + distance group.
+	// 0x1214: returns tracks matching key index + distance group.
 	if len(msg.Args) < 4 {
 		h.pendingItems = nil
 		return []*proto.DBMessage{h.successWithCount(msg)}
 	}
-	keyID := msg.Args[2].Int()
+	keyIndex := msg.Args[2].Int()
 	distance := int(msg.Args[3].Int())
 
-	keyName := h.resolveKeyName(keyID)
-	groups := camelotDistanceGroups(keyName)
-	if distance >= len(groups) {
-		distance = 0
-	}
-	matchKeys := groups[distance]
-
-	// Build key set for matching.
-	keySet := make(map[string]bool)
-	for _, k := range matchKeys {
-		keySet[k] = true
-	}
-
+	// rekordbox's KEY track view is not a harmonic filter: it returns the
+	// whole collection, title-sorted, as a scalar leaf (no context type in
+	// arg 7). The key index and distance select the compatibility display in
+	// the deck UI, not the row set.
 	var tracks []*library.Track
 	if h.lib != nil {
-		for _, t := range h.lib.Tracks() {
-			if keySet[t.Key] {
-				tracks = append(tracks, t)
-			}
-		}
+		tracks = append(tracks, h.lib.Tracks()...)
 	}
 	items := h.tracksToStdItems(tracks)
+	sortItems(items, sortTitle)
 	h.setPendingAll(msg, items)
-	dlog.Debugf("dbserver: tracks for key %q dist=%d returning %d tracks", keyName, distance, len(items))
+	dlog.Debugf("dbserver: tracks for key index %d dist=%d returning %d tracks", keyIndex, distance, len(items))
 	return []*proto.DBMessage{h.successWithCount(msg)}
 }
 
-// resolveKeyName finds the Camelot key name for a key ID.
-func (h *Handler) resolveKeyName(keyID uint32) string {
-	if h.lib != nil {
-		for _, t := range h.lib.Tracks() {
-			if t.Key != "" && library.HashID("key", t.Key) == keyID {
-				return t.Key
-			}
-		}
+// keyIndexToCamelot maps the 1-24 harmonic index to Camelot notation ("1A" …
+// "12B"); keyIndexToCamelot/camelotToKeyIndex are inverses. classicKeyName
+// gives the Classic (musical) label for a Camelot string.
+func keyIndexToCamelot(idx uint32) string {
+	if idx < 1 || idx > 24 {
+		return ""
 	}
-	if h.pdb != nil {
-		if name, ok := h.pdb.Keys[keyID]; ok {
-			return name
-		}
+	wheel := (idx-1)/2 + 1
+	mode := "A"
+	if (idx-1)%2 == 1 {
+		mode = "B"
 	}
-	return ""
+	return fmt.Sprintf("%d%s", wheel, mode)
 }
 
-// countTracksForKeys counts how many tracks match any of the given keys.
-func (h *Handler) countTracksForKeys(keys []string) int {
-	keySet := make(map[string]bool)
-	for _, k := range keys {
-		keySet[k] = true
+func camelotToKeyIndex(camelot string) uint32 {
+	if len(camelot) < 2 {
+		return 0
 	}
-	count := 0
-	if h.lib != nil {
-		for _, t := range h.lib.Tracks() {
-			if keySet[t.Key] {
-				count++
-			}
-		}
+	mode := camelot[len(camelot)-1]
+	var m uint32
+	switch mode {
+	case 'A', 'a':
+		m = 1
+	case 'B', 'b':
+		m = 2
+	default:
+		return 0
 	}
-	return count
+	num := 0
+	if _, err := fmt.Sscanf(camelot[:len(camelot)-1], "%d", &num); err != nil || num < 1 || num > 12 {
+		return 0
+	}
+	return uint32(num-1)*2 + m
+}
+
+func classicKeyName(camelot string) string {
+	if i := camelotToKeyIndex(camelot); i >= 1 && i <= 24 {
+		return classicKeyNames[i-1]
+	}
+	return camelot
 }
 
 // camelotDistanceGroups returns 3 groups of Camelot keys at increasing distances.
@@ -664,7 +703,7 @@ func (h *Handler) handleGetByArtist(msg *proto.DBMessage) []*proto.DBMessage {
 	if h.pdb != nil {
 		// Find albums for this artist from PDB tracks.
 		albumSet := make(map[uint32]bool)
-		var items []*menuItem
+		items := []*menuItem{{ID: 0xffffffff, Label1: "ALL", ItemType: 0x00a0}}
 		for _, t := range h.pdb.Tracks {
 			if t.ArtistID == artistID && t.AlbumID > 0 && !albumSet[t.AlbumID] {
 				albumSet[t.AlbumID] = true
@@ -675,16 +714,16 @@ func (h *Handler) handleGetByArtist(msg *proto.DBMessage) []*proto.DBMessage {
 				})
 			}
 		}
+		sortItems(items[1:], sortTitle)
 		h.pendingItems = items
 		dlog.Debugf("dbserver: get by artist %d returning %d albums (PDB)", artistID, len(items))
-		sortItems(items, sortTitle)
 		return []*proto.DBMessage{h.successWithCount(msg)}
 	}
 
 	// Find artist name by hash ID.
 	artistName := ""
 	for _, name := range h.lib.Artists() {
-		if library.HashID("artist", name) == artistID {
+		if h.catID("artist", name) == artistID {
 			artistName = name
 			break
 		}
@@ -695,7 +734,7 @@ func (h *Handler) handleGetByArtist(msg *proto.DBMessage) []*proto.DBMessage {
 	}
 	tracks := h.lib.TracksByArtist(artistName)
 	albumSet := make(map[string]bool)
-	var items []*menuItem
+	items := []*menuItem{{ID: 0xffffffff, Label1: "ALL", ItemType: 0x00a0}}
 	for _, t := range tracks {
 		album := t.Album
 		if album == "" {
@@ -704,12 +743,13 @@ func (h *Handler) handleGetByArtist(msg *proto.DBMessage) []*proto.DBMessage {
 		if !albumSet[album] {
 			albumSet[album] = true
 			items = append(items, &menuItem{
-				ID:       library.HashID("album", album),
+				ID:       h.catID("album", album),
 				Label1:   album,
 				ItemType: 0x02,
 			})
 		}
 	}
+	sortItems(items[1:], sortTitle)
 	h.pendingItems = items
 	dlog.Debugf("dbserver: get by artist %q returning %d albums", artistName, len(h.pendingItems))
 	return []*proto.DBMessage{h.successWithCount(msg)}
@@ -745,19 +785,31 @@ func (h *Handler) handleGetTracksByAlbum(msg *proto.DBMessage) []*proto.DBMessag
 		return []*proto.DBMessage{h.successWithCount(msg)}
 	}
 
-	// Fallback to library: find album name by hash ID.
-	albumName := ""
-	for _, name := range h.lib.Albums() {
-		if library.HashID("album", name) == albumID {
-			albumName = name
-			break
+	// Library: filter by artist and album, honouring the 0xffffffff "ALL"
+	// sentinel at either level (e.g. an artist's tracks across all albums).
+	var matchTracks []*library.Track
+	if h.lib != nil {
+		for _, t := range h.lib.Tracks() {
+			if artistID != 0xffffffff && h.catID("artist", t.Artist) != artistID {
+				continue
+			}
+			if albumID != 0xffffffff && h.catID("album", t.Album) != albumID {
+				continue
+			}
+			matchTracks = append(matchTracks, t)
 		}
 	}
-	var matchTracks []*library.Track
-	if albumName != "" {
-		matchTracks = h.lib.TracksByAlbum(albumName)
+	items := h.tracksToStdItems(matchTracks)
+	// A specific album is album scope (track number in arg 9); spanning all
+	// albums is artist scope (arg 9 stays 0).
+	if albumID != 0xffffffff {
+		for i, t := range matchTracks {
+			items[i].trackPos = uint32(t.TrackNum)
+		}
 	}
-	h.pendingItems = h.tracksToStdItems(matchTracks)
+	sortItems(items, sortTitle)
+	markContextType(items, 1)
+	h.pendingItems = items
 	dlog.Debugf("dbserver: get tracks by album (0x1202) returning %d tracks", len(h.pendingItems))
 	return []*proto.DBMessage{h.successWithCount(msg)}
 }
@@ -785,7 +837,7 @@ func (h *Handler) handleGetByAlbum(msg *proto.DBMessage) []*proto.DBMessage {
 
 	albumName := ""
 	for _, name := range h.lib.Albums() {
-		if library.HashID("album", name) == albumID {
+		if h.catID("album", name) == albumID {
 			albumName = name
 			break
 		}
@@ -795,31 +847,254 @@ func (h *Handler) handleGetByAlbum(msg *proto.DBMessage) []*proto.DBMessage {
 		return []*proto.DBMessage{h.successWithCount(msg)}
 	}
 	tracks := h.lib.TracksByAlbum(albumName)
-	h.pendingItems = h.tracksToStdItems(tracks)
+	items := h.tracksToStdItems(tracks)
+	for i, t := range tracks { // album scope puts the track number in arg 9
+		items[i].trackPos = uint32(t.TrackNum)
+	}
+	sortItems(items, sortTitle)
+	markContextType(items, 1)
+	h.pendingItems = items
 	dlog.Debugf("dbserver: get by album %q returning %d tracks", albumName, len(h.pendingItems))
 	return []*proto.DBMessage{h.successWithCount(msg)}
 }
 
+// The GENRE category is a 3-level drill like LABEL: genre -> artist -> album
+// -> track, with an [ALL] row at each level. rekordbox serves these as
+// 0x1101 (artists for genre), 0x1201 (albums for genre + artist), and 0x1301
+// (tracks for genre + artist + album). artistID/albumID of 0xffffffff mean
+// "ALL" at that level.
+
+func (h *Handler) getArtistsForGenreItems(genreID uint32) []*menuItem {
+	artistSet := make(map[string]bool)
+	if h.lib != nil {
+		for _, t := range h.lib.Tracks() {
+			if t.Genre != "" && h.catID("genre", t.Genre) == genreID && t.Artist != "" {
+				artistSet[t.Artist] = true
+			}
+		}
+	}
+	items := []*menuItem{{ID: 0xffffffff, Label1: "ALL", ItemType: 0x00a0}}
+	for name := range artistSet {
+		items = append(items, &menuItem{ID: h.catID("artist", name), Label1: name, ItemType: 0x07})
+	}
+	sortItems(items[1:], sortTitle)
+	return items
+}
+
+func (h *Handler) getAlbumsForGenreArtist(genreID, artistID uint32) []*menuItem {
+	albumSet := make(map[string]bool)
+	if h.lib != nil {
+		for _, t := range h.lib.Tracks() {
+			if t.Genre == "" || h.catID("genre", t.Genre) != genreID {
+				continue
+			}
+			if artistID != 0xffffffff && h.catID("artist", t.Artist) != artistID {
+				continue
+			}
+			if t.Album != "" {
+				albumSet[t.Album] = true
+			}
+		}
+	}
+	items := []*menuItem{{ID: 0xffffffff, Label1: "ALL", ItemType: 0x00a0}}
+	for name := range albumSet {
+		items = append(items, &menuItem{ID: h.catID("album", name), Label1: name, ItemType: 0x02})
+	}
+	sortItems(items[1:], sortTitle)
+	return items
+}
+
+func (h *Handler) getTracksForGenreArtistAlbum(genreID, artistID, albumID uint32) []*menuItem {
+	var tracks []*library.Track
+	if h.lib != nil {
+		for _, t := range h.lib.Tracks() {
+			if t.Genre == "" || h.catID("genre", t.Genre) != genreID {
+				continue
+			}
+			if artistID != 0xffffffff && h.catID("artist", t.Artist) != artistID {
+				continue
+			}
+			if albumID != 0xffffffff && h.catID("album", t.Album) != albumID {
+				continue
+			}
+			tracks = append(tracks, t)
+		}
+	}
+	items := h.tracksToStdItems(tracks)
+	sortItems(items, sortTitle)
+	markContextType(items, 1)
+	return items
+}
+
 func (h *Handler) handleGetByGenre(msg *proto.DBMessage) []*proto.DBMessage {
+	// 0x1101: [ALL] + artists for a genre.
 	if len(msg.Args) < 3 {
 		h.pendingItems = nil
 		return []*proto.DBMessage{h.successWithCount(msg)}
 	}
 	genreID := msg.Args[2].Int()
-	genreName := ""
-	for _, name := range h.lib.Genres() {
-		if library.HashID("genre", name) == genreID {
-			genreName = name
-			break
-		}
-	}
-	if genreName == "" {
+	items := h.getArtistsForGenreItems(genreID)
+	h.setPendingAll(msg, items)
+	dlog.Debugf("dbserver: artists for genre 0x%08x returning %d items", genreID, len(items))
+	return []*proto.DBMessage{h.successWithCount(msg)}
+}
+
+func (h *Handler) handleGetAlbumsForGenre(msg *proto.DBMessage) []*proto.DBMessage {
+	// 0x1201: [ALL] + albums for a genre + artist.
+	if len(msg.Args) < 4 {
 		h.pendingItems = nil
 		return []*proto.DBMessage{h.successWithCount(msg)}
 	}
-	tracks := h.lib.TracksByGenre(genreName)
-	items := h.tracksToStdItems(tracks)
+	genreID := msg.Args[2].Int()
+	artistID := msg.Args[3].Int()
+	items := h.getAlbumsForGenreArtist(genreID, artistID)
 	h.setPendingAll(msg, items)
-	dlog.Debugf("dbserver: get by genre %q returning %d tracks", genreName, len(items))
+	dlog.Debugf("dbserver: albums for genre 0x%08x artist 0x%08x returning %d items", genreID, artistID, len(items))
+	return []*proto.DBMessage{h.successWithCount(msg)}
+}
+
+func (h *Handler) handleGetTracksByGenre(msg *proto.DBMessage) []*proto.DBMessage {
+	// 0x1301: tracks for a genre + artist + album.
+	if len(msg.Args) < 5 {
+		h.pendingItems = nil
+		return []*proto.DBMessage{h.successWithCount(msg)}
+	}
+	genreID := msg.Args[2].Int()
+	artistID := msg.Args[3].Int()
+	albumID := msg.Args[4].Int()
+	items := h.getTracksForGenreArtistAlbum(genreID, artistID, albumID)
+	h.setPendingAll(msg, items)
+	dlog.Debugf("dbserver: tracks for genre 0x%08x artist 0x%08x album 0x%08x returning %d items", genreID, artistID, albumID, len(items))
+	return []*proto.DBMessage{h.successWithCount(msg)}
+}
+
+// The REMIXER and ORIGINAL ARTIST categories drill like an artist does:
+// entry -> album -> track, with an [ALL] row at the album level. Both the
+// remixer (djmdContent.RemixerID) and original artist (OrgArtistID) are
+// djmdArtist rows, matched here by the catID of the track's remixer/original
+// artist name. rekordbox serves remixer as 0x1702 (albums) / 0x1802 (tracks)
+// and original artist as 0x1402 / 0x1502.
+
+// albumsForArtistLike returns [ALL] + albums whose tracks have the given
+// remixer/original-artist (selected by field) matching id.
+func (h *Handler) albumsForArtistLike(kind string, id uint32, field func(*library.Track) string) []*menuItem {
+	albumSet := make(map[string]bool)
+	if h.lib != nil {
+		for _, t := range h.lib.Tracks() {
+			if v := field(t); v == "" || h.catID(kind, v) != id {
+				continue
+			}
+			if t.Album != "" {
+				albumSet[t.Album] = true
+			}
+		}
+	}
+	items := []*menuItem{{ID: 0xffffffff, Label1: "ALL", ItemType: 0x00a0}}
+	for name := range albumSet {
+		items = append(items, &menuItem{ID: h.catID("album", name), Label1: name, ItemType: 0x02})
+	}
+	sortItems(items[1:], sortTitle)
+	return items
+}
+
+// tracksForArtistLikeAlbum returns tracks with the given remixer/original
+// artist, optionally narrowed to one album (0xffffffff = all albums). A
+// specific album is album scope (track number in arg 9); all albums is not.
+func (h *Handler) tracksForArtistLikeAlbum(kind string, id, albumID uint32, field func(*library.Track) string) []*menuItem {
+	var tracks []*library.Track
+	if h.lib != nil {
+		for _, t := range h.lib.Tracks() {
+			if v := field(t); v == "" || h.catID(kind, v) != id {
+				continue
+			}
+			if albumID != 0xffffffff && h.catID("album", t.Album) != albumID {
+				continue
+			}
+			tracks = append(tracks, t)
+		}
+	}
+	items := h.tracksToStdItems(tracks)
+	if albumID != 0xffffffff {
+		for i, t := range tracks {
+			items[i].trackPos = uint32(t.TrackNum)
+		}
+	}
+	sortItems(items, sortTitle)
+	markContextType(items, 1)
+	return items
+}
+
+func remixerField(t *library.Track) string    { return t.Remixer }
+func origArtistField(t *library.Track) string { return t.OriginalArtist }
+
+func (h *Handler) handleGetAlbumsForRemixer(msg *proto.DBMessage) []*proto.DBMessage {
+	// 0x1702: [ALL] + albums for a remixer.
+	if len(msg.Args) < 3 {
+		h.pendingItems = nil
+		return []*proto.DBMessage{h.successWithCount(msg)}
+	}
+	items := h.albumsForArtistLike("remixer", msg.Args[2].Int(), remixerField)
+	h.setPendingAll(msg, items)
+	return []*proto.DBMessage{h.successWithCount(msg)}
+}
+
+func (h *Handler) handleGetTracksByRemixer(msg *proto.DBMessage) []*proto.DBMessage {
+	// 0x1802: tracks for a remixer + album.
+	if len(msg.Args) < 4 {
+		h.pendingItems = nil
+		return []*proto.DBMessage{h.successWithCount(msg)}
+	}
+	items := h.tracksForArtistLikeAlbum("remixer", msg.Args[2].Int(), msg.Args[3].Int(), remixerField)
+	h.setPendingAll(msg, items)
+	return []*proto.DBMessage{h.successWithCount(msg)}
+}
+
+func (h *Handler) handleGetAlbumsForOriginalArtist(msg *proto.DBMessage) []*proto.DBMessage {
+	// 0x1402: [ALL] + albums for an original artist.
+	if len(msg.Args) < 3 {
+		h.pendingItems = nil
+		return []*proto.DBMessage{h.successWithCount(msg)}
+	}
+	items := h.albumsForArtistLike("origartist", msg.Args[2].Int(), origArtistField)
+	h.setPendingAll(msg, items)
+	return []*proto.DBMessage{h.successWithCount(msg)}
+}
+
+func (h *Handler) handleGetTracksByOriginalArtist(msg *proto.DBMessage) []*proto.DBMessage {
+	// 0x1502: tracks for an original artist + album.
+	if len(msg.Args) < 4 {
+		h.pendingItems = nil
+		return []*proto.DBMessage{h.successWithCount(msg)}
+	}
+	items := h.tracksForArtistLikeAlbum("origartist", msg.Args[2].Int(), msg.Args[3].Int(), origArtistField)
+	h.setPendingAll(msg, items)
+	return []*proto.DBMessage{h.successWithCount(msg)}
+}
+
+// handleGetMatching serves the MATCHING browse (0x1017): the related tracks
+// for the given track from djmdRecommendLike, considered in both relationship
+// directions. A scalar leaf (no context type in arg 7); album-style track
+// number in arg 9, title-sorted.
+func (h *Handler) handleGetMatching(msg *proto.DBMessage) []*proto.DBMessage {
+	if len(msg.Args) < 3 {
+		h.pendingItems = nil
+		return []*proto.DBMessage{h.successWithCount(msg)}
+	}
+	srcID := msg.Args[2].Int()
+	var tracks []*library.Track
+	if h.lib != nil {
+		for _, id := range h.lib.Related(srcID) {
+			if t := h.lib.Track(id); t != nil {
+				tracks = append(tracks, t)
+			}
+		}
+	}
+	items := h.tracksToStdItems(tracks)
+	for i, t := range tracks {
+		items[i].trackPos = uint32(t.TrackNum)
+	}
+	sortItems(items, sortTitle)
+	h.setPendingAll(msg, items)
+	dlog.Debugf("dbserver: matching for track %d returning %d tracks", srcID, len(items))
 	return []*proto.DBMessage{h.successWithCount(msg)}
 }

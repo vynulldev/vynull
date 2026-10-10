@@ -743,8 +743,10 @@ func (h *Handler) handleGetSongStructure(msg *proto.DBMessage) []*proto.DBMessag
 	dlog.Debugf("dbserver: song structure track=%d", trackID)
 
 	var data []byte
-	if r := h.analysis.Get(trackID); r != nil && r.SongStructure != nil {
-		data = r.SongStructure
+	if h.analysis != nil {
+		if r := h.analysis.Get(trackID); r != nil && r.SongStructure != nil {
+			data = r.SongStructure
+		}
 	}
 
 	if data == nil {

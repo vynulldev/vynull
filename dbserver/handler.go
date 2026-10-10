@@ -49,6 +49,12 @@ type Handler struct {
 	// Context from the last 0x2705 cue write request.
 	lastCueTrackID uint32
 	lastCueTxID    uint32
+
+	// extended is set when the session's setup request was the 2-argument
+	// (extended) form, which selects rekordbox's 16-argument row layout. A
+	// 1-argument (legacy) setup leaves it false and rows stay 12 arguments —
+	// the form real players we've tested use, so their behaviour is unchanged.
+	extended bool
 }
 
 // lazyAnalyze returns analysis data for a track, running on-demand analysis
@@ -216,21 +222,31 @@ func (h *Handler) Handle(msg *proto.DBMessage) []*proto.DBMessage {
 			return h.handleGetFilename(msg)
 		}
 		return h.handleNXS2DrillDown(msg)
-	case 0x2001: // HOT CUE BANK list
+	case 0x1018: // HOT CUE BANK root — rekordbox serves no catalogue here and
+		// replies with a menu-unavailable error whose sole arg echoes the kind.
+		return []*proto.DBMessage{{
+			TxID: msg.TxID,
+			Type: proto.DBMsgMenuError,
+			Args: []proto.DBArg{proto.ArgI32(uint32(msg.Type))},
+		}}
+	case 0x2001: // HOT CUE BANK list (NXS2 hot-cue-bank catalogue)
 		return h.handleGetHotCueBank(msg)
 	case 0x1300: // SEARCH category: per-keystroke search query
 		return h.handleSearch(msg)
 	case 0x1200: // SEARCH-result drill-in: resolve the selected item's ID
 		return h.handleSearchSelect(msg)
-	case 0x1602: // session preflight (rekordbox-style ACK; semantics TBD)
-		// Respond with [0x1602, 0]. Leaving it
-		// unhandled appears to make the deck stall before entering
-		// some categories (SEARCH keyboard not opening in particular).
-		dlog.Debugf("dbserver: 0x1602 preflight ack")
-		return []*proto.DBMessage{{
-			TxID: msg.TxID, Type: proto.DBMsgSuccess,
-			Args: []proto.DBArg{proto.ArgI32(uint32(msg.Type)), proto.ArgI32(0)},
-		}}
+	case 0x1602: // REMIXER list (remixer drill-down level 0)
+		return h.handleGetRemixers(msg)
+	case 0x1702: // albums for remixer (remixer drill-down level 1)
+		return h.handleGetAlbumsForRemixer(msg)
+	case 0x1802: // tracks for remixer + album (remixer drill-down level 2)
+		return h.handleGetTracksByRemixer(msg)
+	case 0x1302: // ORIGINAL ARTIST list (original-artist drill-down level 0)
+		return h.handleGetOriginalArtists(msg)
+	case 0x1402: // albums for original artist (original-artist drill-down level 1)
+		return h.handleGetAlbumsForOriginalArtist(msg)
+	case 0x1502: // tracks for original artist + album (original-artist drill-down level 2)
+		return h.handleGetTracksByOriginalArtist(msg)
 	case 0x3001: // metadata notification (CDJ sends ~1min after loading); no response expected
 		dlog.Debugf("dbserver: 0x3001 notification (no response)")
 		return nil
@@ -250,8 +266,14 @@ func (h *Handler) Handle(msg *proto.DBMessage) []*proto.DBMessage {
 		return h.handleGetByAlbum(msg)
 	case 0x1202: // get tracks by album (artist→album→track drill-down)
 		return h.handleGetTracksByAlbum(msg)
-	case 0x1101: // artists for genre
+	case 0x1017: // MATCHING — related tracks (djmdRecommendLike) for a track
+		return h.handleGetMatching(msg)
+	case 0x1101: // artists for genre (genre drill-down level 1)
 		return h.handleGetByGenre(msg)
+	case 0x1201: // albums for genre + artist (genre drill-down level 2)
+		return h.handleGetAlbumsForGenre(msg)
+	case 0x1301: // tracks for genre + artist + album (genre drill-down level 3)
+		return h.handleGetTracksByGenre(msg)
 	case proto.DBMsgGetByBPM: // 0x1106 — BPM percentage ranges
 		return h.handleGetBPMRanges(msg)
 	case 0x1014: // key list
@@ -420,10 +442,33 @@ func (h *Handler) handleSetup(msg *proto.DBMessage) []*proto.DBMessage {
 	}
 	dlog.Tracef("dbserver setup RECV: txid=0x%08x argc=%d%s remarshal=[% x]",
 		msg.TxID, len(msg.Args), args, proto.MarshalDBMessage(msg))
-	// Response must have TWO int32 args: [0, server_player_number]
+
+	// The setup reply shape depends on the request's arity (per the link-spec
+	// rekordbox-7.2.19 oracle, docs/PROTOCOL_REFERENCE.md "Setup variants"):
+	//
+	//   legacy  (1-arg request):  reply kind 0x4000, args [0, server_device]
+	//   extended (2-arg request): reply kind 0x0000, args [server_device, echo]
+	//
+	// where "echo" is the request's second argument. Real players we've tested
+	// (e.g. the XDJ-RX3) send the legacy form, so that path is unchanged and
+	// hardware behaviour is preserved; the extended branch matches rekordbox
+	// for clients that send two args (the conformance client, and any CDJ that
+	// uses the extended setup).
+	if len(msg.Args) >= 2 {
+		h.extended = true // 2-arg setup selects the 16-argument row layout
+		return []*proto.DBMessage{{
+			TxID: msg.TxID,
+			Type: proto.DBMsgSetup, // 0x0000, echoing the request kind
+			Args: []proto.DBArg{
+				proto.ArgI32(uint32(h.deviceNumber)),
+				proto.ArgI32(msg.Args[1].Int()),
+			},
+		}}
+	}
+	h.extended = false
 	return []*proto.DBMessage{{
 		TxID: msg.TxID,
-		Type: proto.DBMsgSuccess,
+		Type: proto.DBMsgSuccess, // 0x4000
 		Args: []proto.DBArg{
 			proto.ArgI32(0),
 			proto.ArgI32(uint32(h.deviceNumber)),
@@ -472,21 +517,12 @@ func (h *Handler) rootMenu() []*menuItem {
 		}
 		return items
 	}
-	return []*menuItem{
-		{ID: 2, Label1: "ARTIST", ItemType: 0x81},
-		{ID: 3, Label1: "ALBUM", ItemType: 0x82},
-		{ID: 4, Label1: "TRACK", ItemType: 0x83},
-		{ID: 5, Label1: "PLAYLIST", ItemType: 0x84},
-		{ID: 6, Label1: "BPM", ItemType: 0x85},
-		{ID: 7, Label1: "RATING", ItemType: 0x86},
-		{ID: 9, Label1: "REMIXER", ItemType: 0x88},
-		{ID: 10, Label1: "LABEL", ItemType: 0x89},
-		{ID: 11, Label1: "ORIGINAL ARTIST", ItemType: 0x8a},
-		{ID: 12, Label1: "KEY", ItemType: 0x8b},
-		{ID: 13, Label1: "FOLDER", ItemType: 0x8d},
-		{ID: 1, Label1: "GENRE", ItemType: 0x80},
-		{ID: 8, Label1: "YEAR", ItemType: 0x87},
+	entries := DefaultRootMenu()
+	items := make([]*menuItem, 0, len(entries))
+	for _, e := range entries {
+		items = append(items, &menuItem{ID: e.ID, Label1: e.Label, ItemType: e.ItemType})
 	}
+	return items
 }
 
 func (h *Handler) handleRootMenu(msg *proto.DBMessage) []*proto.DBMessage {

@@ -3,7 +3,6 @@
 package dbserver
 
 import (
-	"fmt"
 	"github.com/vynulldev/vynull/internal/dlog"
 	"sort"
 	"strings"
@@ -20,14 +19,21 @@ import (
 // bucket tracks for each (e.g. tracksByRoundedBPM, tracksForBPMBucket).
 
 func (h *Handler) handleGetTracks(msg *proto.DBMessage) []*proto.DBMessage {
+	order := getSortOrder(msg)
 	if h.pdb != nil {
 		h.pendingItems = h.pdbTracksToItems(h.pdb.Tracks)
 	} else {
 		tracks := h.lib.Tracks()
 		h.pendingItems = h.tracksToStdItems(tracks)
+		// The library is ordered by ID; rekordbox's default (sort=0) all-track
+		// list is alphabetical by title. The PDB path keeps the export's own
+		// order, which rekordbox already wrote sorted.
+		if order == sortDefault {
+			order = sortTitle
+		}
 	}
-	sortItems(h.pendingItems, getSortOrder(msg))
-	dlog.Debugf("dbserver: get tracks returning %d items (sort=%d)", len(h.pendingItems), getSortOrder(msg))
+	sortItems(h.pendingItems, order)
+	dlog.Debugf("dbserver: get tracks returning %d items (sort=%d)", len(h.pendingItems), order)
 	return []*proto.DBMessage{h.successWithCount(msg)}
 }
 
@@ -47,7 +53,7 @@ func (h *Handler) handleGetArtists(msg *proto.DBMessage) []*proto.DBMessage {
 		h.pendingItems = make([]*menuItem, len(artists))
 		for i, name := range artists {
 			h.pendingItems[i] = &menuItem{
-				ID:       library.HashID("artist", name),
+				ID:       h.catID("artist", name),
 				Label1:   name,
 				ItemType: 0x07,
 			}
@@ -74,7 +80,7 @@ func (h *Handler) handleGetAlbums(msg *proto.DBMessage) []*proto.DBMessage {
 		h.pendingItems = make([]*menuItem, len(albums))
 		for i, name := range albums {
 			h.pendingItems[i] = &menuItem{
-				ID:       library.HashID("album", name),
+				ID:       h.catID("album", name),
 				Label1:   name,
 				ItemType: 0x02,
 			}
@@ -90,7 +96,7 @@ func (h *Handler) handleGetGenres(msg *proto.DBMessage) []*proto.DBMessage {
 	h.pendingItems = make([]*menuItem, len(genres))
 	for i, name := range genres {
 		h.pendingItems[i] = &menuItem{
-			ID:       library.HashID("genre", name),
+			ID:       h.catID("genre", name),
 			Label1:   name,
 			ItemType: 0x06, // genre
 		}
@@ -115,7 +121,7 @@ func (h *Handler) handleGetBPM(msg *proto.DBMessage) []*proto.DBMessage {
 	for _, bpm := range bpms {
 		items = append(items, &menuItem{
 			ID:       uint32(bpm * 100),
-			Label1:   fmt.Sprintf("%d", bpm),
+			Label1:   "",   // rekordbox sends an empty label; the deck formats arg 1
 			ItemType: 0x0d, // BPM item
 		})
 	}
@@ -154,11 +160,10 @@ func (h *Handler) handleGetBPMRanges(msg *proto.DBMessage) []*proto.DBMessage {
 	// Count tracks for each percentage range.
 	var items []*menuItem
 	for pct := 0; pct <= 6; pct++ {
-		count := h.countTracksForBPMRange(targetBPM, pct)
 		items = append(items, &menuItem{
 			ID:       uint32(pct),
 			ParentID: 0,
-			Label1:   fmt.Sprintf("%d", count),
+			Label1:   "", // empty label; the deck formats the ±% from arg 1
 			Label2:   "",
 			ItemType: 0x0d, // BPM item
 		})
@@ -247,7 +252,7 @@ func (h *Handler) handleGetYearsForDecade(msg *proto.DBMessage) []*proto.DBMessa
 	for _, y := range years {
 		items = append(items, &menuItem{
 			ID:       uint32(y),
-			Label1:   fmt.Sprintf("%d", y),
+			Label1:   "", // empty label; the deck formats the year from arg 1
 			ItemType: 0x11,
 		})
 	}
@@ -291,7 +296,9 @@ func (h *Handler) handleGetYears(msg *proto.DBMessage) []*proto.DBMessage {
 	decadeSet := make(map[int]bool)
 	if h.lib != nil {
 		for _, t := range h.lib.Tracks() {
-			if t.Year > 0 {
+			// rekordbox treats years outside 1..2999 as unset (year 0) or
+			// invalid (>= 3000) and leaves them out of the decade list.
+			if t.Year > 0 && t.Year < 3000 {
 				decadeSet[(t.Year/10)*10] = true
 			}
 		}
@@ -300,7 +307,7 @@ func (h *Handler) handleGetYears(msg *proto.DBMessage) []*proto.DBMessage {
 	for decade := range decadeSet {
 		items = append(items, &menuItem{
 			ID:       uint32(decade),
-			Label1:   fmt.Sprintf("%ds", decade),
+			Label1:   "", // empty label; the deck formats the decade from arg 1
 			ItemType: 0x11,
 		})
 	}
@@ -310,14 +317,16 @@ func (h *Handler) handleGetYears(msg *proto.DBMessage) []*proto.DBMessage {
 	return []*proto.DBMessage{h.successWithCount(msg)}
 }
 func (h *Handler) handleGetRating(msg *proto.DBMessage) []*proto.DBMessage {
-	// 0x1007: RATING list. The deck shows 1★ … 5★ rows; selecting
-	// one drills via 0x1107 to the tracks of that rating.
+	// 0x1007: RATING list. rekordbox always shows all six rows, 5★ down to
+	// 0 (unrated), descending, with empty labels (the deck draws the stars).
+	// Selecting one drills via 0x1107 to the tracks of that rating.
 	items := []*menuItem{
-		{ID: 1, Label1: "1", ItemType: 0x0a},
-		{ID: 2, Label1: "2", ItemType: 0x0a},
-		{ID: 3, Label1: "3", ItemType: 0x0a},
-		{ID: 4, Label1: "4", ItemType: 0x0a},
-		{ID: 5, Label1: "5", ItemType: 0x0a},
+		{ID: 5, ItemType: 0x0a},
+		{ID: 4, ItemType: 0x0a},
+		{ID: 3, ItemType: 0x0a},
+		{ID: 2, ItemType: 0x0a},
+		{ID: 1, ItemType: 0x0a},
+		{ID: 0, ItemType: 0x0a},
 	}
 	h.setPendingAll(msg, items)
 	dlog.Debugf("dbserver: RATING list returning %d items", len(items))
@@ -352,8 +361,10 @@ func (h *Handler) handleGetTime(msg *proto.DBMessage) []*proto.DBMessage {
 	if h.lib != nil {
 		for _, t := range h.lib.Tracks() {
 			secs := int(t.Duration.Seconds())
-			if secs > 0 {
-				bucketSet[secs/60] = true
+			// Group by whole minute; rekordbox caps the list below 180 min
+			// (durations of 3 hours or more drop out).
+			if m := secs / 60; secs > 0 && m < 180 {
+				bucketSet[m] = true
 			}
 		}
 	}
@@ -361,11 +372,11 @@ func (h *Handler) handleGetTime(msg *proto.DBMessage) []*proto.DBMessage {
 	for m := range bucketSet {
 		items = append(items, &menuItem{
 			ID:       uint32(m),
-			Label1:   fmt.Sprintf("%d:00", m),
+			Label1:   "", // empty label; the deck formats the time from arg 1
 			ItemType: 0x0b,
 		})
 	}
-	sort.Slice(items, func(i, j int) bool { return items[i].ID < items[j].ID })
+	sort.Slice(items, func(i, j int) bool { return items[i].ID > items[j].ID })
 	h.setPendingAll(msg, items)
 	dlog.Debugf("dbserver: TIME list returning %d items", len(items))
 	return []*proto.DBMessage{h.successWithCount(msg)}
@@ -419,20 +430,18 @@ func (h *Handler) handleGetBitrate(msg *proto.DBMessage) []*proto.DBMessage {
 	set := make(map[int]bool)
 	if h.lib != nil {
 		for _, t := range h.lib.Tracks() {
-			if t.Bitrate > 0 {
-				set[int(t.Bitrate)] = true
-			}
+			set[int(t.Bitrate)] = true // rekordbox includes a 0 bucket for unknown bitrates
 		}
 	}
 	items := make([]*menuItem, 0, len(set))
 	for b := range set {
 		items = append(items, &menuItem{
 			ID:       uint32(b),
-			Label1:   fmt.Sprintf("%d", b),
+			Label1:   "", // empty label; the deck formats the kbps from arg 1
 			ItemType: 0x10,
 		})
 	}
-	sort.Slice(items, func(i, j int) bool { return items[i].ID < items[j].ID })
+	sort.Slice(items, func(i, j int) bool { return items[i].ID > items[j].ID })
 	h.setPendingAll(msg, items)
 	dlog.Debugf("dbserver: BITRATE list returning %d items", len(items))
 	return []*proto.DBMessage{h.successWithCount(msg)}
@@ -450,13 +459,12 @@ func (h *Handler) handleGetFilename(msg *proto.DBMessage) []*proto.DBMessage {
 			if i := strings.LastIndex(name, "/"); i >= 0 {
 				name = name[i+1:]
 			}
-			items = append(items, &menuItem{
-				ID:       t.ID,
-				Label1:   name,
-				ItemType: 0x0004, // track row
-				ArtID:    t.ArtID,
-				FileType: t.FileType,
-			})
+			// A full track row (detail column + wire flags), labelled with the
+			// file name instead of the title. Not a hierarchy leaf, so no
+			// context track type in arg 7.
+			m := h.trackToStdItem(t)
+			m.Label1 = name
+			items = append(items, m)
 		}
 	}
 	sort.Slice(items, func(i, j int) bool { return items[i].Label1 < items[j].Label1 })
@@ -474,6 +482,15 @@ func (h *Handler) handleGetHotCueBank(msg *proto.DBMessage) []*proto.DBMessage {
 	return []*proto.DBMessage{h.successWithCount(msg)}
 }
 
+// classicKeyNames lists rekordbox's 24 harmonic positions in order, in Classic
+// (musical) notation. The 1-based position is the "new key" index served as
+// the KEY menu's row ID (1A=1, 1B=2, ... 12B=24); the deck reverses it to the
+// configured notation. From link-spec's KEY_NOTATION_ORACLE.md.
+var classicKeyNames = [24]string{
+	"Abm", "B", "Ebm", "F#", "Bbm", "Db", "Fm", "Ab", "Cm", "Eb", "Gm", "Bb",
+	"Dm", "F", "Am", "C", "Em", "G", "Bm", "D", "F#m", "A", "Dbm", "E",
+}
+
 func (h *Handler) handleGetKeys(msg *proto.DBMessage) []*proto.DBMessage {
 	if h.pdb != nil {
 		var items []*menuItem
@@ -485,27 +502,20 @@ func (h *Handler) handleGetKeys(msg *proto.DBMessage) []*proto.DBMessage {
 			})
 		}
 		h.pendingItems = items
-	} else if h.lib != nil {
-		// Build key list from library tracks.
-		keySet := make(map[string]bool)
-		for _, t := range h.lib.Tracks() {
-			if t.Key != "" {
-				keySet[t.Key] = true
-			}
-		}
-		var items []*menuItem
-		for key := range keySet {
+		sortItems(h.pendingItems, sortTitle)
+	} else {
+		// rekordbox shows all 24 harmonic positions, in wheel order, not just
+		// the keys present in the library.
+		items := make([]*menuItem, 0, 24)
+		for i, name := range classicKeyNames {
 			items = append(items, &menuItem{
-				ID:       library.HashID("key", key),
-				Label1:   key,
+				ID:       uint32(i + 1),
+				Label1:   name,
 				ItemType: 0x0f,
 			})
 		}
 		h.pendingItems = items
-	} else {
-		h.pendingItems = nil
 	}
-	sortItems(h.pendingItems, sortTitle)
 	dlog.Debugf("dbserver: get keys returning %d items", len(h.pendingItems))
 	return []*proto.DBMessage{h.successWithCount(msg)}
 }
@@ -521,7 +531,7 @@ func (h *Handler) handleGetLabels(msg *proto.DBMessage) []*proto.DBMessage {
 		}
 		for label := range labelSet {
 			items = append(items, &menuItem{
-				ID: library.HashID("label", label), Label1: label, ItemType: 0x0e,
+				ID: h.catID("label", label), Label1: label, ItemType: 0x0e,
 			})
 		}
 	}
@@ -544,7 +554,7 @@ func (h *Handler) handleGetRemixers(msg *proto.DBMessage) []*proto.DBMessage {
 	var items []*menuItem
 	for name := range remixerSet {
 		items = append(items, &menuItem{
-			ID: library.HashID("remixer", name), Label1: name, ItemType: 0x08,
+			ID: h.catID("remixer", name), Label1: name, ItemType: 0x29,
 		})
 	}
 	sortItems(items, sortTitle)
@@ -566,7 +576,7 @@ func (h *Handler) handleGetOriginalArtists(msg *proto.DBMessage) []*proto.DBMess
 	var items []*menuItem
 	for name := range artistSet {
 		items = append(items, &menuItem{
-			ID: library.HashID("origartist", name), Label1: name, ItemType: 0x0b,
+			ID: h.catID("origartist", name), Label1: name, ItemType: 0x28,
 		})
 	}
 	sortItems(items, sortTitle)
