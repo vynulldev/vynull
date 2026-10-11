@@ -398,7 +398,14 @@ func corsMiddleware(next http.Handler) http.Handler {
 		h := w.Header()
 		h.Set("Access-Control-Allow-Origin", "*")
 		h.Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, HEAD, OPTIONS")
-		h.Set("Access-Control-Allow-Headers", "Content-Type")
+		// Allow the conditional-request header our ETag endpoints read, and
+		// expose the response headers a cross-origin client needs to see:
+		// ETag (so /api/tracks revalidation works off the header, not just
+		// /api/tracks/rev) and X-Audio-Source (the DIRECT/TRANSCODED label).
+		// Without these a browser on another origin can't send If-None-Match
+		// or read either header, though same-origin at /app works.
+		h.Set("Access-Control-Allow-Headers", "Content-Type, If-None-Match")
+		h.Set("Access-Control-Expose-Headers", "ETag, X-Audio-Source")
 		if r.Method == http.MethodOptions {
 			w.WriteHeader(http.StatusNoContent)
 			return
