@@ -100,6 +100,24 @@ port 111 granted as above).
 make build
 ```
 
+### Docker
+
+A `Dockerfile` builds a self-contained image with `ffmpeg` and the master.db
+import helper (a pre-provisioned sqlcipher venv) baked in. Because Pro DJ Link
+relies on UDP broadcast discovery and binding a real interface, the container
+**must** run with host networking — bridged networking will not see the CDJs.
+
+```bash
+docker build -t vynull .
+docker run --rm --network host \
+  -v vynull-state:/data -v /path/to/music:/music:ro \
+  vynull --interface eth0 --music-dir /music --web --listen 0.0.0.0:9443
+```
+
+State (analysis cache, settings, artwork) lives under `/data`; mount it as a
+named volume to persist it. A `docker-compose.yml` is included for the same
+setup. See Requirements for the port 111 note if you use `--mode cdj`.
+
 ### Library Mode (recommended)
 
 Start with no music directory. Add tracks dynamically via the HTTP API:
