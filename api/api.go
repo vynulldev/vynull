@@ -374,6 +374,8 @@ func (s *Server) Handler() http.Handler {
 			s.handleTrackPhrases(w, r)
 		case "beats":
 			s.handleTrackBeats(w, r)
+		case "lock":
+			s.handleTrackLock(w, r)
 		default:
 			s.handleTracks(w, r)
 		}
@@ -761,6 +763,7 @@ type TrackInfo struct {
 	ArtID          uint32   `json:"art_id,omitempty"`
 	ArtChecked     bool     `json:"art_checked,omitempty"` // false with art_id 0 = never probed; the web UI requests art optimistically to trigger lazy extraction
 	FileMissing    bool     `json:"file_missing,omitempty"`
+	AnalysisLocked bool     `json:"analysis_locked,omitempty"` // grid is protected from re-analysis / edits
 }
 
 // trackColorNames maps the 8-entry rekordbox track-colour palette to
@@ -816,6 +819,7 @@ func (s *Server) libTrackToInfo(t *library.Track) TrackInfo {
 		ArtID:          t.ArtID,
 		ArtChecked:     t.ArtChecked,
 		FileMissing:    t.FileMissing,
+		AnalysisLocked: t.AnalysisLocked,
 	}
 	if !t.DateAdded.IsZero() {
 		info.DateAdded = t.DateAdded.Format("2006-01-02")
@@ -2202,9 +2206,19 @@ func (s *Server) getOrAnalyze(trackID uint32) *analysis.Result {
 		return nil
 	}
 
-	// Analyze synchronously.
 	s.Analysis.SetPath(trackID, filePath)
-	if r := s.Analysis.Get(trackID); r != nil {
+
+	// A locked track must never be re-analyzed on demand: serve its cached grid
+	// even if the cache version or tempo range is stale. Only when there is no
+	// cache at all do we fall through and analyze once (so locking a track that
+	// was never analyzed still leaves it with a grid).
+	if s.analysisLocked(trackID) {
+		if r := s.Analysis.LoadStale(trackID); r != nil {
+			s.applyAnalysisToTrack(trackID, r)
+			return r
+		}
+		log.Printf("api: track %d is locked but has no cached analysis — analyzing once", trackID)
+	} else if r := s.Analysis.Get(trackID); r != nil {
 		s.applyAnalysisToTrack(trackID, r)
 		return r // disk cache was valid after SetPath
 	}
@@ -2249,6 +2263,10 @@ func (s *Server) handleReanalyze(w http.ResponseWriter, r *http.Request) {
 	}
 	if s.Analysis == nil {
 		http.Error(w, "analysis store not available", http.StatusServiceUnavailable)
+		return
+	}
+	if s.analysisLocked(trackID) {
+		http.Error(w, "track analysis is locked; unlock it to re-analyze", http.StatusConflict)
 		return
 	}
 	s.Analysis.Invalidate(trackID)
@@ -3321,6 +3339,10 @@ func (s *Server) handleBeatGridAdjust(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "track_id required", http.StatusBadRequest)
 		return
 	}
+	if s.analysisLocked(req.TrackID) {
+		http.Error(w, "track analysis is locked; unlock it to adjust the beat grid", http.StatusConflict)
+		return
+	}
 
 	result := s.getOrAnalyze(req.TrackID)
 	if result == nil {
@@ -4278,6 +4300,10 @@ func (s *Server) handleTrackBeats(w http.ResponseWriter, r *http.Request) {
 		}{t.BPM, t.DetectedBPM, t.BeatPhaseShift})
 
 	case "PUT", "POST":
+		if t.AnalysisLocked {
+			http.Error(w, "track analysis is locked; unlock it to edit the beat grid", http.StatusConflict)
+			return
+		}
 		var req struct {
 			BPM            *float64 `json:"bpm"`
 			BeatPhaseShift *int     `json:"beat_phase_shift"`
@@ -4323,6 +4349,63 @@ func (s *Server) handleTrackBeats(w http.ResponseWriter, r *http.Request) {
 			BeatPhaseShift int     `json:"beat_phase_shift"`
 		}{true, t.BPM, t.DetectedBPM, t.BeatPhaseShift})
 
+	default:
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+	}
+}
+
+// analysisLocked reports whether a track's grid is protected from re-analysis
+// and grid edits. False when there is no library or no such track.
+func (s *Server) analysisLocked(trackID uint32) bool {
+	if s.Library == nil {
+		return false
+	}
+	t := s.Library.Track(trackID)
+	return t != nil && t.AnalysisLocked
+}
+
+// GET/PUT /api/tracks/{id}/lock — the per-track analysis lock. While locked,
+// the daemon refuses re-analysis and grid edits (409) and will not auto- or
+// re-analyze the track, so a hand-corrected grid cannot be overwritten.
+func (s *Server) handleTrackLock(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Header().Set("Access-Control-Allow-Methods", "PUT, GET, OPTIONS")
+	w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+	if r.Method == "OPTIONS" {
+		return
+	}
+	if s.Library == nil {
+		http.Error(w, "library not available", http.StatusServiceUnavailable)
+		return
+	}
+	trackID := parseTrackIDFromPath(r.URL.Path, "/api/tracks/")
+	if trackID == 0 {
+		http.Error(w, "track ID required", http.StatusBadRequest)
+		return
+	}
+	t := s.Library.Track(trackID)
+	if t == nil {
+		http.Error(w, "track not found", http.StatusNotFound)
+		return
+	}
+
+	switch r.Method {
+	case "GET":
+		writeJSON(w, struct {
+			Locked bool `json:"locked"`
+		}{t.AnalysisLocked})
+	case "PUT", "POST":
+		var req struct {
+			Locked bool `json:"locked"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, "invalid JSON: "+err.Error(), http.StatusBadRequest)
+			return
+		}
+		t.AnalysisLocked = req.Locked
+		s.Library.Save()
+		log.Printf("api: track %d analysis lock = %v", trackID, req.Locked)
+		writeJSON(w, map[string]bool{"OK": true})
 	default:
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 	}

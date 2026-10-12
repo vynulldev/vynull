@@ -290,6 +290,38 @@ func offsetBeats(in []float64, delta, period float64, downbeat int) ([]float64, 
 	return out, db
 }
 
+// LoadStale returns a track's cached result even when its cache version or
+// tempo range no longer matches, and never discards the file. It is for locked
+// tracks, whose hand-corrected grid must be served as-is rather than triggering
+// a re-analysis. A detected grid is still moved to the current user grid
+// offset, as Get does. Returns nil only when there is genuinely no cached
+// analysis.
+func (s *Store) LoadStale(trackID uint32) *Result {
+	s.mu.RLock()
+	r := s.results[trackID]
+	filePath := s.pathMap[trackID]
+	s.mu.RUnlock()
+	if r != nil {
+		return s.alignGridOffset(trackID, r)
+	}
+	if s.cacheDir == "" || filePath == "" {
+		return nil
+	}
+	f, err := os.Open(s.cacheFile(filePath))
+	if err != nil {
+		return nil
+	}
+	defer f.Close()
+	var res Result
+	if err := gob.NewDecoder(f).Decode(&res); err != nil {
+		return nil
+	}
+	s.mu.Lock()
+	s.results[trackID] = &res
+	s.mu.Unlock()
+	return s.alignGridOffset(trackID, &res)
+}
+
 // Set stores an analysis result for a track. If a user-edited beat grid was
 // carried over from a stale-version cache entry for this file (see
 // loadFromDisk), it is re-applied here: a cacheVersion bump refreshes the
