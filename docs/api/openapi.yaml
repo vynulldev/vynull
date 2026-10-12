@@ -360,11 +360,13 @@ paths:
       responses: { "200": { description: OK, content: { application/json: { schema: { $ref: "#/components/schemas/ExtAnalysis" } } } }, "404": { description: Not fetched yet / no analysis. } }
 
   /api/analysis/reanalyze/{id}:
-    parameters: [ { name: id, in: path, required: true, schema: { type: integer, format: int64 } } ]
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: integer, format: int64 } }
+      - { name: parts, in: query, required: false, description: "What to recompute. The grid and waveform are independent, so either can be redone alone; a locked track allows only 'waveform'.", schema: { type: string, enum: [all, grid, waveform], default: all } }
     post:
       tags: [Analysis]
-      summary: Invalidate the cache and re-run analysis for a track.
-      responses: { "200": { description: OK, content: { application/json: { schema: { type: object, properties: { ok: {type: boolean}, track_id: {type: integer, format: int64}, bpm: {type: number}, key: {type: string}, beat_count: {type: integer} } } } } }, "409": { description: Track analysis is locked. }, "503": { description: No analysis store. } }
+      summary: Re-run analysis for a track (all, grid only, or waveform only).
+      responses: { "200": { description: OK, content: { application/json: { schema: { type: object, properties: { ok: {type: boolean}, track_id: {type: integer, format: int64}, parts: {type: string}, bpm: {type: number}, key: {type: string}, beat_count: {type: integer} } } } } }, "400": { description: Invalid parts. }, "409": { description: Locked (grid/all refused; waveform allowed). }, "503": { description: No analysis store. } }
 
   /api/analysis/beatgrid/adjust:
     post:

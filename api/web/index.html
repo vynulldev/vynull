@@ -2800,6 +2800,11 @@
   .bg-save { color: var(--orange); border-color: var(--orange-soft); }
   .bg-clear { color: var(--red); border-color: rgba(255,80,80,.4); }
   .bg-clear:hover { background: var(--red); color: var(--black); border-color: var(--red); }
+  /* Lock toggle: neutral when unlocked, amber when engaged (overrides the red). */
+  .bg-lock { color: var(--text2); border-color: var(--line); }
+  .bg-lock:hover { color: var(--orange); border-color: var(--orange); background: none; }
+  .bg-lock.active { color: var(--black); background: var(--orange); border-color: var(--orange); }
+  .bg-parts { padding: 2px 4px; }
   .bg-det { color: var(--text2); }
   .bg-det.dim { color: var(--text3); }
 
@@ -8811,36 +8816,51 @@ function renderBeatGridEditor(t) {
   const eff = (t.bpm || 0).toFixed(2);
   const det = (t.detected_bpm || 0) > 0 ? (t.detected_bpm).toFixed(2) : null;
   const phase = ((t.beat_phase_shift || 0) % 4 + 4) % 4;
+  // Locked tracks protect their hand-corrected grid: grid edits and grid/all
+  // re-analysis are disabled; only a waveform-only re-analysis is allowed.
+  const locked = !!t.analysis_locked;
+  const dis = locked ? 'disabled' : '';
   // Show CLEAR when either BPM differs from detected OR phase ≠ 0;
   // either kind of override is reversible via clear.
   const overridden = det !== null || phase !== 0;
   const phaseBtn = n => {
     const active = phase === n ? 'active' : '';
     const label = n === 0 ? '0' : '+' + n;
-    return `<button type="button" class="bg-phase ${active}" data-phase="${n}">${label}</button>`;
+    return `<button type="button" class="bg-phase ${active}" data-phase="${n}" ${dis}>${label}</button>`;
   };
   let detLine;
-  if (det !== null) {
+  if (locked) {
+    detLine = `<span class="bg-det">🔒 locked</span>`;
+  } else if (det !== null) {
     detLine = `<span class="bg-det">detected: ${det}</span>`;
   } else if (phase !== 0) {
     detLine = `<span class="bg-det">phase shifted +${phase}</span>`;
   } else {
     detLine = '<span class="bg-det dim">(no override)</span>';
   }
-  if (overridden) {
+  if (overridden && !locked) {
     detLine += `<button type="button" class="bg-clear" id="bg-clear">CLEAR OVERRIDE</button>`;
   }
-  detLine += `<button type="button" class="bg-clear" id="bg-reanalyze" title="Re-run analysis from the audio file (resets BPM detection, beats, waveform, key)">RE-ANALYZE</button>`;
+  // Re-analyze with a scope. grid/waveform are independent, so either can be
+  // redone alone; while locked only waveform (which never touches the grid).
+  detLine += `
+    <select id="bg-parts" class="bg-num bg-parts" title="What to recompute">
+      <option value="all" ${locked ? 'disabled' : ''}>everything</option>
+      <option value="grid" ${locked ? 'disabled' : ''}>grid only</option>
+      <option value="waveform" ${locked ? 'selected' : ''}>waveform only</option>
+    </select>
+    <button type="button" class="bg-clear" id="bg-reanalyze" title="Re-run the selected analysis from the audio file">RE-ANALYZE</button>
+    <button type="button" class="bg-clear bg-lock ${locked ? 'active' : ''}" id="bg-lock" title="${locked ? 'Unlock to allow re-analysis and grid edits' : 'Lock to protect this grid from re-analysis and edits'}">${locked ? '🔒 LOCKED' : 'LOCK'}</button>`;
   return `
     <div class="bg-row">
       <span class="bg-label">BPM</span>
-      <input type="number" id="bg-bpm" class="bg-num" min="20" max="400" step="0.01" value="${eff}">
-      <button type="button" class="bg-quick" id="bg-half" title="Halve BPM">÷2</button>
-      <button type="button" class="bg-quick" id="bg-double" title="Double BPM">×2</button>
-      <button type="button" class="bg-tap" id="bg-tap" title="Tap to set BPM (Space). Resets after 2s of silence.">
+      <input type="number" id="bg-bpm" class="bg-num" min="20" max="400" step="0.01" value="${eff}" ${dis}>
+      <button type="button" class="bg-quick" id="bg-half" title="Halve BPM" ${dis}>÷2</button>
+      <button type="button" class="bg-quick" id="bg-double" title="Double BPM" ${dis}>×2</button>
+      <button type="button" class="bg-tap" id="bg-tap" title="Tap to set BPM (Space). Resets after 2s of silence." ${dis}>
         TAP <span class="bg-tap-hint" id="bg-tap-hint"></span>
       </button>
-      <button type="button" class="bg-save" id="bg-save">SAVE</button>
+      <button type="button" class="bg-save" id="bg-save" ${dis}>SAVE</button>
     </div>
     <div class="bg-row">
       <span class="bg-label">Phase</span>
@@ -8884,6 +8904,7 @@ function wireBeatGridEditor(trackID) {
       bpm: data.bpm,
       detected_bpm: data.detected_bpm,
       beat_phase_shift: data.beat_phase_shift,
+      analysis_locked: (allTracks || []).find(x => x.id === trackID)?.analysis_locked || false,
     });
     wireBeatGridEditor(trackID);
     toast(`BEAT GRID · BPM ${data.bpm.toFixed(2)}`, 'success');
@@ -8916,20 +8937,24 @@ function wireBeatGridEditor(trackID) {
   });
   const clr = document.getElementById('bg-clear');
   if (clr) clr.onclick = () => refresh({ clear: true });
+  const partsSel = document.getElementById('bg-parts');
   const rean = document.getElementById('bg-reanalyze');
   if (rean) rean.onclick = async () => {
-    if (!await openConfirmModal({
-      title: 'RE-ANALYZE TRACK',
-      message: 'Re-analyze this track?\n\nBeats, BPM, waveform and key are all recomputed from the audio file. Takes a few seconds.',
-      okLabel: 'RE-ANALYZE',
-    })) return;
+    const parts = partsSel ? partsSel.value : 'all';
+    const message =
+      parts === 'waveform'
+        ? 'Re-analyze the waveform only?\n\nThe beat grid, BPM and key are kept; only the color waveform is recomputed from the audio.'
+        : parts === 'grid'
+        ? 'Re-analyze the grid only?\n\nBPM, beats, downbeat and key are recomputed from the audio; the waveform is kept. Any manual grid correction is replaced.'
+        : 'Re-analyze everything?\n\nBeats, BPM, waveform and key are all recomputed from the audio file. Any manual grid correction is replaced.';
+    if (!await openConfirmModal({ title: 'RE-ANALYZE TRACK', message, okLabel: 'RE-ANALYZE' })) return;
     rean.disabled = true;
     rean.textContent = 'RE-ANALYZING…';
     try {
-      const r = await fetch(`/api/analysis/reanalyze/${trackID}`, { method: 'POST' });
-      if (!r.ok) { toast('RE-ANALYSIS FAILED', 'error'); return; }
+      const r = await fetch(`/api/analysis/reanalyze/${trackID}?parts=${parts}`, { method: 'POST' });
+      if (!r.ok) { toast(`RE-ANALYSIS FAILED · ${r.status}`, 'error'); return; }
       const data = await r.json();
-      toast(`RE-ANALYZED · BPM ${data.bpm.toFixed(2)} · ${data.beat_count} BEATS`, 'success');
+      toast(`RE-ANALYZED (${parts}) · BPM ${data.bpm.toFixed(2)} · ${data.beat_count} BEATS`, 'success');
       // Drop the cached waveform so the detail drawer pulls a fresh
       // PWV5 (the bytes may have changed after re-analysis), and
       // reopen so beats + waveform + cues all re-fetch. Also drop the
@@ -8942,6 +8967,38 @@ function wireBeatGridEditor(trackID) {
       toast('RE-ANALYSIS FAILED · ' + e, 'error');
     } finally {
       rean.disabled = false;
+    }
+  };
+
+  // Lock toggle: protects the grid daemon-side (issue #70) so no client or the
+  // daemon itself can re-analyze or rewrite it. Re-renders so the grid-edit
+  // controls enable/disable to match.
+  const lockBtn = document.getElementById('bg-lock');
+  if (lockBtn) lockBtn.onclick = async () => {
+    const willLock = !lockBtn.classList.contains('active');
+    lockBtn.disabled = true;
+    try {
+      const r = await fetch(`/api/tracks/${trackID}/lock`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ locked: willLock }),
+      });
+      if (!r.ok) { toast(`LOCK FAILED · ${r.status}`, 'error'); return; }
+      const cur = (allTracks || []).find(x => x.id === trackID);
+      if (cur) cur.analysis_locked = willLock;
+      toast(willLock ? 'GRID LOCKED' : 'GRID UNLOCKED', 'success');
+      sec.innerHTML = `<h4>BEAT GRID</h4>` + renderBeatGridEditor({
+        id: trackID,
+        bpm: parseFloat(bpmInput.value) || (cur ? cur.bpm : 0),
+        detected_bpm: cur ? cur.detected_bpm : 0,
+        beat_phase_shift: cur ? cur.beat_phase_shift : 0,
+        analysis_locked: willLock,
+      });
+      wireBeatGridEditor(trackID);
+    } catch (e) {
+      toast('LOCK FAILED · ' + e, 'error');
+    } finally {
+      lockBtn.disabled = false;
     }
   };
 

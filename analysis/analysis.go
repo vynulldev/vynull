@@ -625,19 +625,71 @@ func (s *Store) loadFromDisk(filePath string) *Result {
 	return &r
 }
 
-// AnalyzeTrack decodes and analyzes a single track.
+// ReanalyzeParts selects which parts of a track's analysis a re-run recomputes.
+// The grid (BPM, beats, downbeat, key, phrases) and the waveform blobs are
+// independent DSP outputs — neither reads the other — so either can be redone
+// while the other is preserved.
+type ReanalyzeParts int
+
+const (
+	PartsAll      ReanalyzeParts = iota // grid + waveform (a full analysis)
+	PartsGrid                           // BPM, beats, downbeat, key, phrases
+	PartsWaveform                       // the color-waveform blobs only
+)
+
+// AnalyzeTrack decodes and analyzes a single track (grid and waveform).
 func AnalyzeTrack(filePath string) (*Result, error) {
 	samples, err := DecodePCM(filePath, AnalysisRate)
 	if err != nil {
 		return nil, err
 	}
+	r := &Result{
+		CacheVersion: cacheVersion,
+		Duration:     uint16(float64(len(samples)) / float64(AnalysisRate)),
+		Artwork:      ExtractArtwork(filePath),
+	}
+	beatResult := analyzeGridInto(r, samples, filePath)
+	waveformEncoder.Encode(samples, AnalysisRate, r, beatResult) // installed wire format (Pioneer)
+	return r, nil
+}
 
-	// ---- DSP (brand-neutral) ----
+// Reanalyze recomputes selected parts of an existing analysis from the audio,
+// preserving the rest. PartsAll (or a nil existing) is a full AnalyzeTrack.
+// PartsGrid redoes the grid/key/phrases and keeps the waveform; PartsWaveform
+// redoes the waveform and keeps the (possibly hand-corrected) grid.
+func Reanalyze(filePath string, existing *Result, parts ReanalyzeParts) (*Result, error) {
+	if parts == PartsAll || existing == nil {
+		return AnalyzeTrack(filePath)
+	}
+	samples, err := DecodePCM(filePath, AnalysisRate)
+	if err != nil {
+		return nil, err
+	}
+	clone := *existing // reassign slices below; never mutate the cached Result in place
+	r := &clone
+	r.CacheVersion = cacheVersion
+	r.Duration = uint16(float64(len(samples)) / float64(AnalysisRate))
+
+	switch parts {
+	case PartsGrid:
+		beatResult := analyzeGridInto(r, samples, filePath)
+		r.GridEdited = false // a fresh detection replaces any prior hand edit
+		if len(r.WaveDetail) == 0 {
+			waveformEncoder.Encode(samples, AnalysisRate, r, beatResult)
+		}
+	case PartsWaveform:
+		// Keep the grid exactly as stored; encode the waveform against it.
+		waveformEncoder.Encode(samples, AnalysisRate, r, beatResultFrom(r))
+	}
+	return r, nil
+}
+
+// analyzeGridInto computes the grid, key, and phrases from samples and writes
+// them into r, returning the BeatResult (the waveform encoder needs it).
+func analyzeGridInto(r *Result, samples []float32, filePath string) *BeatResult {
 	// Compensate the lossy encoder delay so lossless grids are not shifted late.
 	beatResult := DetectBeatsWithEncoderDelay(samples, AnalysisRate, EncoderDelayMs(filePath))
 	camelot, standard := DetectKey(samples, AnalysisRate)
-	artwork := ExtractArtwork(filePath)
-	durationSec := float64(len(samples)) / float64(AnalysisRate)
 
 	// Downbeat index into Beats (the first beat at/after the detected downbeat).
 	downbeatIdx := 0
@@ -652,23 +704,25 @@ func AnalyzeTrack(filePath string) (*Result, error) {
 	AnnotateVocals(samples, AnalysisRate, beatResult.BPM, beatResult.Downbeat, phrases)
 	SetPhraseTimes(phrases, beatResult.Beats, beatResult.BPM)
 
-	r := &Result{
-		CacheVersion:  cacheVersion,
-		BPM:           beatResult.BPM,
-		Duration:      uint16(durationSec),
-		KeyCamelot:    camelot,
-		KeyStandard:   standard,
-		Artwork:       artwork,
-		Beats:         beatResult.Beats,
-		DownbeatIndex: downbeatIdx,
-		Phrases:       phrases,
-	}
+	r.BPM = beatResult.BPM
+	r.KeyCamelot = camelot
+	r.KeyStandard = standard
+	r.Beats = beatResult.Beats
+	r.DownbeatIndex = downbeatIdx
+	r.Phrases = phrases
 	r.TempoMinBPM, r.TempoMaxBPM = TempoRange()
 	r.GridDetected, r.GridOffsetMs = true, GridOffset() // DetectBeats applied the offset
+	return beatResult
+}
 
-	// ---- encode to the installed wire format (Pioneer today) ----
-	waveformEncoder.Encode(samples, AnalysisRate, r, beatResult)
-	return r, nil
+// beatResultFrom reconstructs a BeatResult from a Result's stored grid, so the
+// waveform can be encoded without recomputing the grid.
+func beatResultFrom(r *Result) *BeatResult {
+	downbeat := 0.0
+	if r.DownbeatIndex >= 0 && r.DownbeatIndex < len(r.Beats) {
+		downbeat = r.Beats[r.DownbeatIndex]
+	}
+	return &BeatResult{BPM: r.BPM, Beats: r.Beats, Downbeat: downbeat}
 }
 
 // AnalyzeAll processes all tracks using a worker pool.

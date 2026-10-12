@@ -2265,13 +2265,50 @@ func (s *Server) handleReanalyze(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "analysis store not available", http.StatusServiceUnavailable)
 		return
 	}
-	if s.analysisLocked(trackID) {
-		http.Error(w, "track analysis is locked; unlock it to re-analyze", http.StatusConflict)
+
+	// parts selects what to recompute: "all" (default), "grid", or "waveform".
+	// grid and waveform are independent, so either can be redone alone.
+	parts := r.URL.Query().Get("parts")
+	if parts == "" {
+		parts = "all"
+	}
+	if parts != "all" && parts != "grid" && parts != "waveform" {
+		http.Error(w, "parts must be 'all', 'grid', or 'waveform'", http.StatusBadRequest)
 		return
 	}
-	s.Analysis.Invalidate(trackID)
-	log.Printf("api: reanalyzing track %d (user-requested)", trackID)
-	result := s.getOrAnalyze(trackID)
+
+	// A locked track refuses anything that rewrites its grid; a waveform-only
+	// re-analysis never touches the grid, so it is allowed.
+	if parts != "waveform" && s.analysisLocked(trackID) {
+		http.Error(w, "track analysis is locked; only a waveform re-analysis is allowed while locked", http.StatusConflict)
+		return
+	}
+
+	var result *analysis.Result
+	if parts == "all" {
+		s.Analysis.Invalidate(trackID)
+		log.Printf("api: reanalyzing track %d (all, user-requested)", trackID)
+		result = s.getOrAnalyze(trackID) // honors the ANLZ importer for served USB tracks
+	} else {
+		filePath := s.trackFilePath(trackID)
+		if filePath == "" {
+			http.Error(w, "track not found", http.StatusNotFound)
+			return
+		}
+		s.Analysis.SetPath(trackID, filePath)
+		existing := s.Analysis.LoadStale(trackID) // keep the current grid/waveform
+		pe := analysis.PartsGrid
+		if parts == "waveform" {
+			pe = analysis.PartsWaveform
+		}
+		log.Printf("api: reanalyzing track %d (%s, user-requested)", trackID, parts)
+		r2, err := analysis.Reanalyze(filePath, existing, pe)
+		if err == nil && r2 != nil {
+			s.Analysis.Set(trackID, r2)
+			s.applyAnalysisToTrack(trackID, r2)
+			result = r2
+		}
+	}
 	if result == nil {
 		http.Error(w, "reanalysis failed", http.StatusInternalServerError)
 		return
@@ -2279,10 +2316,26 @@ func (s *Server) handleReanalyze(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, map[string]interface{}{
 		"ok":         true,
 		"track_id":   trackID,
+		"parts":      parts,
 		"bpm":        result.BPM,
 		"key":        result.KeyCamelot,
 		"beat_count": len(result.Beats),
 	})
+}
+
+// trackFilePath resolves a track's audio path from the library or PDB.
+func (s *Server) trackFilePath(trackID uint32) string {
+	if s.Library != nil {
+		if t := s.Library.Track(trackID); t != nil {
+			return t.FilePath
+		}
+	}
+	if s.PDB != nil {
+		if t := s.PDB.TrackByID(trackID); t != nil {
+			return t.FilePath
+		}
+	}
+	return ""
 }
 
 // handleAnalysis returns the analysis data for a track.
