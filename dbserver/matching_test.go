@@ -8,6 +8,7 @@ import (
 
 	"github.com/vynulldev/vynull/library"
 	"github.com/vynulldev/vynull/proto"
+	"github.com/vynulldev/vynull/related"
 )
 
 // TestMatchingRecommendPairs pins MATCHING (0x1017) for a track with
@@ -56,5 +57,16 @@ func TestMatchingRecommendPairs(t *testing.T) {
 		if it.ID == ids[4] {
 			t.Error("MATCHING suggested the track itself")
 		}
+	}
+	// Best match first, not title order: the computed ranking puts the
+	// closest tempo with a matching key on top.
+	want := related.Find(lib, ids[4], related.Options{Limit: 50})
+	for i, it := range h.pendingItems {
+		if it.ID != want[i].Track.ID {
+			t.Fatalf("row %d = track %d, want %d (best-first order)", i, it.ID, want[i].Track.ID)
+		}
+	}
+	if h.pendingItems[0].Label1 == "Track 01" {
+		t.Error("fallback still title-sorted")
 	}
 }

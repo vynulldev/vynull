@@ -1077,8 +1077,9 @@ func (h *Handler) handleGetTracksByOriginalArtist(msg *proto.DBMessage) []*proto
 // those, as rekordbox serves them (link-spec conformance case
 // matching-forward-reverse, rekordbox 7.2.19). A track with none, where
 // rekordbox would show an empty list, gets Vynull's computed suggestions
-// (package related) instead, up to matchingFallbackLimit. A scalar leaf (no
-// context type in arg 7); album-style track number in arg 9, title-sorted.
+// (package related) instead, up to matchingFallbackLimit, best match first.
+// A scalar leaf (no context type in arg 7); album-style track number in arg 9;
+// rekordbox's pairs are title-sorted.
 // matchingFallbackLimit caps the computed MATCHING list for tracks without
 // rekordbox recommendations: the best-scoring suggestions, not the library.
 const matchingFallbackLimit = 50
@@ -1090,6 +1091,7 @@ func (h *Handler) handleGetMatching(msg *proto.DBMessage) []*proto.DBMessage {
 	}
 	srcID := msg.Args[2].Int()
 	var tracks []*library.Track
+	computed := false
 	if h.lib != nil {
 		for _, id := range h.lib.Related(srcID) {
 			if t := h.lib.Track(id); t != nil {
@@ -1100,13 +1102,16 @@ func (h *Handler) handleGetMatching(msg *proto.DBMessage) []*proto.DBMessage {
 			for _, m := range related.Find(h.lib, srcID, related.Options{Limit: matchingFallbackLimit}) {
 				tracks = append(tracks, m.Track)
 			}
+			computed = true
 		}
 	}
 	items := h.tracksToStdItems(tracks)
 	for i, t := range tracks {
 		items[i].trackPos = uint32(t.TrackNum)
 	}
-	sortItems(items, sortTitle)
+	if !computed {
+		sortItems(items, sortTitle) // rekordbox's pairs, title-sorted as rekordbox serves them
+	} // computed suggestions stay best-first
 	h.setPendingAll(msg, items)
 	dlog.Debugf("dbserver: matching for track %d returning %d tracks", srcID, len(items))
 	return []*proto.DBMessage{h.successWithCount(msg)}
