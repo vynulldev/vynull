@@ -10,6 +10,7 @@ import (
 
 	"github.com/vynulldev/vynull/library"
 	"github.com/vynulldev/vynull/proto"
+	"github.com/vynulldev/vynull/related"
 )
 
 // drilldown.go contains the multi-level drill handlers — anything the
@@ -1071,13 +1072,17 @@ func (h *Handler) handleGetTracksByOriginalArtist(msg *proto.DBMessage) []*proto
 	return []*proto.DBMessage{h.successWithCount(msg)}
 }
 
-// handleGetMatching serves the MATCHING browse (0x1017): the related tracks
-// for the given track from djmdRecommendLike, considered in both relationship
-// directions, and nothing else. That is what rekordbox serves (link-spec
-// conformance case matching-forward-reverse, rekordbox 7.2.19); the computed
-// suggestions in package related are for the API and web UI only. A scalar
-// leaf (no context type in arg 7); album-style track number in arg 9,
-// title-sorted.
+// handleGetMatching serves the MATCHING browse (0x1017). A track with
+// rekordbox recommendations (djmdRecommendLike, both directions) gets exactly
+// those, as rekordbox serves them (link-spec conformance case
+// matching-forward-reverse, rekordbox 7.2.19). A track with none, where
+// rekordbox would show an empty list, gets Vynull's computed suggestions
+// (package related) instead, up to matchingFallbackLimit. A scalar leaf (no
+// context type in arg 7); album-style track number in arg 9, title-sorted.
+// matchingFallbackLimit caps the computed MATCHING list for tracks without
+// rekordbox recommendations: the best-scoring suggestions, not the library.
+const matchingFallbackLimit = 50
+
 func (h *Handler) handleGetMatching(msg *proto.DBMessage) []*proto.DBMessage {
 	if len(msg.Args) < 3 {
 		h.pendingItems = nil
@@ -1089,6 +1094,11 @@ func (h *Handler) handleGetMatching(msg *proto.DBMessage) []*proto.DBMessage {
 		for _, id := range h.lib.Related(srcID) {
 			if t := h.lib.Track(id); t != nil {
 				tracks = append(tracks, t)
+			}
+		}
+		if len(tracks) == 0 {
+			for _, m := range related.Find(h.lib, srcID, related.Options{Limit: matchingFallbackLimit}) {
+				tracks = append(tracks, m.Track)
 			}
 		}
 	}
