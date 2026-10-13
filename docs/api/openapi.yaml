@@ -247,8 +247,9 @@ paths:
         first, then tracks within the tempo tolerance (half and double time
         count) that are key-compatible on the Camelot wheel (same key, relative
         major/minor, or one step) or share the genre. Each match lists why it
-        was suggested. The CDJ's MATCHING browse does not use this ranking: like
-        rekordbox, it lists only the imported recommendation pairs.
+        was suggested. The CDJ's MATCHING browse lists a track's imported
+        rekordbox pairs exactly, as rekordbox does, and these suggestions for a
+        track that has none.
       parameters:
         - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 200, default: 25 } }
         - { name: bpm_tolerance, in: query, description: Allowed tempo difference in percent., schema: { type: number, minimum: 0.5, maximum: 50, default: 6 } }
