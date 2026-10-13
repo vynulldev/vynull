@@ -93,6 +93,12 @@ var StartLevelGate = 0.005
 // rekordbox grids it changes 25 tracks: 21 fixed, 3 broken.
 var HotStartSkipsFlip = true
 
+// IsHotStart reports whether a track starts at full level, i.e. whether beat
+// detection runs it from silence (StartSilenceMs, StartLevelGate).
+func IsHotStart(samples []float32, sampleRate int) bool {
+	return StartSilenceMs > 0 && startLevel(samples, sampleRate) > StartLevelGate
+}
+
 // startLevel returns the mean |amplitude| of the first 10 ms.
 func startLevel(samples []float32, sampleRate int) float64 {
 	n := sampleRate / 100
@@ -107,6 +113,17 @@ func startLevel(samples []float32, sampleRate int) float64 {
 		sum += math.Abs(float64(v))
 	}
 	return sum / float64(n)
+}
+
+// beatIndex returns the index of the beat at time t (the nearest one).
+func beatIndex(beats []float64, t float64) int {
+	best := 0
+	for i, b := range beats {
+		if math.Abs(b-t) < math.Abs(beats[best]-t) {
+			best = i
+		}
+	}
+	return best
 }
 
 // unpadBeats maps a grid detected on silence-padded audio back to the real
@@ -849,17 +866,24 @@ func DetectBeatsWithEncoderDelay(samples []float32, sampleRate int, encoderDelay
 		}
 	}
 
+	// Find downbeat (beat 1 of 4) on the detector's own grid, before any user
+	// offset: the downbeat logic samples onset strength around each beat, so
+	// it must judge the detector's phase, not a shifted one.
+	downbeat := findDownbeat(beats, samples, sampleRate)
+
 	// User grid offset (GridOffset): a constant shift of the finished grid for
 	// listeners who place the beat earlier or later than rekordbox does. It
-	// is applied last, after every phase decision (notably the half-beat
-	// gate, which must judge the detector's own phase), so it moves the grid
-	// without changing what the detector chose.
+	// is applied last, after every phase and downbeat decision (notably the
+	// half-beat gate), so it moves the grid without changing what the
+	// detector chose. The downbeat stays on the same musical beat.
 	if off := GridOffset(); off != 0 && len(beats) > 0 {
-		beats, _ = offsetBeats(beats, off, msPerBeat, 0)
+		idx := beatIndex(beats, downbeat)
+		shifted, di := offsetBeats(beats, off, msPerBeat, idx)
+		if len(shifted) > 0 {
+			di = min(max(di, 0), len(shifted)-1)
+			beats, downbeat = shifted, shifted[di]
+		}
 	}
-
-	// Find downbeat (beat 1 of 4) using accent detection.
-	downbeat := findDownbeat(beats)
 
 	return &BeatResult{
 		BPM:       bpm,
@@ -867,6 +891,30 @@ func DetectBeatsWithEncoderDelay(samples []float32, sampleRate int, encoderDelay
 		Downbeat:  downbeat,
 		KickRatio: kickRatio,
 	}
+}
+
+// BeatOnsetStrength returns the onset-novelty strength sampled at each beat
+// (peak-picked over a small window to tolerate jitter). It is the raw material
+// for bar/downbeat analysis: averaging it per beat-in-bar phase, or looking at
+// where it steps up, reveals which beat carries the recurring accent. Exported
+// for the downbeat tools and for downbeat selection.
+func BeatOnsetStrength(samples []float32, sampleRate int, beats []float64) []float64 {
+	onset, msPerFrame := multiBandOnset(samples, sampleRate)
+	if len(onset) == 0 || msPerFrame <= 0 {
+		return nil
+	}
+	out := make([]float64, len(beats))
+	for i, b := range beats {
+		f := int(math.Round(b / msPerFrame))
+		best := 0.0
+		for j := f - 2; j <= f+2; j++ {
+			if j >= 0 && j < len(onset) && onset[j] > best {
+				best = onset[j]
+			}
+		}
+		out[i] = best
+	}
+	return out
 }
 
 // combEnergy sums the onset envelope on the comb of beat positions starting at
@@ -1426,26 +1474,97 @@ func tempogramPhase(onset []float64, msPerFrame, msPerBeat float64) (float64, bo
 	return n0 * msPerFrame, true
 }
 
-// findDownbeat picks which beat of the grid is beat 1 of the bar. It returns
-// the first beat.
+// DownbeatStrengthFrac is the onset-strength threshold for a "strong" beat:
+// a fraction of the peak beat onset (the first eight beats' for
+// SilentLeadIndex, the whole track's for FirstStrongIndex).
+var DownbeatStrengthFrac = 0.7
+
+// findDownbeat picks which beat of the grid is beat 1 of the bar and returns
+// its time. Beat 1 is the first beat, unless that beat is nearly silent and a
+// strong beat follows within the first bar (SilentLeadIndex): then the track
+// really starts on that later beat, and the first is an empty or pickup beat
+// at the front of the extrapolated grid.
 //
-// This deliberately does NOT try to find the musical "1" by accent strength.
-// In four-on-the-floor dance music every beat carries a kick, so onset accent is
-// near-identical across the four rotations; the back-beat (snare/clap on 2 & 4)
-// is a cleaner cue in principle, but in practice both approaches do worse than
-// simply trusting the first beat. Measured against rekordbox's grids (tools/
-// bpmcompare, phase-aligned tracks): accent-scoring scored 41%, a snare/back-beat
-// model 21%, and the first-beat rule 48% — which is the ceiling set by how often
-// our grid's bar parity matches rekordbox's at all. The remaining misses are
-// off-by-±1-beat, i.e. our beat tracker counted a different number of beats in
-// the intro than rekordbox did. That is a beat-grid alignment problem upstream
-// of this function, not one a downbeat selector can recover, so anything fancier
-// here just adds risk without headroom.
-func findDownbeat(beats []float64) float64 {
-	if len(beats) > 0 {
-		return beats[0]
+// Against ~1570 rekordbox downbeats (on grids whose phase matches), the first
+// beat is right 86.7% of the time. Taking the first strongly-accented beat
+// anywhere in the track (FirstStrongIndex) drops that to 69%; the
+// silent-lead rule raises it to 87.5% (22 fixed, 9 broken). A track that
+// starts at full level always keeps its first beat: rekordbox agrees on 95%
+// of those, and the onset there is invisible to the strength measure.
+func findDownbeat(beats []float64, samples []float32, sampleRate int) float64 {
+	if len(beats) == 0 {
+		return 0
+	}
+	idx := SilentLeadIndex(beats, samples, sampleRate)
+	if DownbeatHarmonic {
+		idx, _ = harmonicParity(samples, sampleRate, beats, idx)
+	}
+	if idx >= len(beats) {
+		idx = 0
+	}
+	return beats[idx]
+}
+
+// DownbeatSilentFrac: the first beat counts as silent when its onset is below
+// this fraction of the strongest of the first eight beats. 0.05-0.10 score
+// the same against rekordbox; higher catches more pickups but breaks more.
+var DownbeatSilentFrac = 0.10
+
+// SilentLeadIndex returns the index of beat 1: 0, or the first of beats 1-3
+// reaching DownbeatStrengthFrac of the strongest of the first eight beats
+// when beat 0 is below DownbeatSilentFrac of it. A track that starts at full
+// level (IsHotStart) always returns 0.
+func SilentLeadIndex(beats []float64, samples []float32, sampleRate int) int {
+	if IsHotStart(samples, sampleRate) {
+		return 0
+	}
+	str := BeatOnsetStrength(samples, sampleRate, beats)
+	n := min(8, len(str))
+	mx := 0.0
+	for _, v := range str[:n] {
+		mx = max(mx, v)
+	}
+	if mx <= 0 || str[0] >= DownbeatSilentFrac*mx {
+		return 0
+	}
+	for j := 1; j < min(4, n); j++ {
+		if str[j] >= DownbeatStrengthFrac*mx {
+			return j
+		}
 	}
 	return 0
+}
+
+// FirstStrongIndex is not used for downbeat selection (it scores 69% against
+// rekordbox's beat 1); it stays exported for the downbeat tools in
+// vynull-tools.
+//
+// FirstStrongIndex returns the bar phase (0-3) of the first beat whose onset
+// reaches DownbeatStrengthFrac of the track's peak beat onset; 0 when the
+// onset is unavailable.
+func FirstStrongIndex(beats []float64, samples []float32, sampleRate int) int {
+	str := BeatOnsetStrength(samples, sampleRate, beats)
+	maxS := 0.0
+	for _, s := range str {
+		if s > maxS {
+			maxS = s
+		}
+	}
+	if maxS <= 0 {
+		return 0
+	}
+	for i, s := range str {
+		if s >= DownbeatStrengthFrac*maxS {
+			return i % 4
+		}
+	}
+	return 0
+}
+
+// HarmonicParity exposes the harmonic downbeat parity vote (downbeat.go) for
+// tools: given a starting downbeat index it returns the voted index.
+func HarmonicParity(samples []float32, sampleRate int, beats []float64, downIdx int) (int, DownbeatVote) {
+	return harmonicParity(samples, sampleRate, beats, downIdx)
 }
 
 // losslessExts are the container extensions whose codecs carry no encoder delay,
