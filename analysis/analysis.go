@@ -101,6 +101,7 @@ type Result struct {
 	GridEdited       bool      // user manually adjusted the beat grid — serve our blobs, not the on-disk ANLZ
 	GridDetected     bool      // the grid came from our own beat detection (not an imported ANLZ grid)
 	GridOffsetMs     float64   // the user grid offset (GridOffset) this detected grid was built/shifted with
+	Imported         bool      // parsed from rekordbox's ANLZ files at import, not produced by our analysis
 
 	// TempoMinBPM / TempoMaxBPM record the --bpm-range setting this result was
 	// analyzed under (0 = the default dance window). The cache treats a result
@@ -126,6 +127,10 @@ type Store struct {
 	results  map[uint32]*Result
 	cacheDir string
 	pathMap  map[uint32]string // trackID → filePath for cache key
+
+	// keep reports whether a track's cached result must be served as-is even
+	// when stale (a locked track); see SetKeep.
+	keep func(trackID uint32) bool
 
 	statusMu sync.RWMutex
 	status   string // current activity (e.g., "analyzing track 5...")
@@ -186,7 +191,7 @@ func (s *Store) Get(trackID uint32) *Result {
 
 	// Try loading from disk cache.
 	if s.cacheDir != "" && filePath != "" {
-		if cached := s.loadFromDisk(filePath); cached != nil {
+		if cached := s.loadFromDisk(filePath, s.keeps(trackID)); cached != nil {
 			cached = withGridOffset(cached)
 			s.mu.Lock()
 			s.results[trackID] = cached
@@ -198,6 +203,30 @@ func (s *Store) Get(trackID uint32) *Result {
 	}
 
 	return nil
+}
+
+// SetKeep installs the check for tracks whose cached analysis must survive a
+// cache-version bump or tempo-range change unchanged (locked tracks): Get
+// serves such a result as-is instead of discarding it and re-analyzing.
+func (s *Store) SetKeep(keep func(trackID uint32) bool) {
+	s.mu.Lock()
+	s.keep = keep
+	s.mu.Unlock()
+}
+
+func (s *Store) keeps(trackID uint32) bool {
+	s.mu.RLock()
+	keep := s.keep
+	s.mu.RUnlock()
+	return keep != nil && keep(trackID)
+}
+
+// isImported reports whether a cached result came from rekordbox's own ANLZ
+// files rather than our analysis. Imports set Imported; results cached since
+// version 30, before that flag existed, are recognised by a grid that is
+// neither detected nor hand-edited, which only an import produces.
+func (r *Result) isImported() bool {
+	return r.Imported || (r.CacheVersion >= 30 && !r.GridDetected && !r.GridEdited && len(r.Beats) > 0)
 }
 
 // alignGridOffset returns r shifted to the current grid offset, replacing the
@@ -581,7 +610,12 @@ func (s *Store) saveToDisk(filePath string, r *Result) {
 	}
 }
 
-func (s *Store) loadFromDisk(filePath string) *Result {
+// loadFromDisk reads a cached result. A stale one (older cache version, or a
+// different tempo range) is normally discarded so the track re-analyzes, but
+// it is served as-is when keep is set (a locked track) or when it was
+// imported: rekordbox's grid and waveforms do not go stale when our own
+// analysis changes.
+func (s *Store) loadFromDisk(filePath string, keep bool) *Result {
 	path := s.cacheFile(filePath)
 	f, err := os.Open(path)
 	if err != nil {
@@ -592,6 +626,14 @@ func (s *Store) loadFromDisk(filePath string) *Result {
 	if err := gob.NewDecoder(f).Decode(&r); err != nil {
 		log.Printf("analysis-cache: decode %s: %v", path, err)
 		return nil
+	}
+	stale := r.CacheVersion != cacheVersion
+	if curMin, curMax := TempoRange(); r.TempoMinBPM != curMin || r.TempoMaxBPM != curMax {
+		stale = true
+	}
+	if stale && (keep || r.isImported()) {
+		log.Printf("analysis-cache: stale (version %d or tempo range) but the track is locked or imported — keeping %s", r.CacheVersion, filepath.Base(path))
+		return &r
 	}
 	if r.CacheVersion != cacheVersion {
 		// A user-edited beat grid must survive the bump: stash it for Set()
