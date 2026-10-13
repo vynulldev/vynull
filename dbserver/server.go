@@ -6,12 +6,14 @@ import (
 	"context"
 	"encoding/binary"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"log"
 	"net"
 	"os"
 	"path/filepath"
+	"runtime/debug"
 	"strings"
 	"sync"
 	"time"
@@ -380,6 +382,14 @@ func (s *Server) handleSession(ctx context.Context, conn net.Conn) {
 	s.trackConn(conn)
 	defer s.untrackConn(conn)
 	defer conn.Close()
+	// A panic while serving one client (a malformed request reaching a bug
+	// in a decoder or handler) must end that session, not the daemon:
+	// unrecovered, a goroutine panic exits the whole process.
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("dbserver: session %s ended by panic: %v\n%s", conn.RemoteAddr(), r, debug.Stack())
+		}
+	}()
 	log.Printf("dbserver session from %s", conn.RemoteAddr())
 
 	// Enable TCP keepalive to prevent idle timeout.
@@ -427,9 +437,16 @@ func (s *Server) handleSession(ctx context.Context, conn net.Conn) {
 
 		msg, err := readMessage(conn)
 		if err != nil {
-			if err == io.EOF || err == io.ErrUnexpectedEOF {
+			switch {
+			case err == io.EOF || err == io.ErrUnexpectedEOF:
 				log.Printf("dbserver: client %s disconnected", conn.RemoteAddr())
-			} else {
+			case errors.Is(err, errBadFrame):
+				// As rekordbox does: answer a malformed request with a
+				// teardown, then drop the session.
+				log.Printf("dbserver: %v from %s, sending teardown", err, conn.RemoteAddr())
+				conn.SetWriteDeadline(time.Now().Add(500 * time.Millisecond))
+				conn.Write(proto.MarshalDBMessage(&proto.DBMessage{TxID: proto.DBSetupTxID, Type: 0x0100}))
+			default:
 				log.Printf("dbserver read: %v", err)
 			}
 			return
@@ -487,6 +504,22 @@ func (s *Server) handleSession(ctx context.Context, conn net.Conn) {
 }
 
 // readMessage reads a single dbserver message from the connection.
+// errBadFrame marks a request that violates the dbserver framing (bad magic,
+// too many arguments, an unknown field tag, an oversized field). rekordbox
+// answers such a request with a teardown (0x0100) and drops the session, and
+// so do we; other read errors (EOF, timeouts) just close it.
+var errBadFrame = errors.New("malformed dbserver frame")
+
+// Limits on what a request may declare. A real request carries at most 12
+// arguments (the tag list is 12 bytes) and small blobs and strings; anything
+// larger is refused without allocating what the sender claims.
+const (
+	maxDBArgs        = 12
+	maxTagListLen    = 64
+	maxDBFieldLen    = 1 << 20 // bytes, for one blob or string argument
+	dbArgReadTimeout = 5 * time.Second
+)
+
 func readMessage(conn net.Conn) (*proto.DBMessage, error) {
 	// Messages can be framed in two ways:
 	// 1. [0x11] [magic 4] [0x11] [header+body] — standard framing
@@ -558,7 +591,7 @@ func readMessage(conn net.Conn) (*proto.DBMessage, error) {
 	}
 
 	if magic != proto.DBMagic {
-		return nil, fmt.Errorf("invalid dbserver magic: %x", magic)
+		return nil, fmt.Errorf("%w: invalid magic %x", errBadFrame, magic)
 	}
 
 	// Read fields in wire order:
@@ -585,6 +618,9 @@ func readMessage(conn net.Conn) (*proto.DBMessage, error) {
 		return nil, fmt.Errorf("read argcount field: %w", err)
 	}
 	argCount := int(countField[1])
+	if argCount > maxDBArgs {
+		return nil, fmt.Errorf("%w: %d arguments (max %d)", errBadFrame, argCount, maxDBArgs)
+	}
 
 	// Tags: [0x14] [4-byte length] [12 bytes]
 	tagsHeader := make([]byte, 5)
@@ -592,6 +628,9 @@ func readMessage(conn net.Conn) (*proto.DBMessage, error) {
 		return nil, fmt.Errorf("read tags header: %w", err)
 	}
 	tagsLen := int(binary.BigEndian.Uint32(tagsHeader[1:5]))
+	if tagsLen > maxTagListLen {
+		return nil, fmt.Errorf("%w: tag list of %d bytes", errBadFrame, tagsLen)
+	}
 	tags := make([]byte, tagsLen)
 	if tagsLen > 0 {
 		if _, err := io.ReadFull(conn, tags); err != nil {
@@ -626,8 +665,11 @@ func readMessage(conn net.Conn) (*proto.DBMessage, error) {
 	actualArgCount := argCount
 	sendsTrailingBinary := msgType == 0x2705 || msgType == 0x2805
 	if !sendsTrailingBinary {
+		// A tag list shorter than the argument count (malformed) has no tag
+		// for the missing positions; treat those as sent, so the read below
+		// waits for them like rekordbox does instead of indexing past the end.
 		for i := argCount - 1; i >= 0; i-- {
-			if tags[i] == 0x03 {
+			if i < len(tags) && tags[i] == 0x03 {
 				actualArgCount = i
 			} else {
 				break
@@ -635,7 +677,7 @@ func readMessage(conn net.Conn) (*proto.DBMessage, error) {
 		}
 	}
 
-	conn.SetReadDeadline(time.Now().Add(5 * time.Second))
+	conn.SetReadDeadline(time.Now().Add(dbArgReadTimeout))
 	for i := 0; i < actualArgCount; i++ {
 		var tagByte [1]byte
 		if _, err := io.ReadFull(conn, tagByte[:]); err != nil {
@@ -670,6 +712,9 @@ func readMessage(conn net.Conn) (*proto.DBMessage, error) {
 				return nil, fmt.Errorf("arg %d (binary len): %w", i, err)
 			}
 			length := int(binary.BigEndian.Uint32(lenBuf[:]))
+			if length > maxDBFieldLen {
+				return nil, oversizedField(conn, i, "binary", int64(length))
+			}
 			data := make([]byte, length)
 			if length > 0 {
 				if _, err := io.ReadFull(conn, data); err != nil {
@@ -684,6 +729,9 @@ func readMessage(conn net.Conn) (*proto.DBMessage, error) {
 				return nil, fmt.Errorf("arg %d (string len): %w", i, err)
 			}
 			charCount := int(binary.BigEndian.Uint32(lenBuf[:]))
+			if charCount*2 > maxDBFieldLen {
+				return nil, oversizedField(conn, i, "string", int64(charCount)*2)
+			}
 			data := make([]byte, charCount*2)
 			if charCount > 0 {
 				if _, err := io.ReadFull(conn, data); err != nil {
@@ -693,13 +741,25 @@ func readMessage(conn net.Conn) (*proto.DBMessage, error) {
 			arg.Tag = proto.ArgString
 			arg.Str = string(data) // raw UTF-16 bytes
 		default:
-			return nil, fmt.Errorf("arg %d: unknown field tag 0x%02x", i, tagByte[0])
+			return nil, fmt.Errorf("%w: arg %d has unknown field tag 0x%02x", errBadFrame, i, tagByte[0])
 		}
 		msg.Args = append(msg.Args, arg)
 	}
 
 	conn.SetReadDeadline(time.Time{}) // clear deadline
 	return msg, nil
+}
+
+// oversizedField handles a blob or string argument declaring more than
+// maxDBFieldLen bytes. Rather than allocate what the sender claims (up to
+// 4 GiB), it reads and discards the declared body, like rekordbox waiting for
+// it, until the argument read deadline ends the session; if the sender really
+// does deliver it all in time, the request is refused as a bad frame.
+func oversizedField(conn net.Conn, i int, kind string, n int64) error {
+	if _, err := io.CopyN(io.Discard, conn, n); err != nil {
+		return fmt.Errorf("arg %d (%s): declared %d bytes: %w", i, kind, n, err)
+	}
+	return fmt.Errorf("%w: arg %d (%s) of %d bytes", errBadFrame, i, kind, n)
 }
 
 // findReplay looks for a recorded response file in the replay directory.
