@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// Package related suggests tracks that mix well with a given one, like
-// rekordbox's related tracks and the CDJ's MATCHING browse. Candidates are
+// Package related suggests tracks that mix well with a given one, for the API
+// and web UI. (The CDJ's MATCHING browse deliberately does not use it: like
+// rekordbox, it lists only the imported recommendation pairs.) Candidates are
 // ranked on rekordbox's own related-track pairs (imported from master.db),
 // harmonic key compatibility, tempo (including half and double time), and
 // shared genre or artist.

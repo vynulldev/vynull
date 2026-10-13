@@ -10,7 +10,6 @@ import (
 
 	"github.com/vynulldev/vynull/library"
 	"github.com/vynulldev/vynull/proto"
-	"github.com/vynulldev/vynull/related"
 )
 
 // drilldown.go contains the multi-level drill handlers — anything the
@@ -1073,15 +1072,12 @@ func (h *Handler) handleGetTracksByOriginalArtist(msg *proto.DBMessage) []*proto
 }
 
 // handleGetMatching serves the MATCHING browse (0x1017): the related tracks
-// for the given track (related.Find). rekordbox's own pairs from
-// djmdRecommendLike come first, in both relationship directions, then tracks
-// that mix well on key, tempo, and genre, up to matchingLimit. A scalar leaf
-// (no context type in arg 7); album-style track number in arg 9,
+// for the given track from djmdRecommendLike, considered in both relationship
+// directions, and nothing else. That is what rekordbox serves (link-spec
+// conformance case matching-forward-reverse, rekordbox 7.2.19); the computed
+// suggestions in package related are for the API and web UI only. A scalar
+// leaf (no context type in arg 7); album-style track number in arg 9,
 // title-sorted.
-// matchingLimit caps the MATCHING list: the best-scoring related tracks,
-// enough to browse without scrolling the deck through the whole library.
-const matchingLimit = 50
-
 func (h *Handler) handleGetMatching(msg *proto.DBMessage) []*proto.DBMessage {
 	if len(msg.Args) < 3 {
 		h.pendingItems = nil
@@ -1090,8 +1086,10 @@ func (h *Handler) handleGetMatching(msg *proto.DBMessage) []*proto.DBMessage {
 	srcID := msg.Args[2].Int()
 	var tracks []*library.Track
 	if h.lib != nil {
-		for _, m := range related.Find(h.lib, srcID, related.Options{Limit: matchingLimit}) {
-			tracks = append(tracks, m.Track)
+		for _, id := range h.lib.Related(srcID) {
+			if t := h.lib.Track(id); t != nil {
+				tracks = append(tracks, t)
+			}
 		}
 	}
 	items := h.tracksToStdItems(tracks)
