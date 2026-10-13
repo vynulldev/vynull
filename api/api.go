@@ -377,6 +377,8 @@ func (s *Server) Handler() http.Handler {
 			s.handleTrackBeats(w, r)
 		case "lock":
 			s.handleTrackLock(w, r)
+		case "related":
+			s.handleTrackRelated(w, r)
 		default:
 			s.handleTracks(w, r)
 		}
