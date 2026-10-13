@@ -101,6 +101,7 @@ type Result struct {
 	GridEdited       bool      // user manually adjusted the beat grid — serve our blobs, not the on-disk ANLZ
 	GridDetected     bool      // the grid came from our own beat detection (not an imported ANLZ grid)
 	GridOffsetMs     float64   // the user grid offset (GridOffset) this detected grid was built/shifted with
+	Imported         bool      // parsed from rekordbox's ANLZ files at import, not produced by our analysis
 
 	// TempoMinBPM / TempoMaxBPM record the --bpm-range setting this result was
 	// analyzed under (0 = the default dance window). The cache treats a result
@@ -126,6 +127,10 @@ type Store struct {
 	results  map[uint32]*Result
 	cacheDir string
 	pathMap  map[uint32]string // trackID → filePath for cache key
+
+	// keep reports whether a track's cached result must be served as-is even
+	// when stale (a locked track); see SetKeep.
+	keep func(trackID uint32) bool
 
 	statusMu sync.RWMutex
 	status   string // current activity (e.g., "analyzing track 5...")
@@ -186,7 +191,7 @@ func (s *Store) Get(trackID uint32) *Result {
 
 	// Try loading from disk cache.
 	if s.cacheDir != "" && filePath != "" {
-		if cached := s.loadFromDisk(filePath); cached != nil {
+		if cached := s.loadFromDisk(filePath, s.keeps(trackID)); cached != nil {
 			cached = withGridOffset(cached)
 			s.mu.Lock()
 			s.results[trackID] = cached
@@ -198,6 +203,30 @@ func (s *Store) Get(trackID uint32) *Result {
 	}
 
 	return nil
+}
+
+// SetKeep installs the check for tracks whose cached analysis must survive a
+// cache-version bump or tempo-range change unchanged (locked tracks): Get
+// serves such a result as-is instead of discarding it and re-analyzing.
+func (s *Store) SetKeep(keep func(trackID uint32) bool) {
+	s.mu.Lock()
+	s.keep = keep
+	s.mu.Unlock()
+}
+
+func (s *Store) keeps(trackID uint32) bool {
+	s.mu.RLock()
+	keep := s.keep
+	s.mu.RUnlock()
+	return keep != nil && keep(trackID)
+}
+
+// isImported reports whether a cached result came from rekordbox's own ANLZ
+// files rather than our analysis. Imports set Imported; results cached since
+// version 30, before that flag existed, are recognised by a grid that is
+// neither detected nor hand-edited, which only an import produces.
+func (r *Result) isImported() bool {
+	return r.Imported || (r.CacheVersion >= 30 && !r.GridDetected && !r.GridEdited && len(r.Beats) > 0)
 }
 
 // alignGridOffset returns r shifted to the current grid offset, replacing the
@@ -288,6 +317,38 @@ func offsetBeats(in []float64, delta, period float64, downbeat int) ([]float64, 
 		}
 	}
 	return out, db
+}
+
+// LoadStale returns a track's cached result even when its cache version or
+// tempo range no longer matches, and never discards the file. It is for locked
+// tracks, whose hand-corrected grid must be served as-is rather than triggering
+// a re-analysis. A detected grid is still moved to the current user grid
+// offset, as Get does. Returns nil only when there is genuinely no cached
+// analysis.
+func (s *Store) LoadStale(trackID uint32) *Result {
+	s.mu.RLock()
+	r := s.results[trackID]
+	filePath := s.pathMap[trackID]
+	s.mu.RUnlock()
+	if r != nil {
+		return s.alignGridOffset(trackID, r)
+	}
+	if s.cacheDir == "" || filePath == "" {
+		return nil
+	}
+	f, err := os.Open(s.cacheFile(filePath))
+	if err != nil {
+		return nil
+	}
+	defer f.Close()
+	var res Result
+	if err := gob.NewDecoder(f).Decode(&res); err != nil {
+		return nil
+	}
+	s.mu.Lock()
+	s.results[trackID] = &res
+	s.mu.Unlock()
+	return s.alignGridOffset(trackID, &res)
 }
 
 // Set stores an analysis result for a track. If a user-edited beat grid was
@@ -549,7 +610,12 @@ func (s *Store) saveToDisk(filePath string, r *Result) {
 	}
 }
 
-func (s *Store) loadFromDisk(filePath string) *Result {
+// loadFromDisk reads a cached result. A stale one (older cache version, or a
+// different tempo range) is normally discarded so the track re-analyzes, but
+// it is served as-is when keep is set (a locked track) or when it was
+// imported: rekordbox's grid and waveforms do not go stale when our own
+// analysis changes.
+func (s *Store) loadFromDisk(filePath string, keep bool) *Result {
 	path := s.cacheFile(filePath)
 	f, err := os.Open(path)
 	if err != nil {
@@ -560,6 +626,14 @@ func (s *Store) loadFromDisk(filePath string) *Result {
 	if err := gob.NewDecoder(f).Decode(&r); err != nil {
 		log.Printf("analysis-cache: decode %s: %v", path, err)
 		return nil
+	}
+	stale := r.CacheVersion != cacheVersion
+	if curMin, curMax := TempoRange(); r.TempoMinBPM != curMin || r.TempoMaxBPM != curMax {
+		stale = true
+	}
+	if stale && (keep || r.isImported()) {
+		log.Printf("analysis-cache: stale (version %d or tempo range) but the track is locked or imported — keeping %s", r.CacheVersion, filepath.Base(path))
+		return &r
 	}
 	if r.CacheVersion != cacheVersion {
 		// A user-edited beat grid must survive the bump: stash it for Set()
@@ -593,19 +667,71 @@ func (s *Store) loadFromDisk(filePath string) *Result {
 	return &r
 }
 
-// AnalyzeTrack decodes and analyzes a single track.
+// ReanalyzeParts selects which parts of a track's analysis a re-run recomputes.
+// The grid (BPM, beats, downbeat, key, phrases) and the waveform blobs are
+// independent DSP outputs — neither reads the other — so either can be redone
+// while the other is preserved.
+type ReanalyzeParts int
+
+const (
+	PartsAll      ReanalyzeParts = iota // grid + waveform (a full analysis)
+	PartsGrid                           // BPM, beats, downbeat, key, phrases
+	PartsWaveform                       // the color-waveform blobs only
+)
+
+// AnalyzeTrack decodes and analyzes a single track (grid and waveform).
 func AnalyzeTrack(filePath string) (*Result, error) {
 	samples, err := DecodePCM(filePath, AnalysisRate)
 	if err != nil {
 		return nil, err
 	}
+	r := &Result{
+		CacheVersion: cacheVersion,
+		Duration:     uint16(float64(len(samples)) / float64(AnalysisRate)),
+		Artwork:      ExtractArtwork(filePath),
+	}
+	beatResult := analyzeGridInto(r, samples, filePath)
+	waveformEncoder.Encode(samples, AnalysisRate, r, beatResult) // installed wire format (Pioneer)
+	return r, nil
+}
 
-	// ---- DSP (brand-neutral) ----
+// Reanalyze recomputes selected parts of an existing analysis from the audio,
+// preserving the rest. PartsAll (or a nil existing) is a full AnalyzeTrack.
+// PartsGrid redoes the grid/key/phrases and keeps the waveform; PartsWaveform
+// redoes the waveform and keeps the (possibly hand-corrected) grid.
+func Reanalyze(filePath string, existing *Result, parts ReanalyzeParts) (*Result, error) {
+	if parts == PartsAll || existing == nil {
+		return AnalyzeTrack(filePath)
+	}
+	samples, err := DecodePCM(filePath, AnalysisRate)
+	if err != nil {
+		return nil, err
+	}
+	clone := *existing // reassign slices below; never mutate the cached Result in place
+	r := &clone
+	r.CacheVersion = cacheVersion
+	r.Duration = uint16(float64(len(samples)) / float64(AnalysisRate))
+
+	switch parts {
+	case PartsGrid:
+		beatResult := analyzeGridInto(r, samples, filePath)
+		r.GridEdited = false // a fresh detection replaces any prior hand edit
+		if len(r.WaveDetail) == 0 {
+			waveformEncoder.Encode(samples, AnalysisRate, r, beatResult)
+		}
+	case PartsWaveform:
+		// Keep the grid exactly as stored; encode the waveform against it.
+		waveformEncoder.Encode(samples, AnalysisRate, r, beatResultFrom(r))
+	}
+	return r, nil
+}
+
+// analyzeGridInto computes the grid, key, and phrases from samples and writes
+// them into r, returning the BeatResult (the waveform encoder needs it).
+func analyzeGridInto(r *Result, samples []float32, filePath string) *BeatResult {
 	// Compensate the lossy encoder delay so lossless grids are not shifted late.
 	beatResult := DetectBeatsWithEncoderDelay(samples, AnalysisRate, EncoderDelayMs(filePath))
 	camelot, standard := DetectKey(samples, AnalysisRate)
-	artwork := ExtractArtwork(filePath)
-	durationSec := float64(len(samples)) / float64(AnalysisRate)
 
 	// Downbeat index into Beats (the first beat at/after the detected downbeat).
 	downbeatIdx := 0
@@ -620,23 +746,25 @@ func AnalyzeTrack(filePath string) (*Result, error) {
 	AnnotateVocals(samples, AnalysisRate, beatResult.BPM, beatResult.Downbeat, phrases)
 	SetPhraseTimes(phrases, beatResult.Beats, beatResult.BPM)
 
-	r := &Result{
-		CacheVersion:  cacheVersion,
-		BPM:           beatResult.BPM,
-		Duration:      uint16(durationSec),
-		KeyCamelot:    camelot,
-		KeyStandard:   standard,
-		Artwork:       artwork,
-		Beats:         beatResult.Beats,
-		DownbeatIndex: downbeatIdx,
-		Phrases:       phrases,
-	}
+	r.BPM = beatResult.BPM
+	r.KeyCamelot = camelot
+	r.KeyStandard = standard
+	r.Beats = beatResult.Beats
+	r.DownbeatIndex = downbeatIdx
+	r.Phrases = phrases
 	r.TempoMinBPM, r.TempoMaxBPM = TempoRange()
 	r.GridDetected, r.GridOffsetMs = true, GridOffset() // DetectBeats applied the offset
+	return beatResult
+}
 
-	// ---- encode to the installed wire format (Pioneer today) ----
-	waveformEncoder.Encode(samples, AnalysisRate, r, beatResult)
-	return r, nil
+// beatResultFrom reconstructs a BeatResult from a Result's stored grid, so the
+// waveform can be encoded without recomputing the grid.
+func beatResultFrom(r *Result) *BeatResult {
+	downbeat := 0.0
+	if r.DownbeatIndex >= 0 && r.DownbeatIndex < len(r.Beats) {
+		downbeat = r.Beats[r.DownbeatIndex]
+	}
+	return &BeatResult{BPM: r.BPM, Beats: r.Beats, Downbeat: downbeat}
 }
 
 // AnalyzeAll processes all tracks using a worker pool.

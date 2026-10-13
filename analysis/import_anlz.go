@@ -34,6 +34,7 @@ func ParseANLZBytes(dat, ext, twoEX []byte, bpm float64, durationSec int) *Resul
 		CacheVersion: cacheVersion,
 		BPM:          bpm,
 		Duration:     uint16(durationSec),
+		Imported:     true,
 	}
 	got := false
 

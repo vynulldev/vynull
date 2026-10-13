@@ -76,4 +76,10 @@ type Track struct {
 	// keeps the detector's choice, 1-3 shift forward N beats.
 	DetectedBPM    float64 `json:"detected_bpm,omitempty"`
 	BeatPhaseShift int     `json:"beat_phase_shift,omitempty"`
+
+	// AnalysisLocked protects a hand-corrected grid: while set, the daemon
+	// refuses calls that would re-run analysis or rewrite the beat grid for
+	// this track, and will not auto/re-analyze it (serving the existing grid
+	// even across a cache-version bump). Omitted from JSON when false.
+	AnalysisLocked bool `json:"analysis_locked,omitempty"`
 }

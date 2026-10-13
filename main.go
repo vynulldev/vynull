@@ -314,6 +314,15 @@ func main() {
 	// Always create a cached analysis store so API-added tracks get analyzed.
 	cacheDir := filepath.Join(cfg.DataDir, "analysis")
 	analysisStore := analysis.NewStoreWithCache(cacheDir)
+	// A locked track's cached analysis is served as-is, never discarded as
+	// stale, so the lock survives cache-version bumps and tempo-range changes.
+	analysisStore.SetKeep(func(id uint32) bool {
+		if lib == nil {
+			return false
+		}
+		t := lib.Track(id)
+		return t != nil && t.AnalysisLocked
+	})
 	// "N tracks" in the analysis status line reports the library size (not just
 	// how many analyses are loaded).
 	analysisStore.TotalTracksFn = func() int {

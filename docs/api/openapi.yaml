@@ -222,7 +222,20 @@ paths:
       tags: [Track edits]
       summary: Adjust BPM / phase, or clear to re-detect.
       requestBody: { required: true, content: { application/json: { schema: { type: object, properties: { bpm: {type: number}, beat_phase_shift: {type: integer}, clear: {type: boolean} } } } } }
-      responses: { "200": { description: OK, content: { application/json: { schema: { type: object, properties: { ok: {type: boolean}, bpm: {type: number}, detected_bpm: {type: number}, beat_phase_shift: {type: integer} } } } } }, "404": { description: No such track. } }
+      responses: { "200": { description: OK, content: { application/json: { schema: { type: object, properties: { ok: {type: boolean}, bpm: {type: number}, detected_bpm: {type: number}, beat_phase_shift: {type: integer} } } } } }, "404": { description: No such track. }, "409": { description: Track analysis is locked. } }
+
+  /api/tracks/{id}/lock:
+    parameters: [ { name: id, in: path, required: true, schema: { type: integer, format: int64 } } ]
+    get: { tags: [Track edits], summary: Whether the track's analysis is locked., responses: { "200": { description: OK, content: { application/json: { schema: { type: object, properties: { locked: {type: boolean} } } } } } } }
+    put:
+      tags: [Track edits]
+      summary: Lock or unlock the track's analysis.
+      description: |
+        While locked, the daemon protects the hand-corrected grid: it refuses
+        re-analysis and grid edits with 409, and will not auto- or re-analyze
+        the track (serving its existing grid even across a cache-version bump).
+      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [locked], properties: { locked: {type: boolean} } } } } }
+      responses: { "200": { description: OK, content: { application/json: { schema: { $ref: "#/components/schemas/AckOK" } } } }, "404": { description: No such track. } }
 
   /api/tracks/{id}/tags:
     parameters: [ { name: id, in: path, required: true, schema: { type: integer, format: int64 } } ]
@@ -347,18 +360,20 @@ paths:
       responses: { "200": { description: OK, content: { application/json: { schema: { $ref: "#/components/schemas/ExtAnalysis" } } } }, "404": { description: Not fetched yet / no analysis. } }
 
   /api/analysis/reanalyze/{id}:
-    parameters: [ { name: id, in: path, required: true, schema: { type: integer, format: int64 } } ]
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: integer, format: int64 } }
+      - { name: parts, in: query, required: false, description: "What to recompute. The grid and waveform are independent, so either can be redone alone; a locked track allows only 'waveform'.", schema: { type: string, enum: [all, grid, waveform], default: all } }
     post:
       tags: [Analysis]
-      summary: Invalidate the cache and re-run analysis for a track.
-      responses: { "200": { description: OK, content: { application/json: { schema: { type: object, properties: { ok: {type: boolean}, track_id: {type: integer, format: int64}, bpm: {type: number}, key: {type: string}, beat_count: {type: integer} } } } } }, "503": { description: No analysis store. } }
+      summary: Re-run analysis for a track (all, grid only, or waveform only).
+      responses: { "200": { description: OK, content: { application/json: { schema: { type: object, properties: { ok: {type: boolean}, track_id: {type: integer, format: int64}, parts: {type: string}, bpm: {type: number}, key: {type: string}, beat_count: {type: integer} } } } } }, "400": { description: Invalid parts. }, "409": { description: Locked (grid/all refused; waveform allowed). }, "503": { description: No analysis store. } }
 
   /api/analysis/beatgrid/adjust:
     post:
       tags: [Analysis]
       summary: Hand-adjust a beat grid (shift, re-tempo, or set downbeat).
       requestBody: { required: true, content: { application/json: { schema: { type: object, required: [track_id], properties: { track_id: {type: integer, format: int64}, offset_ms: {type: number}, bpm: {type: number}, set_downbeat_ms: {type: number} } } } } }
-      responses: { "200": { description: OK, content: { application/json: { schema: { type: object, properties: { ok: {type: boolean}, bpm: {type: number}, beats: {type: integer}, phase_ms: {type: number} } } } } }, "400": { description: No track_id. }, "404": { description: No analysis. } }
+      responses: { "200": { description: OK, content: { application/json: { schema: { type: object, properties: { ok: {type: boolean}, bpm: {type: number}, beats: {type: integer}, phase_ms: {type: number} } } } } }, "400": { description: No track_id. }, "404": { description: No analysis. }, "409": { description: Track analysis is locked. } }
 
   /api/analysis/waveform/{id}:
     parameters: [ { name: id, in: path, required: true, schema: { type: integer, format: int64 } } ]
@@ -695,6 +710,7 @@ components:
         art_id: { type: integer, format: int64 }
         art_checked: { type: boolean }
         file_missing: { type: boolean }
+        analysis_locked: { type: boolean, description: Grid is protected from re-analysis and edits. }
 
     TrackMetadataPatch:
       type: object
@@ -862,6 +878,10 @@ components:
             artwork: { type: boolean }
             cues: { type: boolean }
             settings: { type: boolean }
+        lock_analysis:
+          type: boolean
+          default: true
+          description: Lock every track whose import brings a beat grid (rekordbox backups, and master.db with its ANLZ files), so re-analysis and grid edits are refused until it is unlocked. XML and Traktor imports carry no grid and lock nothing.
 
     ImportResult:
       type: object
@@ -875,6 +895,7 @@ components:
         TagsTotal: { type: integer }
         ArtworkImported: { type: integer }
         AnalysisImported: { type: integer }
+        AnalysisLocked: { type: integer, description: Tracks locked because their import brought a beat grid (lock_analysis). }
         CuesImported: { type: integer }
         SettingsImported: { type: integer }
         FilesMissing: { type: integer }

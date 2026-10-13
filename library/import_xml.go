@@ -121,6 +121,7 @@ type ImportResult struct {
 	TagsTotal        int
 	ArtworkImported  int // cover-art images imported from a backup's share/ tree
 	AnalysisImported int // ANLZ analysis sets (waveforms/beat grids) imported
+	AnalysisLocked   int // tracks locked because their import brought a beat grid
 	CuesImported     int // hot/memory cue points imported from ANLZ cue lists
 	SettingsImported int // rekordbox MYSETTING/MYSETTING2/DJMMYSETTING/DEVSETTING files merged (zip only)
 	FilesMissing     int // imported tracks whose audio file doesn't exist locally (unplayable)

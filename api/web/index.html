@@ -1739,6 +1739,8 @@
   .menu-modal .foot button.primary { background: var(--orange); color: var(--black); border-color: var(--orange); }
   .menu-modal .foot button.danger { background: var(--red); color: var(--black); border-color: var(--red); }
   .menu-modal .foot button.danger:hover { color: var(--black); border-color: var(--red); filter: brightness(1.1); }
+  .menu-modal .foot button:disabled,
+  .menu-modal .foot button:disabled:hover { opacity: .35; cursor: not-allowed; color: inherit; border-color: inherit; }
   .menu-modal .confirm-msg {
     font-size: 12px; line-height: 1.5; color: var(--text);
     white-space: pre-line; letter-spacing: 0.02em;
@@ -2800,6 +2802,10 @@
   .bg-save { color: var(--orange); border-color: var(--orange-soft); }
   .bg-clear { color: var(--red); border-color: rgba(255,80,80,.4); }
   .bg-clear:hover { background: var(--red); color: var(--black); border-color: var(--red); }
+  /* Lock toggle: neutral when unlocked, amber when engaged (overrides the red). */
+  .bg-lock { color: var(--text2); border-color: var(--line); }
+  .bg-lock:hover { color: var(--orange); border-color: var(--orange); background: none; }
+  .bg-lock.active { color: var(--black); background: var(--orange); border-color: var(--orange); }
   .bg-det { color: var(--text2); }
   .bg-det.dim { color: var(--text3); }
 
@@ -8811,36 +8817,46 @@ function renderBeatGridEditor(t) {
   const eff = (t.bpm || 0).toFixed(2);
   const det = (t.detected_bpm || 0) > 0 ? (t.detected_bpm).toFixed(2) : null;
   const phase = ((t.beat_phase_shift || 0) % 4 + 4) % 4;
+  // Locked tracks protect their hand-corrected grid: grid edits and grid/all
+  // re-analysis are disabled; only a waveform-only re-analysis is allowed.
+  const locked = !!t.analysis_locked;
+  const dis = locked ? 'disabled' : '';
   // Show CLEAR when either BPM differs from detected OR phase ≠ 0;
   // either kind of override is reversible via clear.
   const overridden = det !== null || phase !== 0;
   const phaseBtn = n => {
     const active = phase === n ? 'active' : '';
     const label = n === 0 ? '0' : '+' + n;
-    return `<button type="button" class="bg-phase ${active}" data-phase="${n}">${label}</button>`;
+    return `<button type="button" class="bg-phase ${active}" data-phase="${n}" ${dis}>${label}</button>`;
   };
   let detLine;
-  if (det !== null) {
+  if (locked) {
+    detLine = `<span class="bg-det">🔒 locked</span>`;
+  } else if (det !== null) {
     detLine = `<span class="bg-det">detected: ${det}</span>`;
   } else if (phase !== 0) {
     detLine = `<span class="bg-det">phase shifted +${phase}</span>`;
   } else {
     detLine = '<span class="bg-det dim">(no override)</span>';
   }
-  if (overridden) {
+  if (overridden && !locked) {
     detLine += `<button type="button" class="bg-clear" id="bg-clear">CLEAR OVERRIDE</button>`;
   }
-  detLine += `<button type="button" class="bg-clear" id="bg-reanalyze" title="Re-run analysis from the audio file (resets BPM detection, beats, waveform, key)">RE-ANALYZE</button>`;
+  // Re-analyze asks what to recompute (everything / grid / waveform) in its
+  // confirmation dialog; while locked only waveform is offered.
+  detLine += `
+    <button type="button" class="bg-clear" id="bg-reanalyze" title="Re-run analysis from the audio file: everything, the grid only, or the waveform only">RE-ANALYZE</button>
+    <button type="button" class="bg-clear bg-lock ${locked ? 'active' : ''}" id="bg-lock" title="${locked ? 'Unlock to allow re-analysis and grid edits' : 'Lock to protect this grid from re-analysis and edits'}">${locked ? '🔒 LOCKED' : 'LOCK'}</button>`;
   return `
     <div class="bg-row">
       <span class="bg-label">BPM</span>
-      <input type="number" id="bg-bpm" class="bg-num" min="20" max="400" step="0.01" value="${eff}">
-      <button type="button" class="bg-quick" id="bg-half" title="Halve BPM">÷2</button>
-      <button type="button" class="bg-quick" id="bg-double" title="Double BPM">×2</button>
-      <button type="button" class="bg-tap" id="bg-tap" title="Tap to set BPM (Space). Resets after 2s of silence.">
+      <input type="number" id="bg-bpm" class="bg-num" min="20" max="400" step="0.01" value="${eff}" ${dis}>
+      <button type="button" class="bg-quick" id="bg-half" title="Halve BPM" ${dis}>÷2</button>
+      <button type="button" class="bg-quick" id="bg-double" title="Double BPM" ${dis}>×2</button>
+      <button type="button" class="bg-tap" id="bg-tap" title="Tap to set BPM (Space). Resets after 2s of silence." ${dis}>
         TAP <span class="bg-tap-hint" id="bg-tap-hint"></span>
       </button>
-      <button type="button" class="bg-save" id="bg-save">SAVE</button>
+      <button type="button" class="bg-save" id="bg-save" ${dis}>SAVE</button>
     </div>
     <div class="bg-row">
       <span class="bg-label">Phase</span>
@@ -8884,6 +8900,7 @@ function wireBeatGridEditor(trackID) {
       bpm: data.bpm,
       detected_bpm: data.detected_bpm,
       beat_phase_shift: data.beat_phase_shift,
+      analysis_locked: (allTracks || []).find(x => x.id === trackID)?.analysis_locked || false,
     });
     wireBeatGridEditor(trackID);
     toast(`BEAT GRID · BPM ${data.bpm.toFixed(2)}`, 'success');
@@ -8918,18 +8935,29 @@ function wireBeatGridEditor(trackID) {
   if (clr) clr.onclick = () => refresh({ clear: true });
   const rean = document.getElementById('bg-reanalyze');
   if (rean) rean.onclick = async () => {
-    if (!await openConfirmModal({
+    const locked = (allTracks || []).find(x => x.id === trackID)?.analysis_locked || false;
+    const lockedTip = 'Locked: unlock the track to change its grid';
+    const parts = await openChoiceModal({
       title: 'RE-ANALYZE TRACK',
-      message: 'Re-analyze this track?\n\nBeats, BPM, waveform and key are all recomputed from the audio file. Takes a few seconds.',
-      okLabel: 'RE-ANALYZE',
-    })) return;
+      message: (locked ? 'This track is locked, so only the waveform can be re-analyzed.\n\n' : '') +
+        'EVERYTHING · beats, BPM, downbeat, key and waveform, from the audio file.\n' +
+        'GRID ONLY · beats, BPM, downbeat and key; keeps the waveform.\n' +
+        'WAVEFORM ONLY · the colour waveform; keeps the grid exactly as it is.\n\n' +
+        'Everything and grid only replace any manual grid correction.',
+      choices: [
+        { value: 'waveform', label: 'WAVEFORM ONLY', primary: locked },
+        { value: 'grid', label: 'GRID ONLY', disabled: locked, title: locked ? lockedTip : '' },
+        { value: 'all', label: 'EVERYTHING', primary: !locked, disabled: locked, title: locked ? lockedTip : '' },
+      ],
+    });
+    if (!parts) return;
     rean.disabled = true;
     rean.textContent = 'RE-ANALYZING…';
     try {
-      const r = await fetch(`/api/analysis/reanalyze/${trackID}`, { method: 'POST' });
-      if (!r.ok) { toast('RE-ANALYSIS FAILED', 'error'); return; }
+      const r = await fetch(`/api/analysis/reanalyze/${trackID}?parts=${parts}`, { method: 'POST' });
+      if (!r.ok) { toast(`RE-ANALYSIS FAILED · ${r.status}`, 'error'); return; }
       const data = await r.json();
-      toast(`RE-ANALYZED · BPM ${data.bpm.toFixed(2)} · ${data.beat_count} BEATS`, 'success');
+      toast(`RE-ANALYZED (${parts}) · BPM ${data.bpm.toFixed(2)} · ${data.beat_count} BEATS`, 'success');
       // Drop the cached waveform so the detail drawer pulls a fresh
       // PWV5 (the bytes may have changed after re-analysis), and
       // reopen so beats + waveform + cues all re-fetch. Also drop the
@@ -8942,6 +8970,38 @@ function wireBeatGridEditor(trackID) {
       toast('RE-ANALYSIS FAILED · ' + e, 'error');
     } finally {
       rean.disabled = false;
+    }
+  };
+
+  // Lock toggle: protects the grid daemon-side (issue #70) so no client or the
+  // daemon itself can re-analyze or rewrite it. Re-renders so the grid-edit
+  // controls enable/disable to match.
+  const lockBtn = document.getElementById('bg-lock');
+  if (lockBtn) lockBtn.onclick = async () => {
+    const willLock = !lockBtn.classList.contains('active');
+    lockBtn.disabled = true;
+    try {
+      const r = await fetch(`/api/tracks/${trackID}/lock`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ locked: willLock }),
+      });
+      if (!r.ok) { toast(`LOCK FAILED · ${r.status}`, 'error'); return; }
+      const cur = (allTracks || []).find(x => x.id === trackID);
+      if (cur) cur.analysis_locked = willLock;
+      toast(willLock ? 'GRID LOCKED' : 'GRID UNLOCKED', 'success');
+      sec.innerHTML = `<h4>BEAT GRID</h4>` + renderBeatGridEditor({
+        id: trackID,
+        bpm: parseFloat(bpmInput.value) || (cur ? cur.bpm : 0),
+        detected_bpm: cur ? cur.detected_bpm : 0,
+        beat_phase_shift: cur ? cur.beat_phase_shift : 0,
+        analysis_locked: willLock,
+      });
+      wireBeatGridEditor(trackID);
+    } catch (e) {
+      toast('LOCK FAILED · ' + e, 'error');
+    } finally {
+      lockBtn.disabled = false;
     }
   };
 
@@ -11472,6 +11532,61 @@ function openConfirmModal({ title = 'CONFIRM', message = '', okLabel = 'OK', dan
   });
 }
 
+// openChoiceModal is openConfirmModal with one button per choice. Resolves to
+// the chosen value, or null on cancel / Escape / backdrop. Enter picks the
+// choice marked primary. A disabled choice shows its title as a tooltip.
+function openChoiceModal({ title = 'CHOOSE', message = '', choices = [] }) {
+  return new Promise((resolve) => {
+    const back = document.createElement('div');
+    back.className = 'menu-modal-backdrop show';
+    const m = document.createElement('div');
+    m.className = 'menu-modal show';
+    m.style.width = 'min(520px, 96vw)';
+    const btns = choices.map((c, i) =>
+      `<button type="button" data-choice="${i}" class="${c.primary ? 'primary' : ''}"` +
+      `${c.disabled ? ' disabled' : ''}${c.title ? ` title="${escape(c.title)}"` : ''}>${escape(c.label)}</button>`).join('');
+    m.innerHTML = `
+      <div class="head">
+        <span class="title">${escape(title)}</span>
+        <button class="x" type="button" title="Close">×</button>
+      </div>
+      <div class="body">
+        <div class="confirm-msg">${escape(message)}</div>
+      </div>
+      <div class="foot">
+        <button type="button" id="choice-cancel">CANCEL</button>
+        <span class="spacer"></span>
+        ${btns}
+      </div>`;
+    document.body.appendChild(back);
+    document.body.appendChild(m);
+
+    let done = false;
+    const finish = (val) => {
+      if (done) return;
+      done = true;
+      document.removeEventListener('keydown', onKey);
+      m.remove();
+      back.remove();
+      resolve(val);
+    };
+    const primary = choices.findIndex(c => c.primary && !c.disabled);
+    const onKey = (e) => {
+      if (e.key === 'Escape') { e.preventDefault(); finish(null); }
+      else if (e.key === 'Enter' && primary >= 0) { e.preventDefault(); finish(choices[primary].value); }
+    };
+    document.addEventListener('keydown', onKey);
+    back.onclick = () => finish(null);
+    m.querySelector('.x').onclick = () => finish(null);
+    m.querySelector('#choice-cancel').onclick = () => finish(null);
+    m.querySelectorAll('[data-choice]').forEach(b => {
+      b.onclick = () => finish(choices[+b.dataset.choice].value);
+    });
+    const focus = m.querySelector(`[data-choice="${primary}"]`);
+    if (focus) focus.focus();
+  });
+}
+
 // POST paths to /api/tracks/add and report progress. Small batches return
 // synchronously; large ones return a job id we poll until done. statusEl (if
 // given) shows live progress; onDone(result) fires once at the end with the
@@ -11716,6 +11831,7 @@ function openImportRekordboxDialog() {
               <label data-src="xml,db,zip" data-dep="tracks"><input type="checkbox" id="inc-tags" checked> Tags</label>
               <label data-src="nml,db,zip" data-dep="tracks"><input type="checkbox" id="inc-cues" checked> Cues</label>
               <label data-src="db,zip" data-dep="tracks"><input type="checkbox" id="inc-analysis" checked> Waveforms &amp; beat grids</label>
+              <label data-src="db,zip" data-dep="tracks,analysis" title="Locked tracks keep rekordbox's beat grid: re-analysis and grid edits are refused until you unlock the track in its detail drawer."><input type="checkbox" id="inc-lock" checked> Lock imported beat grids</label>
               <label data-src="db,zip" data-dep="tracks"><input type="checkbox" id="inc-artwork" checked> Artwork</label>
               <label data-src="db,zip"><input type="checkbox" id="inc-settings" checked> Player/mixer settings</label>
             </div>
@@ -11781,9 +11897,11 @@ function openImportRekordboxDialog() {
   const incTracksCb = m.querySelector('#inc-tracks');
   // Derived options (everything that needs the track import) are disabled when
   // Tracks is unchecked — they have no data to attach to otherwise.
+  const incAnalysisCb = m.querySelector('#inc-analysis');
   const syncIncludeDeps = () => {
-    const on = incTracksCb.checked;
-    m.querySelectorAll('#imp-include label[data-dep="tracks"]').forEach(lab => {
+    const have = { tracks: incTracksCb.checked, analysis: incAnalysisCb.checked };
+    m.querySelectorAll('#imp-include label[data-dep]').forEach(lab => {
+      const on = lab.getAttribute('data-dep').split(',').every(d => have[d]);
       const cb = lab.querySelector('input');
       cb.disabled = !on;
       lab.style.opacity = on ? '' : '0.4';
@@ -11820,6 +11938,7 @@ function openImportRekordboxDialog() {
     b.onclick = () => selectSystem(SYSTEMS.find(s => s.id === b.dataset.sys));
   });
   incTracksCb.onchange = syncIncludeDeps;
+  incAnalysisCb.onchange = syncIncludeDeps;
   selectSystem(SYSTEMS[0]);
   pathInput.focus();
 
@@ -11851,6 +11970,8 @@ function openImportRekordboxDialog() {
       artwork:   m.querySelector('#inc-artwork').checked,
       settings:  m.querySelector('#inc-settings').checked,
     };
+    const lockCb = m.querySelector('#inc-lock');
+    body.lock_analysis = !lockCb.disabled && lockCb.checked; // only tracks that bring a grid get locked
     if (!body.include.tracks && !body.include.settings) {
       statusEl.textContent = 'Nothing selected to import.';
       return;
@@ -11880,6 +12001,7 @@ function openImportRekordboxDialog() {
       if (res.PlaylistsTotal)parts.push(`${res.PlaylistsTotal} playlists`);
       if (res.TagsTotal)     parts.push(`${res.TagsTotal} tags`);
       if (res.AnalysisImported) parts.push(`${res.AnalysisImported} waveforms`);
+      if (res.AnalysisLocked)   parts.push(`${res.AnalysisLocked} grids locked`);
       if (res.ArtworkImported)  parts.push(`${res.ArtworkImported} artwork`);
       if (res.CuesImported)     parts.push(`${res.CuesImported} cues`);
       if (res.SettingsImported) parts.push(`${res.SettingsImported} settings`);

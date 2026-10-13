@@ -374,6 +374,8 @@ func (s *Server) Handler() http.Handler {
 			s.handleTrackPhrases(w, r)
 		case "beats":
 			s.handleTrackBeats(w, r)
+		case "lock":
+			s.handleTrackLock(w, r)
 		default:
 			s.handleTracks(w, r)
 		}
@@ -761,6 +763,7 @@ type TrackInfo struct {
 	ArtID          uint32   `json:"art_id,omitempty"`
 	ArtChecked     bool     `json:"art_checked,omitempty"` // false with art_id 0 = never probed; the web UI requests art optimistically to trigger lazy extraction
 	FileMissing    bool     `json:"file_missing,omitempty"`
+	AnalysisLocked bool     `json:"analysis_locked,omitempty"` // grid is protected from re-analysis / edits
 }
 
 // trackColorNames maps the 8-entry rekordbox track-colour palette to
@@ -816,6 +819,7 @@ func (s *Server) libTrackToInfo(t *library.Track) TrackInfo {
 		ArtID:          t.ArtID,
 		ArtChecked:     t.ArtChecked,
 		FileMissing:    t.FileMissing,
+		AnalysisLocked: t.AnalysisLocked,
 	}
 	if !t.DateAdded.IsZero() {
 		info.DateAdded = t.DateAdded.Format("2006-01-02")
@@ -1046,6 +1050,11 @@ func (s *Server) handleImportRekordbox(w http.ResponseWriter, r *http.Request) {
 			Cues      *bool `json:"cues"`
 			Settings  *bool `json:"settings"`
 		} `json:"include"`
+		// LockAnalysis locks each track whose import brings a beat grid
+		// (rekordbox backups and master.db with its ANLZ files), so re-analysis
+		// and grid edits cannot replace it until it is unlocked. Omitted means
+		// true: an imported grid is usually work the user wants kept.
+		LockAnalysis *bool `json:"lock_analysis"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "invalid JSON: "+err.Error(), http.StatusBadRequest)
@@ -1120,12 +1129,14 @@ func (s *Server) handleImportRekordbox(w http.ResponseWriter, r *http.Request) {
 	s.applyImportBundle(w, bundle, importInclude{
 		Tracks: incTracks, Playlists: incPlaylists, Tags: incTags, Analysis: incAnalysis,
 		Artwork: incArtwork, Cues: incCues, Settings: incSettings,
+		Lock: req.LockAnalysis == nil || *req.LockAnalysis,
 	}, req.RemapFrom, req.RemapTo)
 }
 
 // importInclude selects which categories of an import to materialize.
 type importInclude struct {
 	Tracks, Playlists, Tags, Analysis, Artwork, Cues, Settings bool
+	Lock                                                       bool // lock tracks whose import brought a beat grid
 }
 
 // applyImportBundle materializes an importer's ImportBundle into the stores
@@ -1310,7 +1321,7 @@ func (s *Server) applyImportBundle(w http.ResponseWriter, bundle *library.Import
 	// still sits in its rekordbox library folder (share/ beside it); a .xml or
 	// a copied-out .db has no accompanying file tree, so this is skipped.
 	if shareRoot != "" && len(assets) > 0 && (incArtwork || incAnalysis || incCues) {
-		var artN, anlzN, cueN int
+		var artN, anlzN, cueN, lockN, keptN int
 		for i, a := range assets {
 			if i%8 == 0 {
 				s.importCount("Importing waveforms & artwork…", i, len(assets))
@@ -1335,7 +1346,9 @@ func (s *Server) applyImportBundle(w http.ResponseWriter, bundle *library.Import
 			dat := filepath.Join(shareRoot, filepath.FromSlash(a.AnalyzePath))
 			base := strings.TrimSuffix(dat, filepath.Ext(dat))
 			extPath := base + ".EXT"
-			if incAnalysis && s.Analysis != nil {
+			if incAnalysis && s.Analysis != nil && t.AnalysisLocked {
+				keptN++ // a locked track keeps its analysis; unlock it to re-import
+			} else if incAnalysis && s.Analysis != nil {
 				twoEXPath := base + ".2EX" // CDJ-3000 3-band waveforms (absent in older libraries)
 				if res := analysis.ParseANLZ(dat, extPath, twoEXPath, t.BPM, int(t.Duration.Seconds())); res != nil {
 					// The ANLZ files don't carry the musical key, so ParseANLZ
@@ -1348,6 +1361,10 @@ func (s *Server) applyImportBundle(w http.ResponseWriter, bundle *library.Import
 					s.Analysis.SetPath(a.TrackID, t.FilePath)
 					s.Analysis.Set(a.TrackID, res)
 					anlzN++
+					if inc.Lock && len(res.Beats) > 0 {
+						t.AnalysisLocked = true
+						lockN++
+					}
 				}
 			}
 			// Cue points (hot + memory) from the ANLZ PCO2/PCOB lists. Hot cues
@@ -1360,13 +1377,14 @@ func (s *Server) applyImportBundle(w http.ResponseWriter, bundle *library.Import
 				}
 			}
 		}
-		if artN > 0 {
-			s.Library.Save() // persist the new Track.ArtID references
+		if artN > 0 || lockN > 0 {
+			s.Library.Save() // persist the new Track.ArtID references and locks
 		}
 		result.ArtworkImported = artN
 		result.AnalysisImported = anlzN
+		result.AnalysisLocked = lockN
 		result.CuesImported = cueN
-		log.Printf("import: imported %d artwork image(s), %d ANLZ analysis set(s), %d cue point(s)", artN, anlzN, cueN)
+		log.Printf("import: imported %d artwork image(s), %d ANLZ analysis set(s) (%d locked, %d already-locked kept), %d cue point(s)", artN, anlzN, lockN, keptN, cueN)
 	}
 
 	// Cue points from the master.db djmdCue table — for imports without an
@@ -2202,9 +2220,19 @@ func (s *Server) getOrAnalyze(trackID uint32) *analysis.Result {
 		return nil
 	}
 
-	// Analyze synchronously.
 	s.Analysis.SetPath(trackID, filePath)
-	if r := s.Analysis.Get(trackID); r != nil {
+
+	// A locked track must never be re-analyzed on demand: serve its cached grid
+	// even if the cache version or tempo range is stale. Only when there is no
+	// cache at all do we fall through and analyze once (so locking a track that
+	// was never analyzed still leaves it with a grid).
+	if s.analysisLocked(trackID) {
+		if r := s.Analysis.LoadStale(trackID); r != nil {
+			s.applyAnalysisToTrack(trackID, r)
+			return r
+		}
+		log.Printf("api: track %d is locked but has no cached analysis — analyzing once", trackID)
+	} else if r := s.Analysis.Get(trackID); r != nil {
 		s.applyAnalysisToTrack(trackID, r)
 		return r // disk cache was valid after SetPath
 	}
@@ -2251,9 +2279,50 @@ func (s *Server) handleReanalyze(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "analysis store not available", http.StatusServiceUnavailable)
 		return
 	}
-	s.Analysis.Invalidate(trackID)
-	log.Printf("api: reanalyzing track %d (user-requested)", trackID)
-	result := s.getOrAnalyze(trackID)
+
+	// parts selects what to recompute: "all" (default), "grid", or "waveform".
+	// grid and waveform are independent, so either can be redone alone.
+	parts := r.URL.Query().Get("parts")
+	if parts == "" {
+		parts = "all"
+	}
+	if parts != "all" && parts != "grid" && parts != "waveform" {
+		http.Error(w, "parts must be 'all', 'grid', or 'waveform'", http.StatusBadRequest)
+		return
+	}
+
+	// A locked track refuses anything that rewrites its grid; a waveform-only
+	// re-analysis never touches the grid, so it is allowed.
+	if parts != "waveform" && s.analysisLocked(trackID) {
+		http.Error(w, "track analysis is locked; only a waveform re-analysis is allowed while locked", http.StatusConflict)
+		return
+	}
+
+	var result *analysis.Result
+	if parts == "all" {
+		s.Analysis.Invalidate(trackID)
+		log.Printf("api: reanalyzing track %d (all, user-requested)", trackID)
+		result = s.getOrAnalyze(trackID) // honors the ANLZ importer for served USB tracks
+	} else {
+		filePath := s.trackFilePath(trackID)
+		if filePath == "" {
+			http.Error(w, "track not found", http.StatusNotFound)
+			return
+		}
+		s.Analysis.SetPath(trackID, filePath)
+		existing := s.Analysis.LoadStale(trackID) // keep the current grid/waveform
+		pe := analysis.PartsGrid
+		if parts == "waveform" {
+			pe = analysis.PartsWaveform
+		}
+		log.Printf("api: reanalyzing track %d (%s, user-requested)", trackID, parts)
+		r2, err := analysis.Reanalyze(filePath, existing, pe)
+		if err == nil && r2 != nil {
+			s.Analysis.Set(trackID, r2)
+			s.applyAnalysisToTrack(trackID, r2)
+			result = r2
+		}
+	}
 	if result == nil {
 		http.Error(w, "reanalysis failed", http.StatusInternalServerError)
 		return
@@ -2261,10 +2330,26 @@ func (s *Server) handleReanalyze(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, map[string]interface{}{
 		"ok":         true,
 		"track_id":   trackID,
+		"parts":      parts,
 		"bpm":        result.BPM,
 		"key":        result.KeyCamelot,
 		"beat_count": len(result.Beats),
 	})
+}
+
+// trackFilePath resolves a track's audio path from the library or PDB.
+func (s *Server) trackFilePath(trackID uint32) string {
+	if s.Library != nil {
+		if t := s.Library.Track(trackID); t != nil {
+			return t.FilePath
+		}
+	}
+	if s.PDB != nil {
+		if t := s.PDB.TrackByID(trackID); t != nil {
+			return t.FilePath
+		}
+	}
+	return ""
 }
 
 // handleAnalysis returns the analysis data for a track.
@@ -3321,6 +3406,10 @@ func (s *Server) handleBeatGridAdjust(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "track_id required", http.StatusBadRequest)
 		return
 	}
+	if s.analysisLocked(req.TrackID) {
+		http.Error(w, "track analysis is locked; unlock it to adjust the beat grid", http.StatusConflict)
+		return
+	}
 
 	result := s.getOrAnalyze(req.TrackID)
 	if result == nil {
@@ -4278,6 +4367,10 @@ func (s *Server) handleTrackBeats(w http.ResponseWriter, r *http.Request) {
 		}{t.BPM, t.DetectedBPM, t.BeatPhaseShift})
 
 	case "PUT", "POST":
+		if t.AnalysisLocked {
+			http.Error(w, "track analysis is locked; unlock it to edit the beat grid", http.StatusConflict)
+			return
+		}
 		var req struct {
 			BPM            *float64 `json:"bpm"`
 			BeatPhaseShift *int     `json:"beat_phase_shift"`
@@ -4323,6 +4416,63 @@ func (s *Server) handleTrackBeats(w http.ResponseWriter, r *http.Request) {
 			BeatPhaseShift int     `json:"beat_phase_shift"`
 		}{true, t.BPM, t.DetectedBPM, t.BeatPhaseShift})
 
+	default:
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+	}
+}
+
+// analysisLocked reports whether a track's grid is protected from re-analysis
+// and grid edits. False when there is no library or no such track.
+func (s *Server) analysisLocked(trackID uint32) bool {
+	if s.Library == nil {
+		return false
+	}
+	t := s.Library.Track(trackID)
+	return t != nil && t.AnalysisLocked
+}
+
+// GET/PUT /api/tracks/{id}/lock — the per-track analysis lock. While locked,
+// the daemon refuses re-analysis and grid edits (409) and will not auto- or
+// re-analyze the track, so a hand-corrected grid cannot be overwritten.
+func (s *Server) handleTrackLock(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Header().Set("Access-Control-Allow-Methods", "PUT, GET, OPTIONS")
+	w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+	if r.Method == "OPTIONS" {
+		return
+	}
+	if s.Library == nil {
+		http.Error(w, "library not available", http.StatusServiceUnavailable)
+		return
+	}
+	trackID := parseTrackIDFromPath(r.URL.Path, "/api/tracks/")
+	if trackID == 0 {
+		http.Error(w, "track ID required", http.StatusBadRequest)
+		return
+	}
+	t := s.Library.Track(trackID)
+	if t == nil {
+		http.Error(w, "track not found", http.StatusNotFound)
+		return
+	}
+
+	switch r.Method {
+	case "GET":
+		writeJSON(w, struct {
+			Locked bool `json:"locked"`
+		}{t.AnalysisLocked})
+	case "PUT", "POST":
+		var req struct {
+			Locked bool `json:"locked"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, "invalid JSON: "+err.Error(), http.StatusBadRequest)
+			return
+		}
+		t.AnalysisLocked = req.Locked
+		s.Library.Save()
+		log.Printf("api: track %d analysis lock = %v", trackID, req.Locked)
+		writeJSON(w, map[string]bool{"OK": true})
 	default:
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 	}
