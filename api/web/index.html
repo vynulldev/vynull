@@ -7672,6 +7672,15 @@ function renderSettings(cfg) {
           </div>
           <div class="export-hint">Constrain BPM detection to a tempo range so fast genres (e.g. drum &amp; bass) stop analyzing at half or a third of their tempo. Pick a preset or Custom…. Our detector supports ${BPM_DETECT_MIN}–${BPM_DETECT_MAX} BPM; values outside that are clamped. Changing it re-analyzes affected tracks as they're next loaded.</div>
         </div>
+        <div class="source-action">
+          <label class="export-label">Analysis · Beat-grid offset</label>
+          <div style="display:flex; gap:6px; align-items:center; flex-wrap:wrap;">
+            <input type="number" id="grid-offset-input" class="input" min="-200" max="200" step="1" value="${Number(bpmFull.grid_offset_ms) || 0}" style="width:74px">
+            <span style="opacity:.6">ms</span>
+            <button type="button" id="grid-offset-apply" class="source-btn">Apply</button>
+          </div>
+          <div class="export-hint">Shift every detected beat grid by this many milliseconds (negative = earlier). 0 matches rekordbox. Applies instantly; hand-corrected and imported grids are not moved.</div>
+        </div>
       </div>
     </div>`;
     const bpmSel = el.querySelector('#bpm-range-select');
@@ -7689,6 +7698,8 @@ function renderSettings(cfg) {
     };
     const bpmApply = el.querySelector('#bpm-range-apply');
     if (bpmApply) bpmApply.onclick = () => applyCustomBPMRange(el);
+    const goApply = el.querySelector('#grid-offset-apply');
+    if (goApply) goApply.onclick = () => applyGridOffset(el);
     const imp = el.querySelector('#set-import-rb');
     if (imp) imp.onclick = () => openImportRekordboxDialog();
     const fix = el.querySelector('#set-fix-paths');
@@ -7812,6 +7823,28 @@ async function postBPMRange(min, max, label) {
   const cur = (currentSettings && currentSettings.full) || currentSettings;
   if (cur) { cur.bpm_range_min = min; cur.bpm_range_max = max; lastSettingsKey = ''; }
   toast('BPM RANGE · ' + label, 'success');
+}
+
+// applyGridOffset validates and saves the beat-grid offset via the
+// full-config POST (whole config, since the POST replaces it).
+async function applyGridOffset(scope) {
+  const ms = Number(scope.querySelector('#grid-offset-input').value);
+  if (!isFinite(ms) || Math.abs(ms) > 200) { toast('OFFSET MUST BE −200…200 MS', 'error'); return; }
+  const base = (currentSettings && (currentSettings.full || currentSettings)) || {};
+  const full = JSON.parse(JSON.stringify(base));
+  full.grid_offset_ms = ms;
+  const r = await fetch('/api/settings', {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ full }),
+  });
+  if (!r.ok) { toast('SAVE FAILED', 'error'); return; }
+  const cur = (currentSettings && currentSettings.full) || currentSettings;
+  if (cur) { cur.grid_offset_ms = ms; lastSettingsKey = ''; }
+  // Detected grids shift server-side on their next read; drop cached
+  // waveforms/beats so an open drawer refetches the moved grid.
+  if (typeof waveformCache !== 'undefined') waveformCache.clear();
+  if (selectedTrackID) openDetail(selectedTrackID);
+  toast(`BEAT-GRID OFFSET · ${ms > 0 ? '+' : ''}${ms} MS`, 'success');
 }
 
 // onBPMRangeChange handles a preset selection (Default or an octave preset).

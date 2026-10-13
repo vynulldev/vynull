@@ -4,8 +4,10 @@ package analysis
 
 import (
 	"math"
+	"os/exec"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 )
@@ -55,6 +57,84 @@ var (
 	tempoMinBPM  float64
 	tempoMaxBPM  float64
 )
+
+// gridOffsetMs is the user beat-grid offset (--grid-offset or the web
+// Analysis Setting), in ms; negative places beats earlier. 0 = match
+// rekordbox, which our detector is tuned to; a DJ who hears the beat slightly
+// earlier or later can shift every detected grid to taste.
+var (
+	gridOffsetMu sync.RWMutex
+	gridOffsetMs float64
+)
+
+// SetGridOffset sets the user beat-grid offset (ms). Safe to call at runtime;
+// cached detected grids pick it up on their next read.
+func SetGridOffset(ms float64) {
+	gridOffsetMu.Lock()
+	defer gridOffsetMu.Unlock()
+	gridOffsetMs = ms
+}
+
+// StartSilenceMs is how much silence the beat detector prepends before
+// measuring onsets when a track starts hot (see StartLevelGate), so a track cut
+// mid-kick registers an onset at 0 s as it does in rekordbox. 0 = off.
+var StartSilenceMs = 50.0
+
+// StartLevelGate is the mean |amplitude| of the first 10 ms above which a track
+// counts as starting hot and gets the StartSilenceMs pad. Padding every track
+// is net-negative against rekordbox's grids; padding only hot starts fixes
+// ~100 more tracks than it breaks (1950-track oracle, flat for 0.001-0.02).
+var StartLevelGate = 0.005
+
+// HotStartSkipsFlip skips the half-beat flip on tracks detected from silence
+// (StartSilenceMs). The pad gives a hot-start track its onset at 0 s, which
+// already anchors the phase, but it also inflates KickRatio enough to trip
+// HalfBeatGate and flip a correct grid half a beat off. Against 1950
+// rekordbox grids it changes 25 tracks: 21 fixed, 3 broken.
+var HotStartSkipsFlip = true
+
+// startLevel returns the mean |amplitude| of the first 10 ms.
+func startLevel(samples []float32, sampleRate int) float64 {
+	n := sampleRate / 100
+	if n > len(samples) {
+		n = len(samples)
+	}
+	if n == 0 {
+		return 0
+	}
+	var sum float64
+	for _, v := range samples[:n] {
+		sum += math.Abs(float64(v))
+	}
+	return sum / float64(n)
+}
+
+// unpadBeats maps a grid detected on silence-padded audio back to the real
+// timeline: subtract the pad, drop beats that fall inside the pad, and clamp a
+// beat that lands just before 0 (within an eighth of a beat, i.e. the track
+// starts on it) to 0.
+func unpadBeats(beats []float64, padMs, period float64) []float64 {
+	tol := period / 8
+	out := make([]float64, 0, len(beats))
+	for _, b := range beats {
+		v := b - padMs
+		if v < 0 {
+			if v < -tol || len(out) > 0 {
+				continue
+			}
+			v = 0
+		}
+		out = append(out, v)
+	}
+	return out
+}
+
+// GridOffset returns the user beat-grid offset (ms).
+func GridOffset() float64 {
+	gridOffsetMu.RLock()
+	defer gridOffsetMu.RUnlock()
+	return gridOffsetMs
+}
 
 // SetTempoRange sets the opt-in BPM detection range. (0, 0) — or any max <= min
 // — clears it, restoring the default window. Safe to call at runtime.
@@ -129,6 +209,18 @@ func DetectBeats(samples []float32, sampleRate int) *BeatResult {
 func DetectBeatsWithEncoderDelay(samples []float32, sampleRate int, encoderDelayMs float64) *BeatResult {
 	if len(samples) < sampleRate*2 {
 		return &BeatResult{}
+	}
+
+	// Start from silence (StartSilenceMs): prepend silence to a track that
+	// begins at full level so the onset detector sees an onset at 0 s, the
+	// way rekordbox's filters (which start from a zero state) do. The grid is
+	// mapped back to the real timeline before the downbeat and offset steps.
+	orig := samples
+	padMs := 0.0
+	if StartSilenceMs > 0 && startLevel(samples, sampleRate) > StartLevelGate {
+		pad := int(StartSilenceMs * float64(sampleRate) / 1000)
+		samples = append(make([]float32, pad, pad+len(samples)), samples...)
+		padMs = float64(pad) * 1000 / float64(sampleRate)
 	}
 
 	hopSize := 128
@@ -739,8 +831,31 @@ func DetectBeatsWithEncoderDelay(samples []float32, sampleRate int, encoderDelay
 	eOn := combEnergy(onset, msPerFrame, gridPhase, msPerBeat)
 	eHalf := combEnergy(onset, msPerFrame, gridPhase+msPerBeat/2, msPerBeat)
 	kickRatio := eHalf / (eOn + 1e-9)
-	if HalfBeatGate > 0 && kickRatio > HalfBeatGate {
+	if HalfBeatGate > 0 && kickRatio > HalfBeatGate && !(padMs > 0 && HotStartSkipsFlip) {
 		beats = buildGrid(math.Mod(gridPhase+msPerBeat/2, msPerBeat), msPerBeat, durationMs)
+	}
+
+	if padMs > 0 {
+		beats = unpadBeats(beats, padMs, msPerBeat)
+		samples = orig
+	}
+
+	// Attack placement (AttackPlacement): move the grid onto the kick's
+	// measured attack, where rekordbox places the beat, rather than relying on
+	// the tempogram latency constant alone.
+	if AttackPlacement && len(beats) > 0 {
+		if shift, ok := attackShift(samples, sampleRate, beats, encoderDelayMs); ok {
+			beats, _ = offsetBeats(beats, shift, msPerBeat, 0)
+		}
+	}
+
+	// User grid offset (GridOffset): a constant shift of the finished grid for
+	// listeners who place the beat earlier or later than rekordbox does. It
+	// is applied last, after every phase decision (notably the half-beat
+	// gate, which must judge the detector's own phase), so it moves the grid
+	// without changing what the detector chose.
+	if off := GridOffset(); off != 0 && len(beats) > 0 {
+		beats, _ = offsetBeats(beats, off, msPerBeat, 0)
 	}
 
 	// Find downbeat (beat 1 of 4) using accent detection.
@@ -840,8 +955,19 @@ var (
 	// while a long late tail held the MEAN bias positive — centering the error
 	// distribution's PEAK, not its mean, took <10ms alignment 23.9%->34.3%
 	// with <20/<50ms and the half-beat tail unchanged (held-out validated).
-	TempogramLatencyMs  = 34.0
-	LossyEncoderDelayMs = 25.0
+	//
+	// Recalibrated per format (scoring phase on beat 8, since beat 0 can be
+	// clamped on a hot start). The library behind the 34ms trim was ~90% MP3,
+	// so it had absorbed MP3 timing: FLAC grids sat ~17ms late. Fitting each
+	// format separately gives a 17ms pipeline delay; MP3s with gapless
+	// metadata (which ffmpeg trims but rekordbox does not) need 49ms on top;
+	// MP3s without it decode the same in both and need ~0. Attack placement
+	// then refines each track (see attack.go). LossyEncoderDelayMs keeps
+	// other lossy codecs at their previous total (17+42 = 34+25).
+	TempogramLatencyMs  = 17.0
+	LossyEncoderDelayMs = 42.0
+	GaplessMP3DelayMs   = 49.0
+	UntaggedMP3DelayMs  = 0.0
 
 	// HalfBeatGate, when > 0, flips the grid by half a beat if the half-beat
 	// comb carries more than this multiple of the on-grid kick/bass onset energy
@@ -1327,14 +1453,45 @@ func findDownbeat(beats []float64) float64 {
 var losslessExts = map[string]bool{".flac": true, ".wav": true, ".aiff": true, ".aif": true}
 
 // EncoderDelayMs returns the encoder-delay latency compensation for a source file:
-// 0 for lossless containers (FLAC/WAV/AIFF), LossyEncoderDelayMs otherwise. Lossy
-// codecs (MP3/AAC/...) prepend an encoder delay that rekordbox grids on but our
-// decoder strips, so the grid must be shifted back by that delay to match.
+// 0 for lossless containers (FLAC/WAV/AIFF). An MP3 with gapless metadata
+// (LAME/Info tag) has its encoder delay trimmed by ffmpeg but not by rekordbox,
+// so its grid shifts by GaplessMP3DelayMs; an MP3 without it decodes the same
+// in both, and gets UntaggedMP3DelayMs. Other lossy codecs get
+// LossyEncoderDelayMs.
 func EncoderDelayMs(path string) float64 {
-	if losslessExts[strings.ToLower(filepath.Ext(path))] {
+	ext := strings.ToLower(filepath.Ext(path))
+	switch {
+	case losslessExts[ext]:
 		return 0
+	case ext == ".mp3":
+		if FFmpegTrimsStart(path) {
+			return GaplessMP3DelayMs
+		}
+		return UntaggedMP3DelayMs
 	}
 	return LossyEncoderDelayMs
+}
+
+var trimCache sync.Map // path -> bool
+
+// FFmpegTrimsStart reports whether ffmpeg trims an encoder delay from the
+// start of path when decoding, which shows as a positive audio stream
+// start_time (MP3 gapless metadata). Results are cached per path; if ffprobe
+// fails, it assumes the common case (trimmed).
+func FFmpegTrimsStart(path string) bool {
+	if v, ok := trimCache.Load(path); ok {
+		return v.(bool)
+	}
+	out, err := exec.Command("ffprobe", "-v", "error", "-select_streams", "a:0",
+		"-show_entries", "stream=start_time", "-of", "csv=p=0", path).Output()
+	trims := true
+	if err == nil {
+		if st, perr := strconv.ParseFloat(strings.TrimSpace(string(out)), 64); perr == nil {
+			trims = st > 0.001
+		}
+	}
+	trimCache.Store(path, trims)
+	return trims
 }
 
 // DetectBPM is a convenience wrapper that returns just the BPM.

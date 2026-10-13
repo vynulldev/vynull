@@ -37,6 +37,11 @@ type SettingsConfig struct {
 	// default detection window. Not pushed to decks — consumed by the analyzer.
 	BPMRangeMin float64 `yaml:"bpm_range_min,omitempty" json:"bpm_range_min,omitempty"`
 	BPMRangeMax float64 `yaml:"bpm_range_max,omitempty" json:"bpm_range_max,omitempty"`
+
+	// GridOffsetMs shifts every detected beat grid by this many ms (negative =
+	// earlier), for DJs who hear the beat slightly earlier or later than
+	// rekordbox places it. 0 = match rekordbox. Consumed by the analyzer.
+	GridOffsetMs float64 `yaml:"grid_offset_ms,omitempty" json:"grid_offset_ms,omitempty"`
 }
 
 // MySettingFields backs MYSETTING.DAT (player UI settings).
