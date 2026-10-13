@@ -878,6 +878,10 @@ components:
             artwork: { type: boolean }
             cues: { type: boolean }
             settings: { type: boolean }
+        lock_analysis:
+          type: boolean
+          default: true
+          description: Lock every track whose import brings a beat grid (rekordbox backups, and master.db with its ANLZ files), so re-analysis and grid edits are refused until it is unlocked. XML and Traktor imports carry no grid and lock nothing.
 
     ImportResult:
       type: object
@@ -891,6 +895,7 @@ components:
         TagsTotal: { type: integer }
         ArtworkImported: { type: integer }
         AnalysisImported: { type: integer }
+        AnalysisLocked: { type: integer, description: Tracks locked because their import brought a beat grid (lock_analysis). }
         CuesImported: { type: integer }
         SettingsImported: { type: integer }
         FilesMissing: { type: integer }

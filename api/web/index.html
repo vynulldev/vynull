@@ -11831,6 +11831,7 @@ function openImportRekordboxDialog() {
               <label data-src="xml,db,zip" data-dep="tracks"><input type="checkbox" id="inc-tags" checked> Tags</label>
               <label data-src="nml,db,zip" data-dep="tracks"><input type="checkbox" id="inc-cues" checked> Cues</label>
               <label data-src="db,zip" data-dep="tracks"><input type="checkbox" id="inc-analysis" checked> Waveforms &amp; beat grids</label>
+              <label data-src="db,zip" data-dep="tracks,analysis" title="Locked tracks keep rekordbox's beat grid: re-analysis and grid edits are refused until you unlock the track in its detail drawer."><input type="checkbox" id="inc-lock" checked> Lock imported beat grids</label>
               <label data-src="db,zip" data-dep="tracks"><input type="checkbox" id="inc-artwork" checked> Artwork</label>
               <label data-src="db,zip"><input type="checkbox" id="inc-settings" checked> Player/mixer settings</label>
             </div>
@@ -11896,9 +11897,11 @@ function openImportRekordboxDialog() {
   const incTracksCb = m.querySelector('#inc-tracks');
   // Derived options (everything that needs the track import) are disabled when
   // Tracks is unchecked — they have no data to attach to otherwise.
+  const incAnalysisCb = m.querySelector('#inc-analysis');
   const syncIncludeDeps = () => {
-    const on = incTracksCb.checked;
-    m.querySelectorAll('#imp-include label[data-dep="tracks"]').forEach(lab => {
+    const have = { tracks: incTracksCb.checked, analysis: incAnalysisCb.checked };
+    m.querySelectorAll('#imp-include label[data-dep]').forEach(lab => {
+      const on = lab.getAttribute('data-dep').split(',').every(d => have[d]);
       const cb = lab.querySelector('input');
       cb.disabled = !on;
       lab.style.opacity = on ? '' : '0.4';
@@ -11935,6 +11938,7 @@ function openImportRekordboxDialog() {
     b.onclick = () => selectSystem(SYSTEMS.find(s => s.id === b.dataset.sys));
   });
   incTracksCb.onchange = syncIncludeDeps;
+  incAnalysisCb.onchange = syncIncludeDeps;
   selectSystem(SYSTEMS[0]);
   pathInput.focus();
 
@@ -11966,6 +11970,8 @@ function openImportRekordboxDialog() {
       artwork:   m.querySelector('#inc-artwork').checked,
       settings:  m.querySelector('#inc-settings').checked,
     };
+    const lockCb = m.querySelector('#inc-lock');
+    body.lock_analysis = !lockCb.disabled && lockCb.checked; // only tracks that bring a grid get locked
     if (!body.include.tracks && !body.include.settings) {
       statusEl.textContent = 'Nothing selected to import.';
       return;
@@ -11995,6 +12001,7 @@ function openImportRekordboxDialog() {
       if (res.PlaylistsTotal)parts.push(`${res.PlaylistsTotal} playlists`);
       if (res.TagsTotal)     parts.push(`${res.TagsTotal} tags`);
       if (res.AnalysisImported) parts.push(`${res.AnalysisImported} waveforms`);
+      if (res.AnalysisLocked)   parts.push(`${res.AnalysisLocked} grids locked`);
       if (res.ArtworkImported)  parts.push(`${res.ArtworkImported} artwork`);
       if (res.CuesImported)     parts.push(`${res.CuesImported} cues`);
       if (res.SettingsImported) parts.push(`${res.SettingsImported} settings`);

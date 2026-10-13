@@ -1050,6 +1050,11 @@ func (s *Server) handleImportRekordbox(w http.ResponseWriter, r *http.Request) {
 			Cues      *bool `json:"cues"`
 			Settings  *bool `json:"settings"`
 		} `json:"include"`
+		// LockAnalysis locks each track whose import brings a beat grid
+		// (rekordbox backups and master.db with its ANLZ files), so re-analysis
+		// and grid edits cannot replace it until it is unlocked. Omitted means
+		// true: an imported grid is usually work the user wants kept.
+		LockAnalysis *bool `json:"lock_analysis"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "invalid JSON: "+err.Error(), http.StatusBadRequest)
@@ -1124,12 +1129,14 @@ func (s *Server) handleImportRekordbox(w http.ResponseWriter, r *http.Request) {
 	s.applyImportBundle(w, bundle, importInclude{
 		Tracks: incTracks, Playlists: incPlaylists, Tags: incTags, Analysis: incAnalysis,
 		Artwork: incArtwork, Cues: incCues, Settings: incSettings,
+		Lock: req.LockAnalysis == nil || *req.LockAnalysis,
 	}, req.RemapFrom, req.RemapTo)
 }
 
 // importInclude selects which categories of an import to materialize.
 type importInclude struct {
 	Tracks, Playlists, Tags, Analysis, Artwork, Cues, Settings bool
+	Lock                                                       bool // lock tracks whose import brought a beat grid
 }
 
 // applyImportBundle materializes an importer's ImportBundle into the stores
@@ -1314,7 +1321,7 @@ func (s *Server) applyImportBundle(w http.ResponseWriter, bundle *library.Import
 	// still sits in its rekordbox library folder (share/ beside it); a .xml or
 	// a copied-out .db has no accompanying file tree, so this is skipped.
 	if shareRoot != "" && len(assets) > 0 && (incArtwork || incAnalysis || incCues) {
-		var artN, anlzN, cueN int
+		var artN, anlzN, cueN, lockN, keptN int
 		for i, a := range assets {
 			if i%8 == 0 {
 				s.importCount("Importing waveforms & artwork…", i, len(assets))
@@ -1339,7 +1346,9 @@ func (s *Server) applyImportBundle(w http.ResponseWriter, bundle *library.Import
 			dat := filepath.Join(shareRoot, filepath.FromSlash(a.AnalyzePath))
 			base := strings.TrimSuffix(dat, filepath.Ext(dat))
 			extPath := base + ".EXT"
-			if incAnalysis && s.Analysis != nil {
+			if incAnalysis && s.Analysis != nil && t.AnalysisLocked {
+				keptN++ // a locked track keeps its analysis; unlock it to re-import
+			} else if incAnalysis && s.Analysis != nil {
 				twoEXPath := base + ".2EX" // CDJ-3000 3-band waveforms (absent in older libraries)
 				if res := analysis.ParseANLZ(dat, extPath, twoEXPath, t.BPM, int(t.Duration.Seconds())); res != nil {
 					// The ANLZ files don't carry the musical key, so ParseANLZ
@@ -1352,6 +1361,10 @@ func (s *Server) applyImportBundle(w http.ResponseWriter, bundle *library.Import
 					s.Analysis.SetPath(a.TrackID, t.FilePath)
 					s.Analysis.Set(a.TrackID, res)
 					anlzN++
+					if inc.Lock && len(res.Beats) > 0 {
+						t.AnalysisLocked = true
+						lockN++
+					}
 				}
 			}
 			// Cue points (hot + memory) from the ANLZ PCO2/PCOB lists. Hot cues
@@ -1364,13 +1377,14 @@ func (s *Server) applyImportBundle(w http.ResponseWriter, bundle *library.Import
 				}
 			}
 		}
-		if artN > 0 {
-			s.Library.Save() // persist the new Track.ArtID references
+		if artN > 0 || lockN > 0 {
+			s.Library.Save() // persist the new Track.ArtID references and locks
 		}
 		result.ArtworkImported = artN
 		result.AnalysisImported = anlzN
+		result.AnalysisLocked = lockN
 		result.CuesImported = cueN
-		log.Printf("import: imported %d artwork image(s), %d ANLZ analysis set(s), %d cue point(s)", artN, anlzN, cueN)
+		log.Printf("import: imported %d artwork image(s), %d ANLZ analysis set(s) (%d locked, %d already-locked kept), %d cue point(s)", artN, anlzN, lockN, keptN, cueN)
 	}
 
 	// Cue points from the master.db djmdCue table — for imports without an
