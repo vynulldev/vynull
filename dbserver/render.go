@@ -172,8 +172,10 @@ func (h *Handler) handleRenderMenu(msg *proto.DBMessage) []*proto.DBMessage {
 				if newCDJIncompatible(item.fileTypeID, item.FileType, item.sampleRate) {
 					flags10 |= 0x1 // arg 10 bit 0: not playable on new-CDJ decode path
 				}
-				if item.autoLoadHotCue {
-					flags10 |= 0x100 // arg 10 bit 8: deck auto-loads this track's hot cues
+				if item.autoLoadHotCue && dmstTrackType(msg) == trackTypeRekordbox {
+					// arg 10 bit 8: deck auto-loads this track's hot cues. rekordbox
+					// sets it only when the request's context track type is 0x01.
+					flags10 |= 0x100
 				}
 				flags11 = item.newKeyID // arg 11: converted (Camelot 1-24) key index
 			}
@@ -232,6 +234,27 @@ func (h *Handler) handleRenderMenu(msg *proto.DBMessage) []*proto.DBMessage {
 }
 
 // dmstMenu extracts the menu byte from a DMST arg.
+// dmstTrackType returns the track-type byte of a request's context argument
+// (the low byte of device/menu/slot/type), or 0 when there is none.
+func dmstTrackType(msg *proto.DBMessage) uint8 {
+	if len(msg.Args) > 0 {
+		return uint8(msg.Args[0].Int() & 0xff)
+	}
+	return 0
+}
+
+// Context track types rekordbox gives special treatment (link-spec
+// conformance suites context-track-types and context-track-type-families,
+// rekordbox 7.2.19).
+const (
+	trackTypeRekordbox = 0x01 // the only type whose track rows carry the hot-cue auto-load bit
+)
+
+// silentTrackType reports whether rekordbox ignores a browse request with
+// this context track type: for 0x03 and 0x04 it sends no reply at all, for
+// every request kind, while every other type gets a normal answer.
+func silentTrackType(tt uint8) bool { return tt == 0x03 || tt == 0x04 }
+
 func dmstMenu(msg *proto.DBMessage) uint8 {
 	if len(msg.Args) > 0 {
 		return uint8((msg.Args[0].Int() >> 16) & 0xff)

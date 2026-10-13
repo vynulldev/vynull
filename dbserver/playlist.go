@@ -226,7 +226,7 @@ func (h *Handler) applyPlaylistTrackScope(items []*menuItem, order uint32) {
 	for i := range items {
 		items[i].trackPos = uint32(i + 1)
 	}
-	markContextType(items, 1)
+	markContextType(items, h.ctxTrackType)
 	if order != sortDefault {
 		sortItems(items, order)
 	}

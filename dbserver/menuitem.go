@@ -422,8 +422,8 @@ func trackColorName(id uint8) string {
 // markContextType stamps the packed context track type (TT) on every item, so
 // their served rows carry TT<<24 in argument 7. Applied to hierarchy track
 // leaves (genre/artist/album/label/original-artist/remixer), which rekordbox
-// tags with the context type; the direct track list and scalar filters leave
-// it 0.
+// tags with the request's own context track type (h.ctxTrackType); the direct
+// track list and scalar filters leave it 0.
 func markContextType(items []*menuItem, tt uint32) {
 	for _, m := range items {
 		m.contextTrackType = tt
