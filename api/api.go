@@ -31,6 +31,7 @@ import (
 	"github.com/vynulldev/vynull/analysis"
 	"github.com/vynulldev/vynull/device"
 	"github.com/vynulldev/vynull/export"
+	"github.com/vynulldev/vynull/internal/buildinfo"
 	"github.com/vynulldev/vynull/library"
 	"github.com/vynulldev/vynull/link/prolink"
 	"github.com/vynulldev/vynull/mediadb"
@@ -291,6 +292,7 @@ type AnalysisStatus struct {
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/status", s.handleStatus)
+	mux.HandleFunc("/api/version", s.handleVersion)
 	mux.HandleFunc("/api/peers", s.handlePeers)
 	mux.HandleFunc("/api/players", s.handlePlayers)
 	mux.HandleFunc("/api/nowplaying", s.handleNowPlaying)
@@ -456,6 +458,11 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	writeJSON(w, resp)
+}
+
+// handleVersion reports which build of Vynull is running.
+func (s *Server) handleVersion(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, buildinfo.Get())
 }
 
 func (s *Server) handlePeers(w http.ResponseWriter, r *http.Request) {
