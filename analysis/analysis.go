@@ -45,7 +45,8 @@ const AnalysisRate = 44100
 // latency is recalibrated per format with a gapless-aware MP3 delay; and grids
 // are placed on the kick's measured attack. Most detected grids move by a few
 // ms. Hand-edited grids ride across the bump via gridCarry, as before.
-const cacheVersion = 30
+// Bumped to 31: beat 1 moves off a silent first beat (SilentLeadIndex).
+const cacheVersion = 31
 
 // PWV4Override and PWV5Override, when non-nil, replace every track's color
 // preview / detail waveform at serve time. Set via the --pwv4-override /

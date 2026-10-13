@@ -43,6 +43,7 @@ type gtEntry struct {
 	File        string    `json:"file"`
 	BPM         float64   `json:"bpm"`
 	FirstBeatMs float64   `json:"first_beat_ms"`
+	DownbeatMs  float64   `json:"downbeat_ms"` // rekordbox's first beat 1 (beat_number == 1)
 	Title       string    `json:"title"`
 	RBBeats     []float64 `json:"rb_beats,omitempty"` // full rekordbox PQTZ grid (with -beats)
 }
@@ -116,6 +117,9 @@ func main() {
 			title = strings.TrimSuffix(filepath.Base(local), filepath.Ext(local))
 		}
 		e := gtEntry{File: local, BPM: t.BPM, FirstBeatMs: res.Beats[0], Title: title}
+		if di := res.DownbeatIndex; di >= 0 && di < len(res.Beats) {
+			e.DownbeatMs = res.Beats[di]
+		}
 		if *withBeats {
 			e.RBBeats = res.Beats
 		}
