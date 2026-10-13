@@ -3092,6 +3092,12 @@
     z-index: 50;
   }
   .statusbar .spacer { flex: 1; }
+  .statusbar .sb-version { color: var(--text3); text-decoration: none; }
+  .statusbar .sb-version:hover { color: var(--text); }
+  @media (max-width: 640px) {
+    .statusbar .sb-version { display: none; }
+  }
+  .diag-list a { color: inherit; }
   .statusbar .item { display: inline-flex; align-items: center; gap: 8px; }
   .statusbar #server-status .led { background: var(--text3); }
   .statusbar #server-status.kind-analysis .led { background: var(--text); }
@@ -3583,6 +3589,7 @@
   <span class="item" id="wave-color-btn" title="Web waveform colour — click to cycle. AUTO follows the CDJ 'waveform color' DEVSETTING." style="cursor:pointer; user-select:none"><span class="led green"></span><span id="wave-color-label">WAVE: AUTO</span></span>
   <span class="item" id="vocal-det-btn" title="Vocal-detection markers (🎤) on the phrase strip — click to cycle off / low / med / high sensitivity. Our own lightweight detector; a hint, not exact." style="cursor:pointer; user-select:none"><span class="led green"></span><span id="vocal-det-label">VOCAL: MED</span></span>
   <span class="item" id="link-status" title="Devices on the Pro DJ Link network"><span class="led"></span><span id="link-status-text">NO LINK</span></span>
+  <a class="item app-version sb-version" target="_blank" rel="noopener"></a>
 </div>
 
 <div id="toast"></div>
@@ -3592,6 +3599,33 @@
 
 // ───────── boot ─────────
 const STARTED = Date.now();
+
+// App version: the status bar and DIAG's RUNTIME card show which build is
+// running. A release shows its tag and links to its release page; a build
+// between releases shows "dev" plus the commit and links to that commit.
+let appVersion = null; // {info, label, href, commitHref} once /api/version answers
+(async function showAppVersion() {
+  let v;
+  try {
+    const r = await fetch('/api/version');
+    if (!r.ok) return;
+    v = await r.json();
+  } catch (e) { return; }
+  const repo = 'https://github.com/vynulldev/vynull';
+  const short = (v.commit || '').slice(0, 7);
+  const release = /^v\d+\.\d+\.\d+$/.test(v.version || '');
+  let label = release ? v.version : (short ? 'dev · ' + short : 'dev');
+  if (v.dirty) label += ' · modified';
+  const href = release ? `${repo}/releases/tag/${v.version}` : (v.commit ? `${repo}/commit/${v.commit}` : repo);
+  const title = [v.version, v.commit, v.date, v.dirty ? 'uncommitted changes' : '', v.go_version]
+    .filter(Boolean).join('\n');
+  document.querySelectorAll('.app-version').forEach(a => {
+    a.textContent = label;
+    a.href = href;
+    a.title = title;
+  });
+  appVersion = { info: v, label, href, commitHref: v.commit ? `${repo}/commit/${v.commit}` : '' };
+})();
 
 // tabs
 document.querySelectorAll('.tab').forEach(t => {
@@ -3666,7 +3700,15 @@ async function refreshDiag() {
     document.getElementById(id).innerHTML = pairs
       .map(([k,v]) => `<dt>${k}</dt><dd>${v}</dd>`).join('');
   };
+  const ver = appVersion ? [
+    ['VERSION', `<a href="${escape(appVersion.href)}" target="_blank" rel="noopener">${escape(appVersion.info.version)}</a>`],
+    ['COMMIT',  appVersion.info.commit
+      ? `<a href="${escape(appVersion.commitHref)}" target="_blank" rel="noopener">${escape(appVersion.info.commit.slice(0, 7))}</a>${appVersion.info.dirty ? ' (modified)' : ''}`
+      : '—'],
+    ['BUILT',   escape(appVersion.info.date || '—')],
+  ] : [];
   fill('diag-runtime', [
+    ...ver,
     ['LINK',       d.linked ? 'ON (advertising)' : 'OFF (silent)'],
     ['UPTIME',     fmtDuration(d.uptime_sec)],
     ['GO',         d.go_version],

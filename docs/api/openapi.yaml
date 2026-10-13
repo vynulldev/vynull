@@ -79,6 +79,13 @@ paths:
       responses:
         "200": { description: OK, content: { application/json: { schema: { $ref: "#/components/schemas/StatusResponse" } } } }
 
+  /api/version:
+    get:
+      tags: [Status & Players]
+      summary: The running Vynull build (version, git commit, commit date).
+      responses:
+        "200": { description: OK, content: { application/json: { schema: { $ref: "#/components/schemas/VersionInfo" } } } }
+
   /api/players:
     get:
       tags: [Status & Players]
@@ -611,6 +618,16 @@ components:
         pitch_pct: { type: number }
         artwork_url: { type: string }
         waveform_url: { type: string }
+
+    VersionInfo:
+      type: object
+      required: [version]
+      properties:
+        version: { type: string, description: 'Release tag (e.g. v0.6.1), a Go pseudo-version between tags, or "dev" when unknown.' }
+        commit: { type: string, description: Full git commit hash. }
+        date: { type: string, format: date-time, description: Commit time. }
+        dirty: { type: boolean, description: Built from a working tree with uncommitted changes. }
+        go_version: { type: string, description: Go toolchain that built the binary. }
 
     PeerInfo:
       type: object

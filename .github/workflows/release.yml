@@ -33,7 +33,9 @@ jobs:
           GOOS: linux
           GOARCH: ${{ matrix.goarch }}
         run: |
-          go build -trimpath -ldflags='-s -w' -o vynull .
+          # Stamp the release tag; the commit and its time come from the
+          # toolchain's own VCS stamp (see internal/buildinfo).
+          go build -trimpath -ldflags="-s -w -X github.com/vynulldev/vynull/internal/buildinfo.Version=${GITHUB_REF_NAME}" -o vynull .
           tar -czf "vynull-${GITHUB_REF_NAME}-linux-${GOARCH}.tar.gz" vynull LICENSE README.md
 
       - uses: actions/upload-artifact@v4

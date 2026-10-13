@@ -25,6 +25,7 @@ import (
 	"github.com/vynulldev/vynull/dbserver"
 	"github.com/vynulldev/vynull/device"
 	"github.com/vynulldev/vynull/export"
+	"github.com/vynulldev/vynull/internal/buildinfo"
 	"github.com/vynulldev/vynull/internal/dlog"
 	"github.com/vynulldev/vynull/internal/netutil"
 	"github.com/vynulldev/vynull/library"
@@ -163,6 +164,7 @@ func main() {
 	// remotely, and previously the ring only attached after they printed.
 	api.CaptureLogs()
 
+	log.Printf("vynull %s", buildinfo.Get())
 	log.Printf("started with args: %v", os.Args[1:])
 
 	var lib *library.Library

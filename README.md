@@ -267,6 +267,7 @@ the client assumes the same host (or a shared mount).
 | `--copy-files` | `false` | Copy files when generating USB (default: symlink) |
 | `--export-playlist` | | With `--generate`, export only this playlist (by name) |
 | `--replay` | | Replay recorded response packets |
+| `--version` | | Print the version (release tag or dev commit) and exit |
 
 ## HTTP API
 
@@ -326,6 +327,10 @@ Or by file path:
   "device_number": 2
 }
 ```
+
+#### `GET /api/version`
+
+Returns the running build: `version` (release tag, or a Go pseudo-version between releases), `commit`, `date`, `dirty`, and `go_version`. Also shown at the right of the web UI's status bar and in DIAG's RUNTIME card, and printed by `vynull --version`.
 
 #### `GET /api/peers`
 

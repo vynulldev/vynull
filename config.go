@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/vynulldev/vynull/internal/buildinfo"
 	"github.com/vynulldev/vynull/proto"
 )
 
@@ -109,8 +110,15 @@ func parseFlags() Config {
 	var bpmRange string
 	flag.StringVar(&bpmRange, "bpm-range", "", "constrain BPM detection to a tempo range, e.g. 160-185, so fast genres (drum & bass) stop analyzing at half/third tempo. Applies to all analysis and re-analyzes affected tracks. Default: the usual 80-170 dance window")
 
+	showVersion := flag.Bool("version", false, "print the version and exit")
+
 	flag.Usage = printGroupedUsage
 	flag.Parse()
+
+	if *showVersion {
+		fmt.Println("vynull", buildinfo.Get())
+		os.Exit(0)
+	}
 
 	if bpmRange != "" {
 		lo, hi, err := parseBPMRange(bpmRange)
