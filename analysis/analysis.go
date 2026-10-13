@@ -39,7 +39,13 @@ const AnalysisRate = 44100
 // Bumped to 29 for the TempogramLatencyMs re-trim (30 -> 34ms): every grid
 // shifts +4ms, substantially raising sub-10ms agreement with rekordbox's
 // grids, so v28 grids re-analyze to pick up the corrected phase.
-const cacheVersion = 29
+// Bumped to 30 for the beat-grid timing work: results record GridDetected and
+// GridOffsetMs so a changed user grid offset can shift cached detected grids
+// in place; tracks that start at full level are detected from silence; the
+// latency is recalibrated per format with a gapless-aware MP3 delay; and grids
+// are placed on the kick's measured attack. Most detected grids move by a few
+// ms. Hand-edited grids ride across the bump via gridCarry, as before.
+const cacheVersion = 30
 
 // PWV4Override and PWV5Override, when non-nil, replace every track's color
 // preview / detail waveform at serve time. Set via the --pwv4-override /
@@ -93,6 +99,8 @@ type Result struct {
 	SongStructure    []byte    // PSSI phrase analysis blob for 0x2504 response
 	Phrases          []Phrase  // detected phrases (intro/up/down/chorus/outro) — used by API/web UI
 	GridEdited       bool      // user manually adjusted the beat grid — serve our blobs, not the on-disk ANLZ
+	GridDetected     bool      // the grid came from our own beat detection (not an imported ANLZ grid)
+	GridOffsetMs     float64   // the user grid offset (GridOffset) this detected grid was built/shifted with
 
 	// TempoMinBPM / TempoMaxBPM record the --bpm-range setting this result was
 	// analyzed under (0 = the default dance window). The cache treats a result
@@ -173,12 +181,13 @@ func (s *Store) Get(trackID uint32) *Result {
 	s.mu.RUnlock()
 
 	if r != nil {
-		return r
+		return s.alignGridOffset(trackID, r)
 	}
 
 	// Try loading from disk cache.
 	if s.cacheDir != "" && filePath != "" {
 		if cached := s.loadFromDisk(filePath); cached != nil {
+			cached = withGridOffset(cached)
 			s.mu.Lock()
 			s.results[trackID] = cached
 			s.mu.Unlock()
@@ -189,6 +198,96 @@ func (s *Store) Get(trackID uint32) *Result {
 	}
 
 	return nil
+}
+
+// alignGridOffset returns r shifted to the current grid offset, replacing the
+// stored result when it had to change. Readers may hold r, so a shifted copy
+// is stored rather than mutating r in place.
+func (s *Store) alignGridOffset(trackID uint32, r *Result) *Result {
+	shifted := withGridOffset(r)
+	if shifted != r {
+		s.mu.Lock()
+		if s.results[trackID] == r {
+			s.results[trackID] = shifted
+		}
+		s.mu.Unlock()
+	}
+	return shifted
+}
+
+// withGridOffset returns r unchanged when it already matches the current grid
+// offset (or is not ours to shift: imported or hand-edited grids keep their
+// absolute positions), else a copy with the grid moved by the difference.
+func withGridOffset(r *Result) *Result {
+	cur := GridOffset()
+	if r == nil || !r.GridDetected || r.GridEdited || r.GridOffsetMs == cur {
+		return r
+	}
+	c := *r
+	shiftGrid(&c, cur-r.GridOffsetMs)
+	c.GridOffsetMs = cur
+	return &c
+}
+
+// shiftGrid moves a result's beats and phrase times by delta ms (see
+// offsetBeats for how the start of the grid is handled).
+func shiftGrid(r *Result, delta float64) {
+	if len(r.Beats) == 0 || delta == 0 {
+		return
+	}
+	period := 60000 / r.BPM
+	if len(r.Beats) > 1 {
+		period = r.Beats[1] - r.Beats[0]
+	}
+	beats, db := offsetBeats(r.Beats, delta, period, r.DownbeatIndex)
+	r.DownbeatIndex = ((db % 4) + 4) % 4
+	r.Beats = beats
+	regenerateGrid(r) // rebuild the deck's beat-grid blobs from the moved beats
+	if len(r.Phrases) > 0 {
+		ph := append([]Phrase(nil), r.Phrases...)
+		for i := range ph {
+			if ph[i].EndMs > 0 {
+				ph[i].StartMs += delta
+				ph[i].EndMs += delta
+			}
+		}
+		r.Phrases = ph
+	}
+}
+
+// offsetBeats shifts a grid by delta ms and returns it with the index of the
+// beat that downbeat (an index into beats) now sits on. It keeps the downbeat
+// on the same musical beat and never loses a beat the detector found in the
+// audio: a beat at >= 0 that the shift pushes below zero is clamped to 0
+// rather than dropped (moving that one beat by less than delta). Dropping it
+// would push beat 1 of a track cut right on the downbeat a whole bar later.
+// A positive delta that opens a gap at the start is refilled at the period.
+func offsetBeats(in []float64, delta, period float64, downbeat int) ([]float64, int) {
+	out := make([]float64, 0, len(in)+1)
+	db := downbeat
+	for i, b := range in {
+		v := b + delta
+		if v < 0 {
+			if b >= 0 && len(out) == 0 {
+				v = 0 // a real beat near the start: keep it, at 0
+			} else {
+				// Already negative, or a second beat clamping onto the first
+				// (only when |delta| exceeds a period): nothing real to keep.
+				if i < downbeat {
+					db--
+				}
+				continue
+			}
+		}
+		out = append(out, v)
+	}
+	if period > 0 {
+		for len(out) > 0 && out[0]-period >= 0 {
+			out = append([]float64{out[0] - period}, out...)
+			db++
+		}
+	}
+	return out, db
 }
 
 // Set stores an analysis result for a track. If a user-edited beat grid was
@@ -533,6 +632,7 @@ func AnalyzeTrack(filePath string) (*Result, error) {
 		Phrases:       phrases,
 	}
 	r.TempoMinBPM, r.TempoMaxBPM = TempoRange()
+	r.GridDetected, r.GridOffsetMs = true, GridOffset() // DetectBeats applied the offset
 
 	// ---- encode to the installed wire format (Pioneer today) ----
 	waveformEncoder.Encode(samples, AnalysisRate, r, beatResult)

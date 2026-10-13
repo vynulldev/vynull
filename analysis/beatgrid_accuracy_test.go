@@ -76,6 +76,20 @@ func TestBeatGridAccuracy(t *testing.T) {
 	envF("VYNULL_BEAT_REF_CLARW", &ClarityWeight)
 	envF("VYNULL_BEAT_REF_GATE", &HalfBeatGate)
 	envF("VYNULL_BEAT_REF_LATENCY", &TempogramLatencyMs)
+	envF("VYNULL_BEAT_REF_STARTSILENCE", &StartSilenceMs)
+	envF("VYNULL_BEAT_REF_STARTGATE", &StartLevelGate)
+	envF("VYNULL_BEAT_REF_ATTACKLEAD", &AttackLeadMs)
+	envF("VYNULL_BEAT_REF_ATTACKGUARD", &AttackGuardMs)
+	if v := os.Getenv("VYNULL_BEAT_REF_HOTFLIP"); v != "" {
+		HotStartSkipsFlip = v == "skip"
+	}
+	if v := os.Getenv("VYNULL_BEAT_REF_ATTACK"); v != "" {
+		AttackPlacement = v == "1"
+	}
+	beatIdx := 0
+	if v, err := strconv.Atoi(os.Getenv("VYNULL_BEAT_REF_BEATIDX")); err == nil && v > 0 {
+		beatIdx = v
+	}
 	envF("VYNULL_BEAT_REF_WARMUP", &BandNormWarmupSec)
 	envF("VYNULL_BEAT_REF_EARLYTAU", &PhaseEarlyTauSec)
 	t.Logf("windowed=%v winSec=%.1f ampW=%.1f clarW=%.1f gate=%.1f warmup=%.1f earlyTau=%.1f", WindowedPhase, WindowSec, AmpWeight, ClarityWeight, HalfBeatGate, BandNormWarmupSec, PhaseEarlyTauSec)
@@ -108,7 +122,11 @@ func TestBeatGridAccuracy(t *testing.T) {
 					continue
 				}
 				P := 60000.0 / g.BPM
-				e := math.Mod(r.Beats[0]-g.FirstBeatMs, P)
+				// VYNULL_BEAT_REF_BEATIDX scores the phase of a later beat: the
+				// first beat can be clamped to 0 on a hot start while the rest
+				// of the grid keeps the detected phase.
+				bi := min(beatIdx, len(r.Beats)-1)
+				e := math.Mod(r.Beats[bi]-g.FirstBeatMs, P)
 				if e < -P/2 {
 					e += P
 				} else if e >= P/2 {

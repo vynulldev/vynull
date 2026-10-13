@@ -295,6 +295,22 @@ func main() {
 		fmt.Printf("BPM range: %g-%g (affected tracks re-analyze)\n", bpmMin, bpmMax)
 	}
 
+	// Beat-grid offset, same precedence: --grid-offset for this session, else
+	// the persisted web Analysis Setting. Cached detected grids shift to it on
+	// read; hand-edited and imported grids are left where they are.
+	gridOffset := cfg.GridOffsetMs
+	if !cfg.GridOffsetSet {
+		settingsPath := cfg.SettingsFile
+		if settingsPath == "" {
+			settingsPath = filepath.Join(cfg.DataDir, "settings.json")
+		}
+		gridOffset = device.NewCDJSettingsAt(settingsPath).GetGridOffset()
+	}
+	if gridOffset != 0 {
+		analysis.SetGridOffset(gridOffset)
+		fmt.Printf("Beat-grid offset: %+gms\n", gridOffset)
+	}
+
 	// Always create a cached analysis store so API-added tracks get analyzed.
 	cacheDir := filepath.Join(cfg.DataDir, "analysis")
 	analysisStore := analysis.NewStoreWithCache(cacheDir)

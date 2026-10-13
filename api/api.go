@@ -3623,6 +3623,21 @@ func parseTrackIDFromPath(path, prefix string) uint32 {
 	return id
 }
 
+// syncGridOffset applies the persisted beat-grid offset. No cache
+// invalidation: cached detected grids shift to the new offset on their next
+// read (analysis.Store.Get), and hand-edited or imported grids never move.
+func (s *Server) syncGridOffset() {
+	if s.Device == nil || s.Device.Settings == nil {
+		return
+	}
+	ms := s.Device.Settings.GetGridOffset()
+	if ms == analysis.GridOffset() {
+		return
+	}
+	analysis.SetGridOffset(ms)
+	log.Printf("api: beat-grid offset -> %+gms (detected grids shift on next read)", ms)
+}
+
 // syncBPMRange applies the persisted Analysis-Setting BPM range to the analyzer
 // and, when it actually changed, drops cached analyses so affected tracks
 // re-analyze on next access (lazy — nothing is re-analyzed up front). Called
@@ -3711,6 +3726,7 @@ func (s *Server) handleSettings(w http.ResponseWriter, r *http.Request) {
 		// flag-set range is actually in force. Editing it in the UI still
 		// persists to settings.json as usual.
 		full.BPMRangeMin, full.BPMRangeMax = analysis.TempoRange()
+		full.GridOffsetMs = analysis.GridOffset()
 		resp := struct {
 			SettingsJSON
 			Full device.SettingsConfig `json:"full"`
@@ -3744,6 +3760,7 @@ func (s *Server) handleSettings(w http.ResponseWriter, r *http.Request) {
 		settings.SetConfig(*combined.Full)
 		log.Printf("api: settings: full config replaced")
 		s.syncBPMRange() // keep the analyzer + cache in step with the Analysis Setting
+		s.syncGridOffset()
 		s.Device.NotifySettingsChanged()
 		writeJSON(w, struct{ OK bool }{true})
 		return

@@ -37,3 +37,17 @@ func (pioneerEncoder) Encode(samples []float32, sampleRate int, r *analysis.Resu
 
 	r.SongStructure = GeneratePSSI(r.Phrases, r.BPM)
 }
+
+// EncodeGrid rebuilds just the beat-grid blobs from r.Beats (analysis.GridEncoder),
+// used when a cached grid is shifted by the user grid offset.
+func (pioneerEncoder) EncodeGrid(r *analysis.Result) {
+	if len(r.Beats) == 0 {
+		return
+	}
+	db := r.Beats[0]
+	if r.DownbeatIndex >= 0 && r.DownbeatIndex < len(r.Beats) {
+		db = r.Beats[r.DownbeatIndex]
+	}
+	r.BeatGrid = analysis.GenerateBeatGridFromBeats(&analysis.BeatResult{BPM: r.BPM, Beats: r.Beats, Downbeat: db})
+	r.BeatGridPQT2 = GeneratePQT2(r.BPM, r.Beats, r.DownbeatIndex)
+}

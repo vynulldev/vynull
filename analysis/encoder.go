@@ -21,3 +21,29 @@ var waveformEncoder Encoder
 
 // SetEncoder installs the wire-format encoder used by AnalyzeTrack.
 func SetEncoder(e Encoder) { waveformEncoder = e }
+
+// GridEncoder is optionally implemented by an Encoder to rebuild only the
+// beat-grid blobs from a Result's Beats, e.g. after the grid is shifted by the
+// user grid offset without a full re-analysis.
+type GridEncoder interface {
+	EncodeGrid(r *Result)
+}
+
+// regenerateGrid rebuilds r's beat-grid blobs from r.Beats via the installed
+// encoder, or the brand-neutral blob when no grid encoder is installed.
+func regenerateGrid(r *Result) {
+	if g, ok := waveformEncoder.(GridEncoder); ok {
+		g.EncodeGrid(r)
+		return
+	}
+	r.BeatGridPQT2 = nil
+	if len(r.Beats) == 0 {
+		r.BeatGrid = nil
+		return
+	}
+	db := r.Beats[0]
+	if r.DownbeatIndex >= 0 && r.DownbeatIndex < len(r.Beats) {
+		db = r.Beats[r.DownbeatIndex]
+	}
+	r.BeatGrid = GenerateBeatGridFromBeats(&BeatResult{BPM: r.BPM, Beats: r.Beats, Downbeat: db})
+}

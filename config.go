@@ -6,6 +6,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"math"
 	"os"
 	"strconv"
 	"strings"
@@ -53,6 +54,8 @@ type Config struct {
 	HistoryFormat  string  // track-history format: text|csv|json (default: text)
 	BPMMin         float64 // --bpm-range lower bound (0 = unset: use the default 80-170 dance window)
 	BPMMax         float64 // --bpm-range upper bound
+	GridOffsetMs   float64 // --grid-offset (ms); GridOffsetSet reports whether it was given
+	GridOffsetSet  bool
 }
 
 // parseBPMRange parses a "MIN-MAX" tempo range (e.g. "160-185") into its
@@ -110,6 +113,9 @@ func parseFlags() Config {
 	var bpmRange string
 	flag.StringVar(&bpmRange, "bpm-range", "", "constrain BPM detection to a tempo range, e.g. 160-185, so fast genres (drum & bass) stop analyzing at half/third tempo. Applies to all analysis and re-analyzes affected tracks. Default: the usual 80-170 dance window")
 
+	var gridOffset string
+	flag.StringVar(&gridOffset, "grid-offset", "", "shift every detected beat grid by this many ms (negative = earlier). Overrides the web Analysis Setting for this session. Default: 0 (match rekordbox)")
+
 	showVersion := flag.Bool("version", false, "print the version and exit")
 
 	flag.Usage = printGroupedUsage
@@ -118,6 +124,15 @@ func parseFlags() Config {
 	if *showVersion {
 		fmt.Println("vynull", buildinfo.Get())
 		os.Exit(0)
+	}
+
+	if gridOffset != "" {
+		v, err := strconv.ParseFloat(strings.TrimSpace(gridOffset), 64)
+		if err != nil || math.IsNaN(v) || math.Abs(v) > 200 {
+			fmt.Fprintf(os.Stderr, "error: --grid-offset: want milliseconds between -200 and 200, got %q\n", gridOffset)
+			os.Exit(1)
+		}
+		cfg.GridOffsetMs, cfg.GridOffsetSet = v, true
 	}
 
 	if bpmRange != "" {
@@ -215,7 +230,7 @@ var flagGroups = []flagGroup{
 		"interface", "mode", "device-number", "device-name",
 	}},
 	{"Library + analysis", []string{
-		"music-dir", "data-dir", "lazy-analysis", "transcode", "bpm-range",
+		"music-dir", "data-dir", "lazy-analysis", "transcode", "bpm-range", "grid-offset",
 	}},
 	{"CDJ settings", []string{
 		"settings", "import-settings",

@@ -145,6 +145,13 @@ func (s *CDJSettings) GetBPMRange() (min, max float64) {
 	return s.cfg.BPMRangeMin, s.cfg.BPMRangeMax
 }
 
+// GetGridOffset returns the configured beat-grid offset in ms (0 = none).
+func (s *CDJSettings) GetGridOffset() float64 {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.cfg.GridOffsetMs
+}
+
 // SetBPMRange sets the analysis BPM range and persists. (0, 0) clears it.
 func (s *CDJSettings) SetBPMRange(min, max float64) {
 	s.mu.Lock()
