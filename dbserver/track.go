@@ -7,6 +7,7 @@ import (
 	"github.com/vynulldev/vynull/internal/dlog"
 	"log"
 	"math"
+	"path/filepath"
 	"strings"
 
 	"github.com/vynulldev/vynull/analysis"
@@ -659,7 +660,17 @@ func (h *Handler) handleGetExtAnalysis(msg *proto.DBMessage) []*proto.DBMessage 
 				// stops the deck rejecting it and uploading its own via 0x2805.
 				// Falls back to the zeroed placeholder only if the file can't
 				// be probed.
-				blob := analysis.VBRSeekIndex(h.resolveTrackPath(trackID))
+				//
+				// Only for FLAC: rekordbox serves this atom straight from the
+				// track's .EXT file, and it writes PVB2 only for FLAC (a
+				// library's MP3, M4A and WAV .EXT files carry none), so for
+				// any other format it replies not-found, below. Serving one
+				// for an MP3 also made the deck show the wrong track length.
+				path := h.resolveTrackPath(trackID)
+				if !strings.EqualFold(filepath.Ext(path), ".flac") {
+					break
+				}
+				blob := analysis.VBRSeekIndex(path)
 				if blob != nil {
 					dlog.Debugf("dbserver: PVB2 for track %d (%d bytes, generated seek index)", trackID, len(blob))
 				} else {

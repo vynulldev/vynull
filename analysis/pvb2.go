@@ -69,7 +69,15 @@ func generateVBRSeekIndex(filePath string) ([]byte, error) {
 		return nil, fmt.Errorf("pvb2: too few frames (%d) in %s", len(pts), filePath)
 	}
 	firstPos := pos[0]
-	totalSamples := probeTotalSamples(filePath)
+	totalSamples, tbNum, tbDen, rate := probeStream(filePath)
+	// Packet timestamps are in the stream's time base, which is 1/sample_rate
+	// for FLAC but finer for other codecs (MP3 is 1/14112000, 320× the sample
+	// count at 44.1 kHz). Rescale them to sample positions.
+	if tbNum > 0 && tbDen > 0 && rate > 0 && tbNum*rate != tbDen {
+		for i, p := range pts {
+			pts[i] = p * tbNum * rate / tbDen
+		}
+	}
 	if totalSamples == 0 {
 		totalSamples = pts[len(pts)-1] + pvb2BlockSize
 	}
@@ -146,21 +154,21 @@ func probeFrames(filePath string) (pts, pos []int64, err error) {
 	return pts, pos, nil
 }
 
-// probeTotalSamples returns the decoded sample count (duration × sample_rate),
-// or 0 if it can't be determined. Cheap — no per-packet enumeration.
-func probeTotalSamples(filePath string) int64 {
+// probeStream returns the decoded sample count (duration × sample_rate, or 0
+// if it can't be determined), the stream time base as num/den, and the sample
+// rate. Cheap — no per-packet enumeration.
+func probeStream(filePath string) (totalSamples, tbNum, tbDen, rate int64) {
 	out, err := exec.Command("ffprobe",
 		"-v", "error",
 		"-select_streams", "a:0",
-		"-show_entries", "stream=duration,sample_rate",
+		"-show_entries", "stream=duration,sample_rate,time_base",
 		"-of", "default=nokey=0:noprint_wrappers=1",
 		filePath,
 	).Output()
 	if err != nil {
-		return 0
+		return 0, 0, 0, 0
 	}
 	var dur float64
-	var rate int64
 	for _, line := range strings.Split(string(out), "\n") {
 		k, v, ok := strings.Cut(strings.TrimSpace(line), "=")
 		if !ok {
@@ -171,10 +179,15 @@ func probeTotalSamples(filePath string) int64 {
 			dur, _ = strconv.ParseFloat(v, 64)
 		case "sample_rate":
 			rate, _ = strconv.ParseInt(v, 10, 64)
+		case "time_base":
+			if n, d, ok := strings.Cut(v, "/"); ok {
+				tbNum, _ = strconv.ParseInt(n, 10, 64)
+				tbDen, _ = strconv.ParseInt(d, 10, 64)
+			}
 		}
 	}
-	if dur <= 0 || rate <= 0 {
-		return 0
+	if dur > 0 && rate > 0 {
+		totalSamples = int64(dur*float64(rate) + 0.5)
 	}
-	return int64(dur*float64(rate) + 0.5)
+	return totalSamples, tbNum, tbDen, rate
 }
