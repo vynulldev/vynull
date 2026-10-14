@@ -133,7 +133,7 @@ func (h *Handler) handleGetPlaylist(msg *proto.DBMessage) []*proto.DBMessage {
 				items = h.trackIDsToMenuItems(node.TrackIDs)
 				break
 			}
-			h.applyPlaylistTrackScope(items, getSortOrder(msg))
+			h.applyPlaylistTrackScope(items, getSortOrder(msg), false)
 			dlog.Debugf("dbserver: pdb playlist %d returning %d tracks", folderID, len(items))
 		}
 		h.pendingItems = items
@@ -166,7 +166,7 @@ func (h *Handler) handleGetPlaylist(msg *proto.DBMessage) []*proto.DBMessage {
 		} else {
 			trackIDs := h.playlists.Tracks(folderID)
 			items := h.trackIDsToMenuItems(trackIDs)
-			h.applyPlaylistTrackScope(items, getSortOrder(msg))
+			h.applyPlaylistTrackScope(items, getSortOrder(msg), h.isSmartPlaylist(folderID))
 			h.pendingItems = items
 			dlog.Debugf("dbserver: user-playlist %d returning %d tracks", folderID, len(items))
 		}
@@ -219,14 +219,18 @@ func (h *Handler) handleGetPlaylist(msg *proto.DBMessage) []*proto.DBMessage {
 // even when the store had the right track IDs.
 // applyPlaylistTrackScope stamps the playlist-track-leaf wire conventions on
 // a playlist's track rows: a 1-based position in argument 9 (in playlist
-// order) and the packed context track type in argument 7, matching rekordbox.
-// Tracks stay in playlist order for the default sort (sort=0); a requested
-// sort reorders them while each row keeps its original position.
-func (h *Handler) applyPlaylistTrackScope(items []*menuItem, order uint32) {
+// order) and, for a regular playlist, the packed context track type in
+// argument 7, matching rekordbox. A smart playlist's rows carry no context
+// type (link-spec conformance smart suites, rekordbox 7.2.19). Tracks stay
+// in playlist order for the default sort (sort=0); a requested sort reorders
+// them while each row keeps its original position.
+func (h *Handler) applyPlaylistTrackScope(items []*menuItem, order uint32, smart bool) {
 	for i := range items {
 		items[i].trackPos = uint32(i + 1)
 	}
-	markContextType(items, h.ctxTrackType)
+	if !smart {
+		markContextType(items, h.ctxTrackType)
+	}
 	if order != sortDefault {
 		sortItems(items, order)
 	}
@@ -311,4 +315,12 @@ func (h *Handler) rebuildFolders() {
 		}
 	}
 	h.folders = pdb.BuildFolderLookup(pdbTracks)
+}
+
+// isSmartPlaylist reports whether the playlist source marks the playlist as
+// smart (rule-based); sources that don't implement SmartPlaylistSource have
+// none.
+func (h *Handler) isSmartPlaylist(id uint32) bool {
+	sp, ok := h.playlists.(SmartPlaylistSource)
+	return ok && sp.IsSmart(id)
 }
