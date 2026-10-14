@@ -19,6 +19,11 @@ import (
 
 // Handler processes individual dbserver messages and returns responses.
 type Handler struct {
+	// ctxTrackType is the context track type of the browse request being
+	// served (the low byte of its first argument). rekordbox echoes it in
+	// argument 7 of hierarchy track rows (see markContextType).
+	ctxTrackType uint32
+
 	lib          *library.Library
 	pdb          *pdb.Database
 	deviceNumber uint8
@@ -189,6 +194,16 @@ func (h *Handler) storeAnalysisResult(trackID uint32, r *analysis.Result) {
 // zero or more response messages.
 func (h *Handler) Handle(msg *proto.DBMessage) []*proto.DBMessage {
 	dlog.Tracef("dbserver msg type=0x%04x txid=%08x args=%d", msg.Type, msg.TxID, len(msg.Args))
+
+	// rekordbox answers no browse request (0x1000-0x1fff) whose context
+	// track type is 0x03 or 0x04; the session stays open. See silentTrackType.
+	if msg.Type >= 0x1000 && msg.Type < 0x2000 {
+		if silentTrackType(dmstTrackType(msg)) {
+			dlog.Debugf("dbserver: ignoring 0x%04x with context track type 0x%02x, as rekordbox does", msg.Type, dmstTrackType(msg))
+			return nil
+		}
+		h.ctxTrackType = uint32(dmstTrackType(msg))
+	}
 
 	switch msg.Type {
 	case proto.DBMsgSetup:

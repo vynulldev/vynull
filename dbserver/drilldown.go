@@ -455,7 +455,7 @@ func (h *Handler) getTracksForLabelArtistAlbum(labelID, artistID, albumID uint32
 	}
 	items := h.tracksToStdItems(tracks)
 	sortItems(items, sortTitle)
-	markContextType(items, 1)
+	markContextType(items, h.ctxTrackType)
 	return items
 }
 
@@ -808,7 +808,7 @@ func (h *Handler) handleGetTracksByAlbum(msg *proto.DBMessage) []*proto.DBMessag
 		}
 	}
 	sortItems(items, sortTitle)
-	markContextType(items, 1)
+	markContextType(items, h.ctxTrackType)
 	h.pendingItems = items
 	dlog.Debugf("dbserver: get tracks by album (0x1202) returning %d tracks", len(h.pendingItems))
 	return []*proto.DBMessage{h.successWithCount(msg)}
@@ -852,7 +852,7 @@ func (h *Handler) handleGetByAlbum(msg *proto.DBMessage) []*proto.DBMessage {
 		items[i].trackPos = uint32(t.TrackNum)
 	}
 	sortItems(items, sortTitle)
-	markContextType(items, 1)
+	markContextType(items, h.ctxTrackType)
 	h.pendingItems = items
 	dlog.Debugf("dbserver: get by album %q returning %d tracks", albumName, len(h.pendingItems))
 	return []*proto.DBMessage{h.successWithCount(msg)}
@@ -922,7 +922,7 @@ func (h *Handler) getTracksForGenreArtistAlbum(genreID, artistID, albumID uint32
 	}
 	items := h.tracksToStdItems(tracks)
 	sortItems(items, sortTitle)
-	markContextType(items, 1)
+	markContextType(items, h.ctxTrackType)
 	return items
 }
 
@@ -1020,7 +1020,7 @@ func (h *Handler) tracksForArtistLikeAlbum(kind string, id, albumID uint32, fiel
 		}
 	}
 	sortItems(items, sortTitle)
-	markContextType(items, 1)
+	markContextType(items, h.ctxTrackType)
 	return items
 }
 
