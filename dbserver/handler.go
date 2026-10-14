@@ -219,8 +219,8 @@ func (h *Handler) Handle(msg *proto.DBMessage) []*proto.DBMessage {
 	switch msg.Type {
 	case proto.DBMsgSetup:
 		return h.handleSetup(msg)
-	case 0x3007: // mount/media info
-		return h.handleMediaInfo(msg)
+	case 0x3007: // set filter on/off (CMD_SET_FILTER_ONOFF)
+		return h.handleSetFilterOnOff(msg)
 	case proto.DBMsgRootMenu: // 0x1000
 		return h.handleRootMenu(msg)
 	case 0x3e03: // NXS2 extension
@@ -508,9 +508,20 @@ func (h *Handler) handleSetup(msg *proto.DBMessage) []*proto.DBMessage {
 	}}
 }
 
-func (h *Handler) handleMediaInfo(msg *proto.DBMessage) []*proto.DBMessage {
-	dlog.Debugf("dbserver: media info (0x3007)")
-	// Respond: success with [echo_type, 0] — matches the CDJ
+// handleSetFilterOnOff handles 0x3007, which decks send before each root
+// menu request. It is the first of rekordbox's filter commands (0x3007 to
+// 0x3407 in 0x100 steps, dispatched by PSvDBMain::OnFilterCmd), and XDJ-RR
+// firmware sends it from dbcl_SetFilterOnOff (link-spec's static analysis
+// in docs/LINK_EXPORT_REQUEST_VOCABULARY.md and
+// data/static-analysis/xdj-rr-client-navigation.json). We keep no filter
+// state, so it is only acknowledged. rekordbox's reply has not been
+// captured; this plain success is what decks have always accepted from us.
+func (h *Handler) handleSetFilterOnOff(msg *proto.DBMessage) []*proto.DBMessage {
+	argVals := make([]string, len(msg.Args))
+	for i, a := range msg.Args {
+		argVals[i] = fmt.Sprintf("0x%08x", a.Int())
+	}
+	dlog.Debugf("dbserver: set filter on/off (0x3007) args=%v", argVals)
 	return []*proto.DBMessage{{
 		TxID: msg.TxID,
 		Type: proto.DBMsgSuccess,
