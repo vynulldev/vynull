@@ -32,6 +32,7 @@ import (
 	"github.com/vynulldev/vynull/device"
 	"github.com/vynulldev/vynull/export"
 	"github.com/vynulldev/vynull/internal/buildinfo"
+	"github.com/vynulldev/vynull/internal/dlog"
 	"github.com/vynulldev/vynull/library"
 	"github.com/vynulldev/vynull/link/prolink"
 	"github.com/vynulldev/vynull/mediadb"
@@ -2063,6 +2064,18 @@ func (s *Server) tryQueueAnalysis(trackID uint32, filePath string) bool {
 
 func (s *Server) analysisWorker() {
 	for job := range s.analyzeCh {
+		// Jobs are queued for tracks with no analysis yet. One may have
+		// arrived while the job waited: an import adds its tracks before
+		// storing (and locking) rekordbox's analysis, and the web UI's
+		// waveform requests queue whatever rows are on screen in between.
+		// Analyzing now would overwrite the imported analysis.
+		if r := s.Analysis.Get(job.trackID); r != nil {
+			s.Analysis.DecPending()
+			s.queuedAnalyses.Delete(job.trackID)
+			s.applyAnalysisToTrack(job.trackID, r)
+			dlog.Debugf("api: skipping queued analysis of track %d: it has one now", job.trackID)
+			continue
+		}
 		s.Analysis.SetStatus(fmt.Sprintf("Analyzing: %s", filepath.Base(job.filePath)))
 		var r *analysis.Result
 		var err error
