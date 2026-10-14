@@ -82,4 +82,9 @@ type Track struct {
 	// this track, and will not auto/re-analyze it (serving the existing grid
 	// even across a cache-version bump). Omitted from JSON when false.
 	AnalysisLocked bool `json:"analysis_locked,omitempty"`
+
+	// Related lists the tracks rekordbox recommends alongside this one
+	// (djmdRecommendLike from a master.db import, both directions). It backs
+	// the CDJ's MATCHING browse and persists with the library.
+	Related []uint32 `json:"related,omitempty"`
 }

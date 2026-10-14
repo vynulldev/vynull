@@ -55,10 +55,6 @@ type Library struct {
 	// dbserver sets argument 7's song-tag bit on these tracks' menu rows.
 	songTags map[uint32]struct{}
 
-	// related holds the symmetric related-track graph (djmdRecommendLike),
-	// backing the MATCHING browse. Populated from a master.db import.
-	related map[uint32][]uint32
-
 	dbPath string // if set, persist track list to this JSON file
 
 	// rev is a monotonic revision counter bumped whenever track data
@@ -132,26 +128,29 @@ func (l *Library) HasSongTag(id uint32) bool {
 }
 
 // AddRelated records a symmetric related-track relationship (both a->b and
-// b->a), deduping. Populated during a master.db import for the MATCHING browse.
+// b->a), deduping, on the tracks' Related lists so it persists with the
+// library. Populated during a master.db import for the MATCHING browse; the
+// caller saves (an import does so once at the end).
 func (l *Library) AddRelated(a, b uint32) {
 	if a == 0 || b == 0 || a == b {
 		return
 	}
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	if l.related == nil {
-		l.related = make(map[uint32][]uint32)
+	ta, tb := l.byID[a], l.byID[b]
+	if ta == nil || tb == nil {
+		return
 	}
-	add := func(from, to uint32) {
-		for _, x := range l.related[from] {
+	add := func(from *Track, to uint32) {
+		for _, x := range from.Related {
 			if x == to {
 				return
 			}
 		}
-		l.related[from] = append(l.related[from], to)
+		from.Related = append(from.Related, to)
 	}
-	add(a, b)
-	add(b, a)
+	add(ta, b)
+	add(tb, a)
 }
 
 // Related returns the track IDs related to the given track (either direction),
@@ -159,11 +158,11 @@ func (l *Library) AddRelated(a, b uint32) {
 func (l *Library) Related(id uint32) []uint32 {
 	l.mu.RLock()
 	defer l.mu.RUnlock()
-	ids := l.related[id]
-	if ids == nil {
+	t := l.byID[id]
+	if t == nil || len(t.Related) == 0 {
 		return nil
 	}
-	return append([]uint32(nil), ids...)
+	return append([]uint32(nil), t.Related...)
 }
 
 // New creates an empty Library for adding tracks dynamically.
