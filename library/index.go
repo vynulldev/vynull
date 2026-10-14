@@ -415,6 +415,26 @@ func (l *Library) IncrementPlayCount(trackID uint32) int {
 	return count
 }
 
+// AdoptArtwork stores artwork found for a track outside the usual artwork
+// pass (analysis extracts it too) and links it to the track, but only when the
+// track has no artwork and hasn't been checked for any, the same rule the
+// artwork pass follows. The image gets an ordinary artwork ID: artwork and
+// track IDs are separate spaces, so storing it under the track's ID could
+// overwrite or impersonate another track's artwork.
+func (l *Library) AdoptArtwork(trackID uint32, mimeType string, data []byte) {
+	if l.Artwork == nil || len(data) == 0 {
+		return
+	}
+	l.mu.RLock()
+	t := l.byID[trackID]
+	wanted := t != nil && t.ArtID == 0 && !t.ArtChecked
+	l.mu.RUnlock()
+	if !wanted {
+		return
+	}
+	l.SetArtwork(trackID, l.Artwork.Add(mimeType, data))
+}
+
 // SetArtwork records an extracted artwork ID for a track and marks it checked,
 // under the library lock — so lazy artwork extraction (which runs on request
 // goroutines) doesn't race the Save() that marshals the track list.
