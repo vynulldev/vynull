@@ -23,6 +23,9 @@ type Handler struct {
 	// served (the low byte of its first argument). rekordbox echoes it in
 	// argument 7 of hierarchy track rows (see markContextType).
 	ctxTrackType uint32
+	// silentRender makes the next render request go unanswered, as rekordbox
+	// leaves the render after a rejected Hot Cue Bank catalog request.
+	silentRender bool
 
 	lib          *library.Library
 	pdb          *pdb.Database
@@ -209,6 +212,10 @@ func (h *Handler) Handle(msg *proto.DBMessage) []*proto.DBMessage {
 		return resp
 	}
 
+	if msg.Type != proto.DBMsgRenderMenu {
+		h.silentRender = false
+	}
+
 	switch msg.Type {
 	case proto.DBMsgSetup:
 		return h.handleSetup(msg)
@@ -250,6 +257,10 @@ func (h *Handler) Handle(msg *proto.DBMessage) []*proto.DBMessage {
 		}}
 	case 0x2001: // HOT CUE BANK list (NXS2 hot-cue-bank catalogue)
 		return h.handleGetHotCueBank(msg)
+	case 0x2101: // a hot cue bank's cues, legacy records
+		return h.handleGetHotCueBankCues(msg)
+	case 0x2301: // a hot cue bank's cues, extended records
+		return h.handleGetHotCueBankCuesExtended(msg)
 	case 0x1300: // SEARCH category: per-keystroke search query
 		return h.handleSearch(msg)
 	case 0x1200: // SEARCH-result drill-in: resolve the selected item's ID

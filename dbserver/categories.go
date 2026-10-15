@@ -473,15 +473,6 @@ func (h *Handler) handleGetFilename(msg *proto.DBMessage) []*proto.DBMessage {
 	return []*proto.DBMessage{h.successWithCount(msg)}
 }
 
-// handleGetHotCueBank — opcode 0x2001. We don't store hot-cue banks
-// separately yet, so return empty. The deck still shows the menu
-// entry (single empty row).
-func (h *Handler) handleGetHotCueBank(msg *proto.DBMessage) []*proto.DBMessage {
-	h.setPendingAll(msg, nil)
-	dlog.Debugf("dbserver: HOT CUE BANK list (empty — not stored)")
-	return []*proto.DBMessage{h.successWithCount(msg)}
-}
-
 // classicKeyNames lists rekordbox's 24 harmonic positions in order, in Classic
 // (musical) notation. The 1-based position is the "new key" index served as
 // the KEY menu's row ID (1A=1, 1B=2, ... 12B=24); the deck reverses it to the
