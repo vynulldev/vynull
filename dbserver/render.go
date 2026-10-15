@@ -17,6 +17,11 @@ import (
 // root menu for a category preview before tapping in.
 
 func (h *Handler) handleRenderMenu(msg *proto.DBMessage) []*proto.DBMessage {
+	if h.silentRender {
+		h.silentRender = false
+		dlog.Debugf("dbserver: render after a rejected request left unanswered, as rekordbox does")
+		return nil
+	}
 	argVals := make([]string, len(msg.Args))
 	for i, a := range msg.Args {
 		argVals[i] = fmt.Sprintf("0x%08x", a.Int())
