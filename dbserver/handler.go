@@ -370,6 +370,8 @@ func (h *Handler) Handle(msg *proto.DBMessage) []*proto.DBMessage {
 		return h.handleGetCuePoints(msg)
 	case 0x2102: // track file info (path, duration, BPM, key, comment)
 		return h.handleGetTrackInfo(msg)
+	case 0x2602: // Delivery Info (13 metadata rows)
+		return h.handleGetDeliveryInfo(msg)
 	case 0x2103: // alternate artwork request (by track ID)
 		return h.handleGetArtwork(msg)
 	case 0x2107: // rating update from CDJ

@@ -91,15 +91,25 @@ func (h *Handler) handleRenderMenu(msg *proto.DBMessage) []*proto.DBMessage {
 		limit = int(msg.Args[2].Int())
 	}
 
+	// rekordbox normalizes the requested window (link-spec
+	// PROTOCOL_REFERENCE.md, "Render ranges and pagination"): a zero count
+	// reads one row, a window running past the end slides back so it ends on
+	// the last row (an offset at or past the end reads the final row), and a
+	// count larger than the list reads all of it. Only the maximum offset is
+	// ignored outright: no reply.
+	if len(msg.Args) >= 4 && msg.Args[1].Int() == 0xffffffff {
+		dlog.Debugf("dbserver: render at offset 0xffffffff left unanswered, as rekordbox does")
+		return nil
+	}
 	items := pending
-	if offset >= len(items) {
-		items = nil
+	if n := len(items); n == 0 {
+		offset, items = 0, nil
 	} else {
-		end := offset + limit
-		if end > len(items) {
-			end = len(items)
+		limit = min(max(limit, 1), n)
+		if offset < 0 || offset+limit > n {
+			offset = n - limit
 		}
-		items = items[offset:end]
+		items = items[offset : offset+limit]
 	}
 
 	var responses []*proto.DBMessage

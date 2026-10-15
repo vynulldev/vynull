@@ -959,7 +959,12 @@ func (h *Handler) handleGetTrackInfo(msg *proto.DBMessage) []*proto.DBMessage {
 			Args: []proto.DBArg{proto.ArgI32(uint32(msg.Type)), proto.ArgI32(0)},
 		}}
 	}
-	if !strings.HasPrefix(relPath, "/") {
+	// A Windows drive path (a rekordbox import whose file isn't on this
+	// machine) is sent as rekordbox sends it, "Z:/...", not "/Z:/..." as
+	// stored; any other path is absolute from the export root.
+	if p := strings.TrimPrefix(relPath, "/"); isDrivePath(p) {
+		relPath = p
+	} else if !strings.HasPrefix(relPath, "/") {
 		relPath = "/" + relPath
 	}
 
@@ -989,6 +994,9 @@ func (h *Handler) handleGetTrackInfo(msg *proto.DBMessage) []*proto.DBMessage {
 			if key == "" {
 				key = t.Key
 			}
+			if comment == "" {
+				comment = t.Comment
+			}
 			if fileSize == 0 {
 				fileSize = uint32(t.FileSize)
 			}
@@ -1006,6 +1014,11 @@ func (h *Handler) handleGetTrackInfo(msg *proto.DBMessage) []*proto.DBMessage {
 				tempo = 12000 // 120.00 BPM
 			}
 		}
+	}
+
+	// The key row carries rekordbox's key ID, as it does in the KEY menu.
+	if keyID == 0 && key != "" && h.lib != nil {
+		keyID = h.catID("key", key)
 	}
 
 	dlog.Debugf("dbserver: track info for track %d: path=%s dur=%d bpm=%d", trackID, relPath, duration, tempo)
@@ -1097,4 +1110,10 @@ func (h *Handler) handleGetNXS2CuePoints(msg *proto.DBMessage) []*proto.DBMessag
 			proto.ArgI32(cueCount),
 		},
 	}}
+}
+
+// isDrivePath reports whether p starts with a Windows drive letter ("Z:/").
+func isDrivePath(p string) bool {
+	return len(p) >= 3 && p[1] == ':' && (p[2] == '/' || p[2] == '\\') &&
+		(p[0] >= 'A' && p[0] <= 'Z' || p[0] >= 'a' && p[0] <= 'z')
 }
