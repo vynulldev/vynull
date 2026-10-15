@@ -27,6 +27,42 @@ type MasterDBDump struct {
 	// Recommendations are djmdRecommendLike related-track pairs backing the
 	// MATCHING browse.
 	Recommendations []masterDBRecommend `json:"recommendations"`
+	// HotCueBanks and HotCueBankMembers are the Hot Cue Bank tree
+	// (djmdHotCueBanklist) and memberships (djmdSongHotCueBanklist).
+	HotCueBanks       []masterDBHotCueBank       `json:"hot_cue_banks"`
+	HotCueBankMembers []masterDBHotCueBankMember `json:"hot_cue_bank_members"`
+}
+
+// masterDBHotCueBank is one djmdHotCueBanklist node; top-level nodes have
+// ParentID "root".
+type masterDBHotCueBank struct {
+	ID       string `json:"id"`
+	ParentID string `json:"parent_id"`
+	Seq      int    `json:"seq"`
+	Name     string `json:"name"`
+	Folder   bool   `json:"folder"`
+	Deleted  bool   `json:"deleted"`
+}
+
+// masterDBHotCueBankMember is one djmdSongHotCueBanklist membership.
+type masterDBHotCueBankMember struct {
+	BankID    string `json:"bank_id"`
+	ContentID string `json:"content_id"`
+	TrackNo   int64  `json:"track_no"`
+	// Numeric cue fields are decoded wide: rekordbox stores sentinels like -1
+	// in columns the wire carries as unsigned 32-bit words.
+	InMsec          int64  `json:"in_msec"`
+	OutMsec         int64  `json:"out_msec"`
+	InMpegFrame     int64  `json:"in_mpeg_frame"`
+	OutMpegFrame    int64  `json:"out_mpeg_frame"`
+	InMpegAbs       int64  `json:"in_mpeg_abs"`
+	OutMpegAbs      int64  `json:"out_mpeg_abs"`
+	Color           int    `json:"color"`
+	ColorTableIndex int    `json:"color_table_index"`
+	Comment         string `json:"comment"`
+	BeatLoopSize    int64  `json:"beat_loop_size"`
+	CueMicrosec     int64  `json:"cue_microsec"`
+	Deleted         bool   `json:"deleted"`
 }
 
 // masterDBRecommend is one djmdRecommendLike related-track pair (ContentIDs).
@@ -244,6 +280,31 @@ func ImportMasterDBDump(lib *Library, dump *MasterDBDump) (*ImportBundle, error)
 		if ok1 && ok2 {
 			lib.AddRelated(a, b)
 		}
+	}
+
+	// Hot Cue Banks replace the library's when the dump has any. Memberships
+	// keep their rekordbox ContentID; TrackID is the library track it
+	// resolved to (0 for content that isn't in the library).
+	if len(dump.HotCueBanks) > 0 {
+		banks := make([]HotCueBank, 0, len(dump.HotCueBanks))
+		for _, b := range dump.HotCueBanks {
+			banks = append(banks, HotCueBank{
+				ID: parseRBID(b.ID), ParentID: parseRBID(b.ParentID), // "root" → 0
+				Seq: b.Seq, Name: b.Name, Folder: b.Folder, Deleted: b.Deleted,
+			})
+		}
+		members := make([]HotCueBankMember, 0, len(dump.HotCueBankMembers))
+		for _, m := range dump.HotCueBankMembers {
+			members = append(members, HotCueBankMember{
+				BankID: parseRBID(m.BankID), TrackID: idMap[m.ContentID], ContentID: parseRBID(m.ContentID),
+				TrackNo: int32(m.TrackNo), InMsec: int32(m.InMsec), OutMsec: int32(m.OutMsec),
+				InMpegFrame: uint32(m.InMpegFrame), OutMpegFrame: uint32(m.OutMpegFrame),
+				InMpegAbs: uint32(m.InMpegAbs), OutMpegAbs: uint32(m.OutMpegAbs),
+				Color: m.Color, ColorTableIndex: m.ColorTableIndex, Comment: m.Comment, BeatLoopSize: uint32(m.BeatLoopSize),
+				CueMicrosec: uint32(m.CueMicrosec), Deleted: m.Deleted,
+			})
+		}
+		lib.SetHotCueBanks(banks, members)
 	}
 
 	// Flag the tracks in the "Tag List" (djmdSongTagList) so their served menu
