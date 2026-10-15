@@ -86,6 +86,22 @@ func (l *Library) HotCueBankChildren(parentID uint32) []HotCueBank {
 	return out
 }
 
+// HotCueBankList returns every live folder and bank, in no particular order.
+func (l *Library) HotCueBankList() []HotCueBank {
+	l.mu.RLock()
+	defer l.mu.RUnlock()
+	if l.hotCueBanks == nil {
+		return nil
+	}
+	var out []HotCueBank
+	for _, b := range l.hotCueBanks.Banks {
+		if !b.Deleted {
+			out = append(out, b)
+		}
+	}
+	return out
+}
+
 // HotCueBankMembers returns every membership of bankID, deleted ones
 // included (rekordbox's catalog ignores the membership flag), ordered by
 // signed TrackNo. Duplicates are kept: a track can sit in a bank twice.
