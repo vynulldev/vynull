@@ -59,6 +59,7 @@ tags:
   - name: Library
   - name: Track edits
   - name: Playlists
+  - name: Hot Cue Banks
   - name: Playback
   - name: Analysis
   - name: Import / Export
@@ -304,6 +305,32 @@ paths:
     parameters: [ { name: id, in: path, required: true, schema: { type: integer, format: int64 } } ]
     get: { tags: [Playlists], summary: Smart-playlist rules (null if not smart)., responses: { "200": { description: OK, content: { application/json: { schema: { $ref: "#/components/schemas/SmartRules" } } } } } }
     put: { tags: [Playlists], summary: Set rules (body is a SmartRules, no wrapper)., requestBody: { required: true, content: { application/json: { schema: { $ref: "#/components/schemas/SmartRules" } } } }, responses: { "200": { description: OK, content: { application/json: { schema: { $ref: "#/components/schemas/AckOK" } } } } } }
+
+  # --------------------------------------------------------- Hot Cue Banks
+  /api/hotcuebanks:
+    get:
+      tags: [Hot Cue Banks]
+      summary: rekordbox Hot Cue Bank folders and banks (read-only).
+      description: |
+        The Hot Cue Banks imported from a rekordbox master.db, as a flat list:
+        parent_id links the tree (0 = top level) and siblings order by seq, as
+        a deck's HOT CUE BANK menu shows them. Deleted folders and banks are
+        left out.
+      responses: { "200": { description: OK, content: { application/json: { schema: { type: array, items: { $ref: "#/components/schemas/HotCueBankNode" } } } } } }
+
+  /api/hotcuebanks/{id}/tracks:
+    parameters: [ { name: id, in: path, required: true, schema: { type: integer, format: int64 } } ]
+    get:
+      tags: [Hot Cue Banks]
+      summary: A bank's tracks and the cue it holds for each (read-only).
+      description: |
+        In membership order: a track can appear more than once, and entries for
+        content not in the library are left out. A track whose file is missing
+        here is listed (track.file_missing) but isn't sent to decks.
+        Positions 1-8 are pads A-H, as rekordbox and the deck show them.
+      responses:
+        "200": { description: OK, content: { application/json: { schema: { type: array, items: { $ref: "#/components/schemas/HotCueBankEntry" } } } } }
+        "404": { description: No such bank (or the ID is a folder). }
 
   # -------------------------------------------------------------- Playback
   /api/load:
@@ -705,6 +732,27 @@ components:
         track: { $ref: "#/components/schemas/TrackInfo" }
         score: { type: number, description: Higher is a better match. }
         reasons: { type: array, items: { type: string }, description: 'Why it was suggested, strongest first, e.g. "same key (8A)", "BPM 126.5 (+0.4%)".' }
+
+    HotCueBankNode:
+      type: object
+      properties:
+        id: { type: integer, format: int64 }
+        parent_id: { type: integer, format: int64, description: 0 at the top level. }
+        seq: { type: integer, description: Order among siblings. }
+        name: { type: string }
+        is_folder: { type: boolean }
+        track_count: { type: integer, description: Banks only; the tracks a deck is sent (missing files excluded). }
+
+    HotCueBankEntry:
+      type: object
+      properties:
+        position: { type: integer, description: Membership position; 1-8 are pads A-H. }
+        track: { $ref: "#/components/schemas/TrackInfo" }
+        in_ms: { type: integer, description: Cue position in milliseconds. }
+        out_ms: { type: integer, description: Loop end in milliseconds; absent when the cue isn't a loop. }
+        color: { type: integer, description: "rekordbox's Color field as stored (-1 = none)." }
+        color_id: { type: integer, description: rekordbox hot-cue palette colour (0x01-0x3e); 0 = unset, which rekordbox and the deck show as green for a cue and orange for a loop. }
+        comment: { type: string }
 
     TrackInfo:
       type: object
