@@ -182,8 +182,8 @@ func (h *Handler) storeAnalysisResult(trackID uint32, r *analysis.Result) {
 
 	// Cache result and artwork
 	h.analysis.Set(trackID, r)
-	if r.Artwork != nil {
-		h.lib.Artwork.AddWithID(trackID, "image/jpeg", r.Artwork)
+	if r.Artwork != nil && h.lib != nil {
+		h.lib.AdoptArtwork(trackID, "image/jpeg", r.Artwork)
 	}
 
 	log.Printf("lazy-analysis: track %d done (BPM=%.1f key=%s dur=%ds)",

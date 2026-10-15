@@ -2162,8 +2162,8 @@ func (s *Server) applyAnalysisToTrack(trackID uint32, r *analysis.Result) {
 	if changed {
 		s.Library.Save()
 	}
-	if r.Artwork != nil && s.Library.Artwork.Get(trackID) == nil {
-		s.Library.Artwork.AddWithID(trackID, "image/jpeg", r.Artwork)
+	if r.Artwork != nil {
+		s.Library.AdoptArtwork(trackID, "image/jpeg", r.Artwork)
 	}
 }
 

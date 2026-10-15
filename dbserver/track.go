@@ -203,9 +203,15 @@ func (h *Handler) handleGetArtwork(msg *proto.DBMessage) []*proto.DBMessage {
 	artID := msg.Args[1].Int()
 
 	// 0x2103 uses track ID, not artwork ID — resolve to artwork ID.
-	if msg.Type == 0x2103 && h.pdb != nil {
-		if t := h.pdb.TrackByID(artID); t != nil && t.ArtworkID > 0 {
-			artID = t.ArtworkID
+	if msg.Type == 0x2103 {
+		if h.pdb != nil {
+			if t := h.pdb.TrackByID(artID); t != nil && t.ArtworkID > 0 {
+				artID = t.ArtworkID
+			}
+		} else if h.lib != nil {
+			if t := h.lib.Track(artID); t != nil && t.ArtID > 0 {
+				artID = t.ArtID
+			}
 		}
 	}
 
