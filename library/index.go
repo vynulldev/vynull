@@ -55,6 +55,10 @@ type Library struct {
 	// dbserver sets argument 7's song-tag bit on these tracks' menu rows.
 	songTags map[uint32]struct{}
 
+	// hotCueBanks holds rekordbox Hot Cue Banks from a master.db import,
+	// persisted beside the track list (hotcuebank.go).
+	hotCueBanks *hotCueBankSet
+
 	dbPath string // if set, persist track list to this JSON file
 
 	// rev is a monotonic revision counter bumped whenever track data
@@ -394,6 +398,7 @@ func (l *Library) RemoveTrack(id uint32) bool {
 func (l *Library) SetDBPath(path string) {
 	l.dbPath = path
 	l.loadFromDisk()
+	l.loadHotCueBanks()
 }
 
 // IncrementPlayCount bumps the play count for trackID by 1 and persists the

@@ -310,6 +310,41 @@ def main():
     except sqlcipher3.dbapi2.OperationalError:
         pass  # Older DBs may not have the djmdCue table
 
+    # Hot Cue Banks: the folder/bank tree (djmdHotCueBanklist; Attribute 1 =
+    # folder, top-level ParentID "root") and each bank's memberships
+    # (djmdSongHotCueBanklist), which carry their own cue fields. Deleted rows
+    # are kept with a flag: rekordbox hides a deleted bank in the tree but
+    # still serves it by ID, and its catalog ignores a membership's flag while
+    # its cue getters honour it. NULL cue fields read as 0, as rekordbox does.
+    out["hot_cue_banks"] = []
+    out["hot_cue_bank_members"] = []
+    try:
+        cur.execute("SELECT ID, ParentID, Seq, Name, Attribute, rb_local_deleted "
+                    "FROM djmdHotCueBanklist")
+        for bid, parent, seq, name, attr, deleted in cur.fetchall():
+            out["hot_cue_banks"].append({
+                "id": str(bid), "parent_id": str(parent or ""), "seq": int(seq or 0),
+                "name": name or "", "folder": int(attr or 0) == 1,
+                "deleted": int(deleted or 0) != 0,
+            })
+        cur.execute("SELECT HotCueBanklistID, ContentID, TrackNo, InMsec, OutMsec, "
+                    "InMpegFrame, OutMpegFrame, InMpegAbs, OutMpegAbs, Color, ColorTableIndex, Comment, "
+                    "BeatLoopSize, CueMicrosec, rb_local_deleted FROM djmdSongHotCueBanklist")
+        for (bid, cid, no, inms, outms, inmf, outmf, inma, outma, color, colidx, comment,
+             loop, micro, deleted) in cur.fetchall():
+            out["hot_cue_bank_members"].append({
+                "bank_id": str(bid), "content_id": str(cid), "track_no": int(no or 0),
+                "in_msec": int(inms or 0), "out_msec": int(outms or 0),
+                "in_mpeg_frame": int(inmf or 0), "out_mpeg_frame": int(outmf or 0),
+                "in_mpeg_abs": int(inma or 0), "out_mpeg_abs": int(outma or 0),
+                "color": int(color or 0), "color_table_index": int(colidx or 0),
+                "comment": comment or "",
+                "beat_loop_size": int(loop or 0), "cue_microsec": int(micro or 0),
+                "deleted": int(deleted or 0) != 0,
+            })
+    except sqlcipher3.dbapi2.OperationalError:
+        pass  # Older DBs may not have the Hot Cue Bank tables
+
     json.dump(out, sys.stdout, indent=2, default=str)
 
 
