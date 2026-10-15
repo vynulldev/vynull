@@ -296,7 +296,7 @@ func (h *Handler) applyTrackDetail(m *menuItem, t *library.Track) {
 		m.ParentID = h.catID("remixer", t.Remixer)
 		m.Label2 = t.Remixer
 	case "original_artist":
-		m.ParentID = h.catID("original_artist", t.OriginalArtist)
+		m.ParentID = h.catID("origartist", t.OriginalArtist) // the ORIGINAL ARTIST menu's IDs
 		m.Label2 = t.OriginalArtist
 	case "time":
 		m.ParentID = uint32(t.Duration.Seconds())
