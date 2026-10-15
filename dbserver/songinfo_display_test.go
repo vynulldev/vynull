@@ -51,3 +51,24 @@ func TestDisplaySongInfoCategoryIDs(t *testing.T) {
 		t.Errorf("found %d of %d category rows", seen, len(want))
 	}
 }
+
+// 0x3100 returns an ID's position in the list loaded at the request's menu
+// location, so a TRACK INFO jump lands on the loaded track; it answered 0
+// (the top) for anything but the root menu.
+func TestListOffsetForInfoJump(t *testing.T) {
+	h := &Handler{}
+	var items []*menuItem
+	for _, id := range []uint32{11, 22, 1648969, 44} {
+		items = append(items, &menuItem{ID: id, ItemType: 0x0004})
+	}
+	h.setPendingAll(&proto.DBMessage{TxID: 1, Type: 0x1004, Args: []proto.DBArg{proto.ArgI32(0x01010401)}}, items)
+	offset := func(id uint32) uint32 {
+		return h.Handle(&proto.DBMessage{TxID: 2, Type: 0x3100, Args: []proto.DBArg{proto.ArgI32(0x01010401), proto.ArgI32(id)}})[0].Args[1].Int()
+	}
+	if got := offset(1648969); got != 2 {
+		t.Errorf("offset of the loaded track = %d, want 2", got)
+	}
+	if got := offset(999); got != 0 {
+		t.Errorf("offset of an ID not in the list = %d, want 0", got)
+	}
+}

@@ -881,33 +881,32 @@ func (h *Handler) handleGetNXS2Cues(msg *proto.DBMessage) []*proto.DBMessage {
 }
 
 func (h *Handler) handleMountInfo(msg *proto.DBMessage) []*proto.DBMessage {
-	// 0x3100 is the SHORT CUT preview query. Before a SHORT CUT button
-	// (TRACK / PLAYLIST / SEARCH) opens its list, the deck asks which
-	// root-menu slot that shortcut lives in: arg[1] is the target
-	// category's item ID and the response value is that item's *index*
-	// within the root menu. The deck then renders a 1-item preview at
-	// that offset (0x3000, count=1) for the top-bar label and opens the
-	// list there. Returning a fixed 0 makes every shortcut resolve to
-	// root-menu slot 0 (ARTIST), so TRACK/PLAYLIST both open ARTIST.
-	//
-	// Look the requested ID up in the actual root menu so the offset
-	// stays correct regardless of the configured menu order. Unknown or
-	// absent IDs fall back to 0 (the old ack behaviour) — e.g. plain
-	// mount notifications that carry no category ID.
+	// 0x3100 is rekordbox's CMD_GET_OFFSET_CONTENTID (GetListBufOffset):
+	// [context, id] asks where id sits in the list loaded at the context's
+	// menu location, and the reply is that index. Decks use it to put the
+	// cursor on an item: the SHORT CUT buttons ask for a category in the root
+	// menu (location 7), and TRACK INFO's jumps ask for the loaded track in
+	// the list they just opened, so it comes up selected. An ID not in the
+	// list answers 0 (the top), as plain mount notifications expect.
 	offset := 0
 	wantID := uint32(0)
+	menu := dmstMenu(msg)
 	if len(msg.Args) >= 2 {
 		wantID = msg.Args[1].Int()
-		if wantID != 0 {
-			for i, item := range h.rootMenu() {
-				if item.ID == wantID {
-					offset = i
-					break
-				}
+	}
+	if wantID != 0 {
+		list := h.getPending(menu)
+		if menu == 7 || list == nil {
+			list = h.rootMenu()
+		}
+		for i, item := range list {
+			if item.ID == wantID {
+				offset = i
+				break
 			}
 		}
 	}
-	dlog.Debugf("dbserver: mount info (0x3100) shortcut id=0x%x -> root offset %d", wantID, offset)
+	dlog.Debugf("dbserver: list offset (0x3100) menu=%d id=0x%x -> offset %d", menu, wantID, offset)
 	return []*proto.DBMessage{{
 		TxID: msg.TxID,
 		Type: proto.DBMsgSuccess,
