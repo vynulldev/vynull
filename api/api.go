@@ -1187,14 +1187,16 @@ func (s *Server) applyImportBundle(w http.ResponseWriter, bundle *library.Import
 			for _, n := range nodes {
 				var p *PlaylistInfo
 				var perr error
-				if n.IsSmart && n.Smart != nil {
+				if n.IsSmart {
 					// Translate rekordbox rules → SmartRules and create a
 					// rule-based playlist (membership computed on read).
 					rules, mapped, dropped := smartRulesFromRekordbox(n.Smart)
-					if mapped == 0 {
-						// Nothing we could map (an empty rule set matches the
-						// whole library) — make a plain empty playlist instead.
-						log.Printf("import: smart playlist %q: no supported conditions, creating empty", n.Name)
+					if mapped == 0 || rbMatchesNothing(n.Smart) {
+						// rekordbox selects nothing for this rule set (none,
+						// empty, or an all-of set with a condition it cannot
+						// satisfy), while an empty SmartRules would match the
+						// whole library: make a plain empty playlist instead.
+						log.Printf("import: smart playlist %q: matches nothing in rekordbox, creating empty", n.Name)
 						p, perr = s.Playlists.Create(n.Name, parent, false)
 					} else {
 						if dropped > 0 {

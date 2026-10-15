@@ -4,8 +4,11 @@ package api
 
 import (
 	"fmt"
+	"golang.org/x/text/unicode/norm"
+	"path/filepath"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/vynulldev/vynull/library"
 )
@@ -100,6 +103,10 @@ func evalLeaf(field, op string, value any, t *library.Track, tags TagLookup, now
 		return stringMatch(op, value, t.Comment)
 	case "label":
 		return stringMatch(op, value, t.Label)
+	case "file_name":
+		return stringMatch(op, value, filepath.Base(t.FilePath))
+	case "mix_name":
+		return stringMatch(op, value, t.MixName)
 	case "remixer":
 		return stringMatch(op, value, t.Remixer)
 	case "original_artist":
@@ -175,8 +182,11 @@ func stringMatch(op string, value any, s string) bool {
 	if !ok {
 		return false
 	}
-	low := strings.ToLower(s)
-	qLow := strings.ToLower(q)
+	// rekordbox normalizes the track's stored text (composing accents) but
+	// takes the rule's value as written, so a rule spelled with a separate
+	// combining accent matches nothing.
+	low := foldText(norm.NFC.String(s))
+	qLow := foldText(q)
 	switch op {
 	case "is", "eq", "=":
 		return low == qLow
@@ -210,8 +220,30 @@ func keyMatch(op string, value any, trackKey string) bool {
 		return !strings.EqualFold(trackKey, target)
 	case "compatible":
 		return camelotCompatible(trackKey, target)
+	case "contains", "not_contains", "starts_with", "ends_with":
+		// Text operators compare the key's name, as rekordbox does.
+		return stringMatch(op, value, trackKey)
 	}
 	return false
+}
+
+// foldText prepares text for comparison the way rekordbox's smart playlists
+// compare it (link-spec conformance smart text suites): case-insensitive, and
+// a precomposed accented letter equals its base letter ("Álpha" is "alpha").
+// Text is not otherwise normalized: a base letter followed by a separate
+// combining accent ("A\u0301lpha") keeps the accent, and combining marks in a
+// different order differ, as in rekordbox.
+func foldText(s string) string {
+	var b strings.Builder
+	for _, r := range s {
+		if d := norm.NFD.String(string(r)); len([]rune(d)) > 1 {
+			if base := []rune(d)[0]; !unicode.Is(unicode.Mn, base) {
+				r = base // precomposed: keep the base letter only
+			}
+		}
+		b.WriteRune(r)
+	}
+	return strings.ToLower(b.String())
 }
 
 // camelotCompatible reports whether `a` is a harmonically-compatible
@@ -302,12 +334,27 @@ func dateMatch(op string, value any, date time.Time, now time.Time) bool {
 		return op == "is_empty"
 	}
 	switch op {
-	case "in_last_days":
+	case "on", "not_on":
+		// Same calendar day as the given date (rekordbox's date equality).
+		ts, ok := value.(string)
+		if !ok {
+			return false
+		}
+		d, err := time.Parse(time.RFC3339, ts)
+		if err != nil {
+			return false
+		}
+		y1, m1, d1 := date.UTC().Date()
+		y2, m2, d2 := d.UTC().Date()
+		same := y1 == y2 && m1 == m2 && d1 == d2
+		return same == (op == "on")
+	case "in_last_days", "not_in_last_days":
 		days, ok := toFloat(value)
 		if !ok {
 			return false
 		}
-		return now.Sub(date) <= time.Duration(days*24)*time.Hour
+		within := now.Sub(date) <= time.Duration(days*24)*time.Hour
+		return within == (op == "in_last_days")
 	case "before":
 		ts, ok := value.(string)
 		if !ok {

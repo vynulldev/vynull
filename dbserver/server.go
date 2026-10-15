@@ -109,6 +109,13 @@ type PlaylistSource interface {
 	HistoryFolderID() uint32
 }
 
+// SmartPlaylistSource is optionally implemented by a PlaylistSource whose
+// playlists can be smart (rule-based): rekordbox serves a smart playlist's
+// rows slightly differently.
+type SmartPlaylistSource interface {
+	IsSmart(playlistID uint32) bool
+}
+
 // Server implements the Pro DJ Link database server protocol.
 type Server struct {
 	Library      *library.Library

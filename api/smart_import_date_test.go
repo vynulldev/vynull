@@ -29,8 +29,16 @@ func TestSmartImportDateConditions(t *testing.T) {
 		{"after 2023 (op GREATER)", library.RBSmartCond{Property: "dateCreated", Operator: 3, Left: "2023-01-01"}, true, false, false},
 		{"before 2023 (op LESS)", library.RBSmartCond{Property: "dateCreated", Operator: 4, Left: "2023-01-01"}, false, true, false},
 		{"in range 2023-2025 (op IN_RANGE)", library.RBSmartCond{Property: "stockDate", Operator: 5, Left: "2023-01-01", Right: "2025-01-01"}, true, false, false},
-		{"equal (op EQUAL) — dropped", library.RBSmartCond{Property: "dateCreated", Operator: 1, Left: "2023-01-01"}, false, false, true},
+		{"equal, same day (op EQUAL)", library.RBSmartCond{Property: "dateCreated", Operator: 1, Left: "2024-06-01"}, true, false, false},
+		{"not equal (op NOT_EQUAL)", library.RBSmartCond{Property: "dateCreated", Operator: 2, Left: "2024-06-01"}, false, true, false},
+		{"not equal a blank date: any dated track", library.RBSmartCond{Property: "dateCreated", Operator: 2, Left: ""}, true, true, false},
+		{"equal a blank date — dropped (matches nothing)", library.RBSmartCond{Property: "dateCreated", Operator: 1, Left: ""}, false, false, true},
+		{"reversed range — dropped (matches nothing)", library.RBSmartCond{Property: "stockDate", Operator: 5, Left: "2025-01-01", Right: "2023-01-01"}, false, false, true},
 		{"unparseable date — dropped", library.RBSmartCond{Property: "dateCreated", Operator: 3, Left: "not-a-date"}, false, false, true},
+		{"date with a time part — dropped", library.RBSmartCond{Property: "dateCreated", Operator: 3, Left: "2023-01-01 12:00:00"}, false, false, true},
+		{"date with spaces — dropped", library.RBSmartCond{Property: "dateCreated", Operator: 3, Left: " 2023-01-01"}, false, false, true},
+		{"epoch date — dropped", library.RBSmartCond{Property: "dateCreated", Operator: 3, Left: "1970-01-01"}, false, false, true},
+		{"year 9999 — dropped", library.RBSmartCond{Property: "dateCreated", Operator: 3, Left: "9999-01-01"}, false, false, true},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

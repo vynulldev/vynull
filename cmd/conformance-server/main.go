@@ -25,6 +25,7 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"github.com/vynulldev/vynull/api"
 	"log"
 	"os"
 	"os/signal"
@@ -33,6 +34,7 @@ import (
 	"strconv"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/vynulldev/vynull/analysis"
 	"github.com/vynulldev/vynull/dbserver"
@@ -49,8 +51,48 @@ func (m confMenu) TrackDetail() string                { return m.second }
 // confPlaylists serves the fixture's playlist tree straight from the dump
 // (which keeps rekordbox's playlist IDs, parent IDs, and membership order,
 // in Seq order). A ParentID of "root" maps to folder ID 0, which is what the
-// deck sends for the top level.
-type confPlaylists struct{ nodes []library.MasterDBPlaylist }
+// deck sends for the top level. Smart playlists are evaluated against the
+// library with the daemon's own rule engine (api.RekordboxSmartTracks), so
+// the suites measure what the daemon serves for an imported smart playlist.
+type confPlaylists struct {
+	nodes []library.MasterDBPlaylist
+	lib   *library.Library
+	tags  api.TagLookup
+	now   time.Time // the clock smart-playlist date rules are evaluated at
+}
+
+// conformanceNow is the clock for relative-date smart rules ("added in the
+// last N days"). rekordbox's goldens for those were recorded with the guest
+// clock pinned (link-spec record_smart_relative_date.sh), so the harness can
+// pass that instant in VYNULL_CONFORMANCE_NOW (local time,
+// 2006-01-02T15:04:05); otherwise the real clock is used.
+func conformanceNow() time.Time {
+	if v := os.Getenv("VYNULL_CONFORMANCE_NOW"); v != "" {
+		t, err := time.ParseInLocation("2006-01-02T15:04:05", v, time.Local)
+		if err != nil {
+			fatalf("VYNULL_CONFORMANCE_NOW: %v", err)
+		}
+		return t
+	}
+	return time.Now()
+}
+
+// confTags answers MyTag lookups for smart-playlist rules from the dump's
+// tag assignments. Rules name the tag, so only names are needed.
+type confTags map[uint32][]api.TagInfo
+
+func (c confTags) GetTagsForTrack(trackID uint32) []api.TagInfo { return c[trackID] }
+
+func tagsFromDump(tags []library.MasterDBTag) confTags {
+	out := confTags{}
+	for _, tag := range tags {
+		for _, t := range tag.TrackIDs {
+			id := playlistID(t)
+			out[id] = append(out[id], api.TagInfo{ID: playlistID(tag.ID), Name: tag.Name})
+		}
+	}
+	return out
+}
 
 func playlistID(s string) uint32 {
 	if s == "" || s == "root" {
@@ -85,6 +127,9 @@ func (p confPlaylists) Tracks(playlistID_ uint32) []uint32 {
 		if playlistID(n.ID) != playlistID_ {
 			continue
 		}
+		if n.IsSmart {
+			return api.RekordboxSmartTracks(n.Smart, p.lib, p.tags, p.now)
+		}
 		ids := make([]uint32, 0, len(n.TrackIDs))
 		for _, t := range n.TrackIDs {
 			ids = append(ids, playlistID(t))
@@ -92,6 +137,15 @@ func (p confPlaylists) Tracks(playlistID_ uint32) []uint32 {
 		return ids
 	}
 	return nil
+}
+
+func (p confPlaylists) IsSmart(id uint32) bool {
+	for _, n := range p.nodes {
+		if playlistID(n.ID) == id {
+			return n.IsSmart
+		}
+	}
+	return false
 }
 
 func (confPlaylists) HistoryFolderID() uint32 { return 0 }
@@ -137,7 +191,7 @@ func main() {
 		DeviceNumber: 17, // rekordbox device number, matching the oracle
 		Analysis:     analysisStore,
 		Menu:         confMenu{second: *secondColumn},
-		Playlists:    confPlaylists{nodes: dump.Playlists},
+		Playlists:    confPlaylists{nodes: dump.Playlists, lib: lib, tags: tagsFromDump(dump.Tags), now: conformanceNow()},
 		BindHost:     "127.0.0.1", // loopback only
 		Ready:        make(chan struct{}),
 		// LinkedFn left nil so the server accepts connections (no UNLINK gate).

@@ -952,6 +952,11 @@ func (a playlistSource) Tracks(id uint32) []uint32 {
 	return a.ps.TracksFor(id, a.lib, a.tags)
 }
 
+func (a playlistSource) IsSmart(id uint32) bool {
+	p := a.ps.Get(id)
+	return p != nil && p.IsSmart
+}
+
 func (a playlistSource) HistoryFolderID() uint32 {
 	for _, p := range a.ps.All() {
 		if p.ParentID == 0 && p.IsFolder && p.Name == historyFolderName {

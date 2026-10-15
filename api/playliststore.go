@@ -333,10 +333,15 @@ func (ps *PlaylistStore) TracksFor(id uint32, lib *library.Library, tags TagLook
 	rules := p.Rules
 	ps.mu.RUnlock()
 
-	if lib == nil {
+	return matchingTracks(rules, lib, tags, time.Now())
+}
+
+// matchingTracks returns the IDs of the library tracks a smart playlist's
+// rules select, in library order.
+func matchingTracks(rules *SmartRules, lib *library.Library, tags TagLookup, now time.Time) []uint32 {
+	if lib == nil || rules == nil {
 		return nil
 	}
-	now := time.Now()
 	all := lib.Tracks()
 	out := make([]uint32, 0, len(all))
 	for _, t := range all {
