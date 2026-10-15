@@ -205,6 +205,10 @@ func (h *Handler) Handle(msg *proto.DBMessage) []*proto.DBMessage {
 		h.ctxTrackType = uint32(dmstTrackType(msg))
 	}
 
+	if resp, handled := songInfoContextRule(msg); handled {
+		return resp
+	}
+
 	switch msg.Type {
 	case proto.DBMsgSetup:
 		return h.handleSetup(msg)
