@@ -57,7 +57,7 @@ func (h *Handler) handleGetDeliveryInfo(msg *proto.DBMessage) []*proto.DBMessage
 				{ID: t.ID, ItemType: 0x37},       // lyricist
 				{ParentID: t.ID, ItemType: 0x4f}, // DeliveryControl / ISRC
 				track,
-				{ID: id("album", t.Album), Label1: t.Album, ItemType: 0x02},
+				{ID: id("album", t.Album), Label1: t.Album, ItemType: 0x02, noArtHandle: true},
 				{ID: uint32(t.Duration.Seconds()), ItemType: 0x0b}, // length
 			}
 		}
