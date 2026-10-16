@@ -195,9 +195,10 @@ func (h *Handler) handleRenderMenu(msg *proto.DBMessage) []*proto.DBMessage {
 				flags11 = item.newKeyID // arg 11: converted (Camelot 1-24) key index
 			}
 		}
-		// Album rows repeat the AlbumID in arg[8] (rekordbox uses it as the
-		// album-art handle), unlike artist/genre/label rows which leave it 0.
-		if item.ItemType == 0x02 {
+		// Album menu rows repeat the AlbumID in arg[8] (rekordbox uses it as
+		// the album-art handle), unlike artist/genre/label rows which leave it
+		// 0. Song-info album rows (TRACK INFO, Delivery Info) leave it 0 too.
+		if item.ItemType == 0x02 && !item.noArtHandle {
 			flags8 = item.ID
 		}
 

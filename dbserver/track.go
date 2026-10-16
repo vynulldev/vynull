@@ -161,7 +161,7 @@ func (h *Handler) handleGetMetadata(msg *proto.DBMessage) []*proto.DBMessage {
 	metaItems := []*menuItem{
 		{ID: tID, Label1: title, ArtID: artworkID, ItemType: 0x0004, ParentID: 1, FileType: fileType}, // title
 		{ID: artistID, Label1: artist, ItemType: 0x0007, ParentID: 1},                                 // artist
-		{ID: albumID, Label1: album, ItemType: 0x0002, ParentID: 1},                                   // album
+		{ID: albumID, Label1: album, ItemType: 0x0002, ParentID: 1, noArtHandle: true},                // album
 		{ID: duration / 1000, Label1: "", ItemType: 0x000b},                                           // duration (parent=0)
 		{ID: tempo, Label1: "", ItemType: 0x000d, ParentID: 1},                                        // BPM (* 100)
 		{ID: keyID, Label1: key, ItemType: 0x000f, ParentID: 1},                                       // key

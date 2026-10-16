@@ -39,6 +39,7 @@ type menuItem struct {
 
 	// Track-row wire-flag inputs (see render.go's flag assembly).
 	contextTrackType uint32 // packed context track type — arg 7 high byte (TT<<24) on hierarchy track leaves
+	noArtHandle      bool   // album row in a song-info list: arg 8 stays 0
 	trackPos         uint32 // arg 9: scope position / track number (album scope uses TrackNo; 0 elsewhere)
 	hasSongTag       bool   // track carries a MyTag — arg 7 bit 0x1
 	autoLoadHotCue   bool   // deck auto-loads hot cues — arg 10 bit 0x100
