@@ -1242,7 +1242,7 @@ func (s *Server) applyImportBundle(w http.ResponseWriter, bundle *library.Import
 	// created uncategorized if it doesn't already exist by name, then
 	// assigned to the imported tracks. Existing per-track tag sets are
 	// unioned so a re-import doesn't drop tags applied elsewhere.
-	if s.Tags != nil && incTags && len(tags) > 0 {
+	if s.Tags != nil && incTags && (len(tags) > 0 || len(bundle.TagCategories) > 0) {
 		s.importPhase("Importing tags…")
 		byName := make(map[string]TagInfo)
 		for _, t := range s.Tags.GetAllTags() {
@@ -1268,6 +1268,10 @@ func (s *Server) applyImportBundle(w http.ResponseWriter, bundle *library.Import
 			}
 			catByName[name] = id
 			return id
+		}
+		// Columns first, in rekordbox's order, so empty ones exist too.
+		for _, name := range bundle.TagCategories {
+			ensureCategory(name)
 		}
 		var tagged int
 		for _, ti := range tags {

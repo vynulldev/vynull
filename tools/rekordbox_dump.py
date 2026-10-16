@@ -138,7 +138,8 @@ def main():
                k.ScaleName AS Key, l.Name AS Label,
                c.GenreID, c.ArtistID, c.AlbumID, c.KeyID, c.LabelID,
                rmx.Name AS Remixer, oa.Name AS OrigArtist,
-               c.RemixerID, c.OrgArtistID
+               c.RemixerID, c.OrgArtistID,
+               c.Subtitle AS MixName, aa.Name AS AlbumArtist, cp.Name AS Composer
         FROM djmdContent c
         LEFT JOIN djmdArtist a ON c.ArtistID = a.ID
         LEFT JOIN djmdAlbum al ON c.AlbumID = al.ID
@@ -147,6 +148,8 @@ def main():
         LEFT JOIN djmdLabel l ON c.LabelID = l.ID
         LEFT JOIN djmdArtist rmx ON c.RemixerID = rmx.ID
         LEFT JOIN djmdArtist oa ON c.OrgArtistID = oa.ID
+        LEFT JOIN djmdArtist aa ON al.AlbumArtistID = aa.ID
+        LEFT JOIN djmdArtist cp ON c.ComposerID = cp.ID
         WHERE COALESCE(c.rb_local_deleted, 0) = 0
     """)
     cols = [d[0] for d in cur.description]
@@ -199,6 +202,11 @@ def main():
             "label_id":     str(d.get("LabelID") or ""),
             "remixer":        d.get("Remixer") or "",
             "original_artist": d.get("OrigArtist") or "",
+            # Smart playlist text fields: mixName (Subtitle), albumArtist (the
+            # album's artist) and producer (ComposerID).
+            "mix_name":       d.get("MixName") or "",
+            "album_artist":   d.get("AlbumArtist") or "",
+            "composer":       d.get("Composer") or "",
             "remixer_id":     str(d.get("RemixerID") or ""),
             "orig_artist_id": str(d.get("OrgArtistID") or ""),
             # Paths are relative to the rekordbox `share/` root, e.g.
@@ -253,20 +261,29 @@ def main():
             entry["smart"] = parse_smartlist(smartlist, tags_by_id)
         out["playlists"].append(entry)
 
-    # MyTags + assignments
+    # MyTags + assignments. djmdMyTag holds both the columns (Attribute 1,
+    # ParentID "root": Genre, Components, ...) and the tags under them; Seq
+    # orders each level as rekordbox shows it. Deleted rows are skipped, and a
+    # track assigned twice to a tag is listed once.
     try:
-        cur.execute("SELECT ID, Name, ParentID FROM djmdMyTag")
+        cur.execute("SELECT ID, Name, ParentID, Seq, Attribute FROM djmdMyTag "
+                    "WHERE COALESCE(rb_local_deleted, 0) = 0")
         tag_rows = cur.fetchall()
-        cur.execute("SELECT MyTagID, ContentID FROM djmdSongMyTag")
+        cur.execute("SELECT MyTagID, ContentID FROM djmdSongMyTag "
+                    "WHERE COALESCE(rb_local_deleted, 0) = 0")
         tag_tracks = {}
         for tagid, cid in cur.fetchall():
-            tag_tracks.setdefault(str(tagid), []).append(cid)
-        for tid, name, parent in tag_rows:
+            ids = tag_tracks.setdefault(str(tagid), [])
+            if cid not in ids:
+                ids.append(cid)
+        for tid, name, parent, seq, attr in tag_rows:
             out["tags"].append({
-                "id":        tid,
-                "name":      name,
-                "parent_id": parent,
-                "track_ids": tag_tracks.get(str(tid), []),
+                "id":          tid,
+                "name":        name,
+                "parent_id":   parent,
+                "seq":         int(seq or 0),
+                "is_category": int(attr or 0) == 1,
+                "track_ids":   tag_tracks.get(str(tid), []),
             })
     except sqlcipher3.dbapi2.OperationalError:
         pass  # Older DBs may not have MyTag tables

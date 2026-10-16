@@ -11146,7 +11146,10 @@ const SMART_KEYS = (function() {
 // edits. {id, name, rules} where id is null for "create new".
 let smartEditorState = null;
 
-function openSmartEditor(playlistID) {
+async function openSmartEditor(playlistID) {
+  // Tag rules pick from the tag catalog; load it (fresh: an import may have
+  // added tags) before rendering, or the tag dropdowns come up empty.
+  await ensureAllTags(true);
   ensureSmartEditor();
   const existing = playlistID != null ? playlistsCache.find(p => p.id === playlistID) : null;
   smartEditorState = {
@@ -11302,9 +11305,14 @@ function renderSmartValueInput(c, meta) {
   if (meta.type === 'tag') {
     const tags = (allTagsCache || []);
     const v = (c.value || '');
-    return `<select data-sm-val>${tags.map(t =>
-      `<option value="${escape(t.name)}" ${t.name === v ? 'selected' : ''}>${escape(t.name)}</option>`
-    ).join('') || '<option value="">— NO TAGS YET —</option>'}</select>`;
+    // Rules match tag names case-insensitively; select the rule's tag that
+    // way, and keep a name that isn't in the catalog as its own option so
+    // saving never swaps the rule's tag for the first one listed.
+    const known = tags.some(t => t.name.toLowerCase() === v.toLowerCase());
+    const opts = tags.map(t =>
+      `<option value="${escape(t.name)}" ${t.name.toLowerCase() === v.toLowerCase() ? 'selected' : ''}>${escape(t.name)}</option>`);
+    if (v && !known) opts.unshift(`<option value="${escape(v)}" selected>${escape(v)} (not in tag list)</option>`);
+    return `<select data-sm-val>${opts.join('') || '<option value="">— NO TAGS YET —</option>'}</select>`;
   }
   if (meta.type === 'date') {
     if (op === 'in_last_days') {

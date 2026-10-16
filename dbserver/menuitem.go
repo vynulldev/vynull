@@ -181,6 +181,13 @@ func (h *Handler) trackToStdItem(t *library.Track) *menuItem {
 func newKeyID(key string) uint32 {
 	camelot, _ := analysis.KeyNamesFrom(key)
 	if camelot == "" {
+		// rekordbox reads a key name loosely: a leading root note A-G
+		// (fullwidth too), an optional sharp or flat, then "m" for minor;
+		// anything after is ignored ("Alpha" is A major, "Beta" B major), and
+		// a name that doesn't start with a root note has no index.
+		if loose := looseKeyName(key); loose != "" && loose != key {
+			return newKeyID(loose)
+		}
 		return 0
 	}
 	letter := camelot[len(camelot)-1]
@@ -280,10 +287,9 @@ func (h *Handler) applyTrackDetail(m *menuItem, t *library.Track) {
 			m.Label2 += " - " + t.Key
 		}
 	case "key":
-		m.ParentID = h.catID("key", t.Key)
-		if t.Key != "" {
-			m.Label2 = fmt.Sprintf("%s - %.1f bpm", t.Key, t.BPM)
-		}
+		// rekordbox composes "<key> - <bpm> bpm" even for an empty key.
+		m.ParentID = h.trackKeyID(t)
+		m.Label2 = fmt.Sprintf("%s - %.1f bpm", t.Key, t.BPM)
 	case "artist":
 		m.ParentID = h.catID("artist", t.Artist)
 		m.Label2 = t.Artist
@@ -467,4 +473,48 @@ func trackInfoTitleID(fileType string) uint32 {
 	default: // mp3
 		return 1
 	}
+}
+
+// trackKeyID is a track's key ID as rekordbox serves it: the imported key row
+// ID (which an empty-named key also has), else the KEY menu's ID for the key's
+// name, and 0 for a track with no key.
+func (h *Handler) trackKeyID(t *library.Track) uint32 {
+	if t.KeyID != 0 {
+		return t.KeyID
+	}
+	if t.Key == "" {
+		return 0
+	}
+	return h.catID("key", t.Key)
+}
+
+// looseKeyName reduces a key name to the part rekordbox reads (see
+// newKeyID): root note, accidental and minor flag, or "" when it doesn't
+// start with a root note.
+func looseKeyName(key string) string {
+	r := []rune(key)
+	for i, c := range r {
+		if c >= 0xff01 && c <= 0xff5e { // fullwidth ASCII
+			r[i] = c - 0xfee0
+		}
+	}
+	if len(r) == 0 || r[0] < 'A' || r[0] > 'G' {
+		return ""
+	}
+	name := string(r[0])
+	rest := r[1:]
+	if len(rest) > 0 {
+		switch rest[0] {
+		case '#', '♯':
+			name += "#"
+			rest = rest[1:]
+		case 'b', '♭':
+			name += "b"
+			rest = rest[1:]
+		}
+	}
+	if len(rest) > 0 && rest[0] == 'm' {
+		name += "m"
+	}
+	return name
 }

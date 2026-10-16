@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -151,6 +152,9 @@ type masterDBTrack struct {
 	// the REMIXER and ORIGINAL ARTIST category drills resolve.
 	Remixer        string `json:"remixer"`
 	OriginalArtist string `json:"original_artist"`
+	MixName        string `json:"mix_name"`
+	AlbumArtist    string `json:"album_artist"`
+	Composer       string `json:"composer"`
 	RemixerID      string `json:"remixer_id"`
 	OrigArtistID   string `json:"orig_artist_id"`
 }
@@ -203,7 +207,16 @@ type MasterDBTag struct {
 	Name     string   `json:"name"`
 	ParentID string   `json:"parent_id"`
 	TrackIDs []string `json:"track_ids"`
+	// Seq orders tags within a column, and columns among themselves.
+	Seq int `json:"seq"`
+	// IsCategory marks a column (rekordbox Attribute 1) rather than a tag.
+	IsCategory bool `json:"is_category"`
 }
+
+// isCategory reports whether a djmdMyTag row is a column (Genre,
+// Components, ...) rather than a tag: its Attribute flag, or, for dumps
+// without it, a top-level row.
+func (t MasterDBTag) isCategory() bool { return t.IsCategory || t.ParentID == "root" }
 
 // ImportRekordboxMasterDB shells out to tools/rekordbox_dump.py to read
 // the encrypted master.db and then merges the result into the library.
@@ -317,26 +330,45 @@ func ImportMasterDBDump(lib *Library, dump *MasterDBDump) (*ImportBundle, error)
 		}
 	}
 
-	// Resolve each MyTag's rekordbox ContentIDs to library Track.IDs.
-	// djmdMyTag is a 2-level tree: category rows (Genre, Components, Mood, …)
-	// are parents, and the actual tags are children whose ParentID points at
-	// their category. Category rows carry no track assignments, so they drop
-	// out of the leaf list below; we use them only to label each tag's
-	// category. tagsByID lets a tag look up its parent category's name.
+	// MyTags. djmdMyTag is a 2-level tree: columns (Genre, Components, …) at
+	// the top and the tags under them. Every live column and tag is imported,
+	// in rekordbox's order (columns by Seq, then each column's tags by Seq),
+	// whether or not any track carries it: rekordbox keeps unused tags and
+	// empty columns, and smart playlists can name them.
 	tagsByID := make(map[string]MasterDBTag, len(dump.Tags))
+	var cats, leaves []MasterDBTag
 	for _, mt := range dump.Tags {
 		tagsByID[mt.ID] = mt
+		if mt.isCategory() {
+			cats = append(cats, mt)
+		} else {
+			leaves = append(leaves, mt)
+		}
 	}
-	tags := make([]TagImport, 0, len(dump.Tags))
-	for _, mt := range dump.Tags {
+	sort.SliceStable(cats, func(i, j int) bool { return cats[i].Seq < cats[j].Seq })
+	catSeq := func(mt MasterDBTag) int {
+		if p, ok := tagsByID[mt.ParentID]; ok {
+			return p.Seq
+		}
+		return 1 << 30 // tags outside any column last
+	}
+	sort.SliceStable(leaves, func(i, j int) bool {
+		if a, b := catSeq(leaves[i]), catSeq(leaves[j]); a != b {
+			return a < b
+		}
+		return leaves[i].Seq < leaves[j].Seq
+	})
+	tagCategories := make([]string, 0, len(cats))
+	for _, c := range cats {
+		tagCategories = append(tagCategories, c.Name)
+	}
+	tags := make([]TagImport, 0, len(leaves))
+	for _, mt := range leaves {
 		var ids []uint32
 		for _, cid := range mt.TrackIDs {
 			if id, ok := idMap[cid]; ok {
 				ids = append(ids, id)
 			}
-		}
-		if len(ids) == 0 {
-			continue // category/parent row, or an unused tag — nothing to apply
 		}
 		category := ""
 		if parent, ok := tagsByID[mt.ParentID]; ok {
@@ -373,7 +405,7 @@ func ImportMasterDBDump(lib *Library, dump *MasterDBDump) (*ImportBundle, error)
 	}
 
 	lib.FinalizeBulk()
-	return &ImportBundle{Result: res, Playlists: playlists, Tags: tags, Colors: colors, Assets: assets, Cues: cues}, nil
+	return &ImportBundle{Result: res, Playlists: playlists, Tags: tags, TagCategories: tagCategories, Colors: colors, Assets: assets, Cues: cues}, nil
 }
 
 // masterDBPlaylistTree turns the flat djmdPlaylist rows into a nested
@@ -617,6 +649,10 @@ func masterDBToLibrary(t *masterDBTrack, path string) *Track {
 		AutoLoadHotCue: t.HotCueAutoLoad != "",
 		Remixer:        t.Remixer,
 		OriginalArtist: t.OriginalArtist,
+		MixName:        t.MixName,
+		KeyID:          parseRBID(t.KeyID),
+		AlbumArtist:    t.AlbumArtist,
+		Composer:       t.Composer,
 	}
 }
 

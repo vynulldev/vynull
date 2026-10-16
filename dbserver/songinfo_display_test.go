@@ -146,3 +146,39 @@ func TestTruncateUTF16(t *testing.T) {
 		t.Errorf("under the limit: %q", got)
 	}
 }
+
+// rekordbox reads key names loosely for its 1-24 key index (link-spec
+// smart-string-property-matrix): a leading root note, sharp or flat, and
+// "m"; real key names are unaffected.
+func TestNewKeyIDLoose(t *testing.T) {
+	for key, want := range map[string]uint32{
+		"Alpha": 22, "alpha": 0, "Álpha": 0, "Álpha": 22, "Ａｌｐｈａ": 22,
+		"Beta": 2, "": 0, "Am": 15, "F#m": 21, "8A": 15,
+	} {
+		if got := newKeyID(key); got != want {
+			t.Errorf("newKeyID(%q) = %d, want %d", key, got, want)
+		}
+	}
+}
+
+// The KEY column carries the track's key ID (an empty-named key keeps its
+// row ID, no key is 0) and always composes "<key> - <bpm> bpm".
+func TestKeyColumnEmptyKey(t *testing.T) {
+	lib := library.New()
+	lib.AddTrack(&library.Track{ID: 1, BPM: 120, KeyID: 18009}) // empty-named key row
+	lib.AddTrack(&library.Track{ID: 2, BPM: 120.5})             // no key
+	h := &Handler{lib: lib, menu: keyColumnMenu{}}
+	a, b := h.trackToStdItem(lib.Track(1)), h.trackToStdItem(lib.Track(2))
+	if a.ParentID != 18009 || a.Label2 != " - 120.0 bpm" {
+		t.Errorf("empty-named key: %d %q, want 18009 \" - 120.0 bpm\"", a.ParentID, a.Label2)
+	}
+	if b.ParentID != 0 || b.Label2 != " - 120.5 bpm" {
+		t.Errorf("no key: %d %q, want 0 \" - 120.5 bpm\"", b.ParentID, b.Label2)
+	}
+}
+
+// keyColumnMenu is a MenuSource whose track lists show the KEY column.
+type keyColumnMenu struct{}
+
+func (keyColumnMenu) RootMenu() []RootMenuEntry { return DefaultRootMenu() }
+func (keyColumnMenu) TrackDetail() string       { return "key" }

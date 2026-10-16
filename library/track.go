@@ -59,7 +59,14 @@ type Track struct {
 	OriginalArtist string      `json:"original_artist"`
 	Remixer        string      `json:"remixer"`
 	MixName        string      `json:"mix_name"` // mix/version name
-	DateAdded      time.Time   `json:"date_added"`
+	// AlbumArtist and Composer come from a rekordbox import (the album's
+	// artist; ComposerID, which rekordbox's smart playlists call producer).
+	AlbumArtist string `json:"album_artist,omitempty"`
+	Composer    string `json:"composer,omitempty"`
+	// KeyID is the track's rekordbox key row ID, from an import (0 when the
+	// track has no key relation). It tells an empty-named key from no key.
+	KeyID     uint32    `json:"key_id,omitempty"`
+	DateAdded time.Time `json:"date_added"`
 	// DateCreated is rekordbox's separate DateCreated, from an import; smart
 	// playlist rules on dateCreated test it (zero when unknown).
 	DateCreated time.Time `json:"date_created,omitempty"`
