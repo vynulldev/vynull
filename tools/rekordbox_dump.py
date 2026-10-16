@@ -261,20 +261,29 @@ def main():
             entry["smart"] = parse_smartlist(smartlist, tags_by_id)
         out["playlists"].append(entry)
 
-    # MyTags + assignments
+    # MyTags + assignments. djmdMyTag holds both the columns (Attribute 1,
+    # ParentID "root": Genre, Components, ...) and the tags under them; Seq
+    # orders each level as rekordbox shows it. Deleted rows are skipped, and a
+    # track assigned twice to a tag is listed once.
     try:
-        cur.execute("SELECT ID, Name, ParentID FROM djmdMyTag")
+        cur.execute("SELECT ID, Name, ParentID, Seq, Attribute FROM djmdMyTag "
+                    "WHERE COALESCE(rb_local_deleted, 0) = 0")
         tag_rows = cur.fetchall()
-        cur.execute("SELECT MyTagID, ContentID FROM djmdSongMyTag")
+        cur.execute("SELECT MyTagID, ContentID FROM djmdSongMyTag "
+                    "WHERE COALESCE(rb_local_deleted, 0) = 0")
         tag_tracks = {}
         for tagid, cid in cur.fetchall():
-            tag_tracks.setdefault(str(tagid), []).append(cid)
-        for tid, name, parent in tag_rows:
+            ids = tag_tracks.setdefault(str(tagid), [])
+            if cid not in ids:
+                ids.append(cid)
+        for tid, name, parent, seq, attr in tag_rows:
             out["tags"].append({
-                "id":        tid,
-                "name":      name,
-                "parent_id": parent,
-                "track_ids": tag_tracks.get(str(tid), []),
+                "id":          tid,
+                "name":        name,
+                "parent_id":   parent,
+                "seq":         int(seq or 0),
+                "is_category": int(attr or 0) == 1,
+                "track_ids":   tag_tracks.get(str(tid), []),
             })
     except sqlcipher3.dbapi2.OperationalError:
         pass  # Older DBs may not have MyTag tables

@@ -16,9 +16,12 @@ type ImportBundle struct {
 	Result    *ImportResult
 	Playlists []PlaylistImport
 	Tags      []TagImport
-	Colors    []ColorImport
-	Cues      []ImportedCue
-	Assets    []ImportedAsset
+	// TagCategories are the MyTag columns in rekordbox's order, including
+	// empty ones; created before the tags so they keep that order.
+	TagCategories []string
+	Colors        []ColorImport
+	Cues          []ImportedCue
+	Assets        []ImportedAsset
 	// ShareRoot is the share/ root for ANLZ + artwork (a backup-zip extract, or
 	// a master.db's own library folder). SettingsDir holds the *SETTING.DAT
 	// blobs. Both are empty when the format carries no such assets.
