@@ -511,7 +511,10 @@ func (h *Handler) beatGridForTrack(trackID uint32, r *analysis.Result) []byte {
 var extAnalysisTags = []byte{0x06, 0x06, 0x06, 0x03, 0x06}
 
 func (h *Handler) handleGetExtAnalysis(msg *proto.DBMessage) []*proto.DBMessage {
-	// 0x2c04: extended analysis (ANLZ tags like PWV4, PWV5, PVB2, PQT2).
+	// 0x2c04 and 0x2d04: extended analysis (ANLZ tags like PWV4, PWV5, PVB2,
+	// PQT2, and the .2EX 3-band PWV6/PWV7). rekordbox serves both kinds from
+	// one handler (GetSpecifiedAtomInfo) and every reply echoes the request's
+	// own kind.
 	trackID := msgArg(msg, 1)
 
 	// Decode tag fourcc from arg[2]. The CDJ sends it as a big-endian int32
@@ -523,7 +526,7 @@ func (h *Handler) handleGetExtAnalysis(msg *proto.DBMessage) []*proto.DBMessage 
 		// Reverse to get the actual fourcc.
 		tagFourCC = string([]byte{b[3], b[2], b[1], b[0]})
 	}
-	dlog.Debugf("dbserver: 0x2c04 track=%d tag=%q", trackID, tagFourCC)
+	dlog.Debugf("dbserver: 0x%04x track=%d tag=%q", msg.Type, trackID, tagFourCC)
 
 	if trackID > 0 {
 		r := h.lazyAnalyze(trackID)
@@ -536,7 +539,7 @@ func (h *Handler) handleGetExtAnalysis(msg *proto.DBMessage) []*proto.DBMessage 
 					return []*proto.DBMessage{{
 						TxID: msg.TxID, Type: 0x4f02,
 						Args: []proto.DBArg{
-							proto.ArgI32(0x2c04),
+							proto.ArgI32(uint32(msg.Type)),
 							proto.ArgI32(0),
 							proto.ArgI32(uint32(len(realBlob))),
 							proto.ArgBlob(realBlob),
@@ -550,7 +553,7 @@ func (h *Handler) handleGetExtAnalysis(msg *proto.DBMessage) []*proto.DBMessage 
 					return []*proto.DBMessage{{
 						TxID: msg.TxID, Type: 0x4f02,
 						Args: []proto.DBArg{
-							proto.ArgI32(0x2c04),
+							proto.ArgI32(uint32(msg.Type)),
 							proto.ArgI32(0),
 							proto.ArgI32(uint32(len(blob))),
 							proto.ArgBlob(blob),
@@ -564,7 +567,7 @@ func (h *Handler) handleGetExtAnalysis(msg *proto.DBMessage) []*proto.DBMessage 
 					return []*proto.DBMessage{{
 						TxID: msg.TxID, Type: 0x4f02,
 						Args: []proto.DBArg{
-							proto.ArgI32(0x2c04),
+							proto.ArgI32(uint32(msg.Type)),
 							proto.ArgI32(0),
 							proto.ArgI32(uint32(len(realBlob))),
 							proto.ArgBlob(realBlob),
@@ -578,7 +581,7 @@ func (h *Handler) handleGetExtAnalysis(msg *proto.DBMessage) []*proto.DBMessage 
 					return []*proto.DBMessage{{
 						TxID: msg.TxID, Type: 0x4f02,
 						Args: []proto.DBArg{
-							proto.ArgI32(0x2c04),
+							proto.ArgI32(uint32(msg.Type)),
 							proto.ArgI32(0),
 							proto.ArgI32(uint32(len(blob))),
 							proto.ArgBlob(blob),
@@ -606,7 +609,7 @@ func (h *Handler) handleGetExtAnalysis(msg *proto.DBMessage) []*proto.DBMessage 
 					return []*proto.DBMessage{{
 						TxID: msg.TxID, Type: 0x4f02,
 						Args: []proto.DBArg{
-							proto.ArgI32(0x2c04),
+							proto.ArgI32(uint32(msg.Type)),
 							proto.ArgI32(0),
 							proto.ArgI32(uint32(len(blob))),
 							proto.ArgBlob(blob),
@@ -621,7 +624,7 @@ func (h *Handler) handleGetExtAnalysis(msg *proto.DBMessage) []*proto.DBMessage 
 					return []*proto.DBMessage{{
 						TxID: msg.TxID, Type: 0x4f02,
 						Args: []proto.DBArg{
-							proto.ArgI32(0x2c04),
+							proto.ArgI32(uint32(msg.Type)),
 							proto.ArgI32(0),
 							proto.ArgI32(uint32(len(blob))),
 							proto.ArgBlob(blob),
@@ -649,7 +652,7 @@ func (h *Handler) handleGetExtAnalysis(msg *proto.DBMessage) []*proto.DBMessage 
 					return []*proto.DBMessage{{
 						TxID: msg.TxID, Type: 0x4f02,
 						Args: []proto.DBArg{
-							proto.ArgI32(0x2c04),
+							proto.ArgI32(uint32(msg.Type)),
 							proto.ArgI32(0),
 							proto.ArgI32(uint32(len(realBlob))),
 							proto.ArgBlob(realBlob),
@@ -682,7 +685,7 @@ func (h *Handler) handleGetExtAnalysis(msg *proto.DBMessage) []*proto.DBMessage 
 				return []*proto.DBMessage{{
 					TxID: msg.TxID, Type: 0x4f02,
 					Args: []proto.DBArg{
-						proto.ArgI32(0x2c04),
+						proto.ArgI32(uint32(msg.Type)),
 						proto.ArgI32(0),
 						proto.ArgI32(uint32(len(blob))),
 						proto.ArgBlob(blob),
@@ -698,7 +701,7 @@ func (h *Handler) handleGetExtAnalysis(msg *proto.DBMessage) []*proto.DBMessage 
 					return []*proto.DBMessage{{
 						TxID: msg.TxID, Type: 0x4f02,
 						Args: []proto.DBArg{
-							proto.ArgI32(0x2c04),
+							proto.ArgI32(uint32(msg.Type)),
 							proto.ArgI32(0),
 							proto.ArgI32(uint32(len(realBlob))),
 							proto.ArgBlob(realBlob),
@@ -712,7 +715,7 @@ func (h *Handler) handleGetExtAnalysis(msg *proto.DBMessage) []*proto.DBMessage 
 					return []*proto.DBMessage{{
 						TxID: msg.TxID, Type: 0x4f02,
 						Args: []proto.DBArg{
-							proto.ArgI32(0x2c04),
+							proto.ArgI32(uint32(msg.Type)),
 							proto.ArgI32(0),
 							proto.ArgI32(uint32(len(blob))),
 							proto.ArgBlob(blob),
@@ -724,13 +727,13 @@ func (h *Handler) handleGetExtAnalysis(msg *proto.DBMessage) []*proto.DBMessage 
 		}
 	}
 
-	dlog.Debugf("dbserver: ext analysis 0x2c04 tag=%q (not found)", tagFourCC)
+	dlog.Debugf("dbserver: ext analysis 0x%04x tag=%q (not found)", msg.Type, tagFourCC)
 	return []*proto.DBMessage{{
 		TxID: msg.TxID, Type: 0x4f02,
 		DeclaredArgCount: 5,
 		OverrideTags:     extAnalysisTags,
 		Args: []proto.DBArg{
-			proto.ArgI32(0x2c04),
+			proto.ArgI32(uint32(msg.Type)),
 			proto.ArgI32(0x32), // status=0x32: not found
 			proto.ArgI32(0),
 			proto.ArgI32(0), // 4 int32 on wire, 5th phantom
