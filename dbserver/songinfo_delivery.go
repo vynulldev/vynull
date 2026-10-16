@@ -40,9 +40,7 @@ func (h *Handler) handleGetDeliveryInfo(msg *proto.DBMessage) []*proto.DBMessage
 			// single value rekordbox's eight-argument render reads (as in the
 			// Hot Cue Bank list), and the request's context track type.
 			track := h.trackToStdItem(t)
-			if h.trackDetailKey() == "key" {
-				track.Label2 = t.Key
-			}
+			track.songInfoTitle = h.newSongInfoTitle(t, t.ID)
 			markContextType([]*menuItem{track}, uint32(dmstTrackType(msg)))
 
 			items = []*menuItem{

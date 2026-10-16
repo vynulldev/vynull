@@ -39,7 +39,7 @@ var rbFieldMap = map[string]string{
 	"mixName":        "mix_name",
 	"myTag":          "tag",
 	"stockDate":      "date_added",
-	"dateCreated":    "date_added",
+	"dateCreated":    "date_created",
 }
 
 func isNumericField(field string) bool {
@@ -102,7 +102,7 @@ func rbCondToSmart(c library.RBSmartCond) (SmartCond, bool) {
 		return SmartCond{}, false
 	}
 	isTag := field == "tag"
-	isDate := field == "date_added"
+	isDate := field == "date_added" || field == "date_created"
 	isNum := isNumericField(field)
 
 	// num parses a rekordbox numeric value string, scaling BPM down by 100.

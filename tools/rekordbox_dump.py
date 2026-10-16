@@ -131,7 +131,7 @@ def main():
     cur.execute("""
         SELECT c.ID, c.Title, c.FolderPath, c.FileNameL, c.FileSize, c.BPM,
                c.Length, c.BitRate, c.SampleRate, c.Rating, c.ReleaseYear,
-               c.TrackNo, c.DiscNo, c.Commnt, c.DJPlayCount, c.DateCreated,
+               c.TrackNo, c.DiscNo, c.Commnt, c.DJPlayCount, c.DateCreated, c.StockDate,
                c.ColorID, c.AnalysisDataPath, c.ImagePath,
                c.FileType, c.HotCueAutoLoad,
                a.Name AS Artist, al.Name AS Album, g.Name AS Genre,
@@ -184,7 +184,10 @@ def main():
             "disc_num":     d.get("DiscNo") or 0,
             "comment":      d.get("Commnt") or "",
             "play_count":   d.get("DJPlayCount") or 0,
-            "date_added":   d.get("DateCreated") or "",
+            # StockDate is rekordbox's "Date Added" (TRACK INFO, the DATE
+            # ADDED menu); DateCreated is often empty.
+            "date_added":   d.get("StockDate") or d.get("DateCreated") or "",
+            "date_created": d.get("DateCreated") or "",  # smart rules' dateCreated
             # ColorID is stored as TEXT ("0".."8"); coerce to the palette int.
             "color_id":     int(d.get("ColorID") or 0),
             # rekordbox lookup IDs (djmd* row IDs), so served category rows can

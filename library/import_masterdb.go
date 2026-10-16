@@ -131,6 +131,7 @@ type masterDBTrack struct {
 	Comment     string  `json:"comment"`
 	PlayCount   int     `json:"play_count"`
 	DateAdded   string  `json:"date_added"`
+	DateCreated string  `json:"date_created"`
 	ColorID     int     `json:"color_id"`     // rekordbox track-colour palette ID (1-8)
 	AnalyzePath string  `json:"analyze_path"` // /PIONEER/USBANLZ/.../ANLZ0000.DAT, relative to share/
 	ImagePath   string  `json:"image_path"`   // /PIONEER/Artwork/.../artwork.jpg, relative to share/
@@ -579,6 +580,10 @@ func masterDBToLibrary(t *masterDBTrack, path string) *Track {
 	if dateAdded.IsZero() {
 		dateAdded = time.Now()
 	}
+	dateCreated, _ := time.Parse("2006-01-02", t.DateCreated)
+	if dateCreated.IsZero() {
+		dateCreated, _ = time.Parse("2006-01-02 15:04:05", t.DateCreated)
+	}
 	// Preserve the rekordbox djmdContent.ID as the library track ID so served
 	// rows carry the same IDs rekordbox does (addTrackLocked respects a preset
 	// ID; idMap then resolves to it identically). Fall back to auto-assign (0)
@@ -603,6 +608,7 @@ func masterDBToLibrary(t *masterDBTrack, path string) *Track {
 		Comment:        t.Comment,
 		Label:          t.Label,
 		DateAdded:      dateAdded,
+		DateCreated:    dateCreated,
 		Bitrate:        t.Bitrate,
 		SampleRate:     t.SampleRate,
 		PlayCount:      t.PlayCount,

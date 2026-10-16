@@ -129,6 +129,9 @@ func (h *Handler) handleRenderMenu(msg *proto.DBMessage) []*proto.DBMessage {
 	// Category items (type >= 0x80) use fffa/fffb wrapped strings.
 	// Track/data items use plain strings.
 	for _, item := range items {
+		if item.songInfoTitle != nil {
+			item = item.songInfoTitle.render(item, msg)
+		}
 		label1 := item.Label1
 		label2 := item.Label2
 		isCategory := item.ItemType >= 0x80 && item.ItemType&0xff != 0x04
