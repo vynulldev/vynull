@@ -160,7 +160,7 @@ func (h *Handler) trackToStdItem(t *library.Track) *menuItem {
 		ColorID:        uint32(t.ColorID),
 		sortArtist:     t.Artist,
 		sortAlbum:      t.Album,
-		sortBPM:        uint32(t.BPM * 100),
+		sortBPM:        uint32(math.Round(t.BPM * 100)), // exact for range checks (TRACK FILTER)
 		sortKey:        t.Key,
 		hasSongTag:     h.lib != nil && h.lib.HasSongTag(t.ID),
 		autoLoadHotCue: t.AutoLoadHotCue,
