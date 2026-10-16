@@ -211,10 +211,15 @@ func (h *Handler) handleAddFilterMyTag(msg *proto.DBMessage) []*proto.DBMessage 
 }
 
 // applyTrackFilter narrows a TRACK list (0x1004) at menu location 1 by the
-// player's enabled conditions while its filter is on, as rekordbox does: a
-// BPM range keeps tracks whose BPM lies within it, a key list keeps tracks
-// whose key is in it. Conditions whose matching isn't decoded yet (rating,
-// colour, MyTag) don't narrow the list.
+// player's enabled conditions while its filter is on, as rekordbox does:
+//
+//   - BPM [lo, hi] (BPM*100) keeps tracks whose BPM lies within it;
+//   - key [indices] keeps tracks whose 1-24 key index is listed;
+//   - rating [n, 0] keeps tracks rated exactly n stars;
+//   - colour [mask] keeps tracks whose colour's bit (1 << (colour-1); yellow,
+//     colour 4, is 8) is set, and a zero mask (no colour chosen) keeps all.
+//
+// The MyTag condition isn't decoded yet and doesn't narrow the list.
 func (h *Handler) applyTrackFilter(msg *proto.DBMessage, items []*menuItem) []*menuItem {
 	if dmstMenu(msg) != 1 {
 		return items
@@ -225,18 +230,32 @@ func (h *Handler) applyTrackFilter(msg *proto.DBMessage, items []*menuItem) []*m
 	if !f.on {
 		return items
 	}
-	bpm, key := f.conds[filterPropBPM], f.conds[filterPropKey]
-	useBPM := bpm != nil && bpm.on != 0 && len(bpm.values) == 2
-	useKey := key != nil && key.on != 0
-	if !useBPM && !useKey {
+	active := func(prop uint32, minValues int) *filterCondition {
+		if c := f.conds[prop]; c != nil && c.on != 0 && len(c.values) >= minValues {
+			return c
+		}
+		return nil
+	}
+	bpm, key := active(filterPropBPM, 2), active(filterPropKey, 0)
+	rating, color := active(filterPropRating, 1), active(filterPropColor, 1)
+	if color != nil && color.values[0] == 0 {
+		color = nil // no colour chosen
+	}
+	if bpm == nil && key == nil && rating == nil && color == nil {
 		return items
 	}
 	var out []*menuItem
 	for _, it := range items {
-		if useBPM && (it.sortBPM < bpm.values[0] || it.sortBPM > bpm.values[1]) {
+		if bpm != nil && (it.sortBPM < bpm.values[0] || it.sortBPM > bpm.values[1]) {
 			continue
 		}
-		if useKey && !containsU32(key.values, it.newKeyID) {
+		if key != nil && !containsU32(key.values, it.newKeyID) {
+			continue
+		}
+		if rating != nil && it.rating != rating.values[0] {
+			continue
+		}
+		if color != nil && (it.ColorID == 0 || it.ColorID > 32 || color.values[0]&(1<<(it.ColorID-1)) == 0) {
 			continue
 		}
 		out = append(out, it)
