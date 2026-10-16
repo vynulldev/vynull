@@ -138,7 +138,8 @@ def main():
                k.ScaleName AS Key, l.Name AS Label,
                c.GenreID, c.ArtistID, c.AlbumID, c.KeyID, c.LabelID,
                rmx.Name AS Remixer, oa.Name AS OrigArtist,
-               c.RemixerID, c.OrgArtistID
+               c.RemixerID, c.OrgArtistID,
+               c.Subtitle AS MixName, aa.Name AS AlbumArtist, cp.Name AS Composer
         FROM djmdContent c
         LEFT JOIN djmdArtist a ON c.ArtistID = a.ID
         LEFT JOIN djmdAlbum al ON c.AlbumID = al.ID
@@ -147,6 +148,8 @@ def main():
         LEFT JOIN djmdLabel l ON c.LabelID = l.ID
         LEFT JOIN djmdArtist rmx ON c.RemixerID = rmx.ID
         LEFT JOIN djmdArtist oa ON c.OrgArtistID = oa.ID
+        LEFT JOIN djmdArtist aa ON al.AlbumArtistID = aa.ID
+        LEFT JOIN djmdArtist cp ON c.ComposerID = cp.ID
         WHERE COALESCE(c.rb_local_deleted, 0) = 0
     """)
     cols = [d[0] for d in cur.description]
@@ -199,6 +202,11 @@ def main():
             "label_id":     str(d.get("LabelID") or ""),
             "remixer":        d.get("Remixer") or "",
             "original_artist": d.get("OrigArtist") or "",
+            # Smart playlist text fields: mixName (Subtitle), albumArtist (the
+            # album's artist) and producer (ComposerID).
+            "mix_name":       d.get("MixName") or "",
+            "album_artist":   d.get("AlbumArtist") or "",
+            "composer":       d.get("Composer") or "",
             "remixer_id":     str(d.get("RemixerID") or ""),
             "orig_artist_id": str(d.get("OrgArtistID") or ""),
             # Paths are relative to the rekordbox `share/` root, e.g.

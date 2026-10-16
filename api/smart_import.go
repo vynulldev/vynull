@@ -37,6 +37,8 @@ var rbFieldMap = map[string]string{
 	"fileName":       "file_name",
 	"filename":       "file_name",
 	"mixName":        "mix_name",
+	"albumArtist":    "album_artist",
+	"producer":       "composer",
 	"myTag":          "tag",
 	"stockDate":      "date_added",
 	"dateCreated":    "date_created",

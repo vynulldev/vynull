@@ -107,6 +107,10 @@ func evalLeaf(field, op string, value any, t *library.Track, tags TagLookup, now
 		return stringMatch(op, value, filepath.Base(t.FilePath))
 	case "mix_name":
 		return stringMatch(op, value, t.MixName)
+	case "album_artist":
+		return stringMatch(op, value, t.AlbumArtist)
+	case "composer":
+		return stringMatch(op, value, t.Composer)
 	case "remixer":
 		return stringMatch(op, value, t.Remixer)
 	case "original_artist":
@@ -197,7 +201,8 @@ func stringMatch(op string, value any, s string) bool {
 	case "contains":
 		return strings.Contains(low, qLow)
 	case "not_contains":
-		return !strings.Contains(low, qLow)
+		// rekordbox's does-not-contain skips empty and missing values.
+		return low != "" && !strings.Contains(low, qLow)
 	case "starts_with":
 		return strings.HasPrefix(low, qLow)
 	case "ends_with":
@@ -216,10 +221,9 @@ func keyMatch(op string, value any, trackKey string) bool {
 		return false
 	}
 	switch op {
-	case "is", "eq", "=":
-		return strings.EqualFold(trackKey, target)
-	case "is_not", "ne", "!=":
-		return !strings.EqualFold(trackKey, target)
+	case "is", "eq", "=", "is_not", "ne", "!=":
+		// Equality compares the key's name like any other text.
+		return stringMatch(op, value, trackKey)
 	case "compatible":
 		return camelotCompatible(trackKey, target)
 	case "contains", "not_contains", "starts_with", "ends_with":
@@ -230,8 +234,10 @@ func keyMatch(op string, value any, trackKey string) bool {
 }
 
 // foldText prepares text for comparison the way rekordbox's smart playlists
-// compare it (link-spec conformance smart text suites): case-insensitive, and
-// a precomposed accented letter equals its base letter ("Álpha" is "alpha").
+// compare it (link-spec conformance smart text suites): case-insensitive, a
+// precomposed accented letter equals its base letter ("Álpha" is "alpha"),
+// fullwidth forms equal ASCII ("Ａｌｐｈａ" is "alpha"), katakana equals
+// hiragana, and final sigma equals sigma.
 // Text is not otherwise normalized: a base letter followed by a separate
 // combining accent ("A\u0301lpha") keeps the accent, and combining marks in a
 // different order differ, as in rekordbox.
@@ -243,9 +249,24 @@ func foldText(s string) string {
 				r = base // precomposed: keep the base letter only
 			}
 		}
-		b.WriteRune(r)
+		b.WriteRune(foldWidthKana(r))
 	}
-	return strings.ToLower(b.String())
+	return strings.ReplaceAll(strings.ToLower(b.String()), "ς", "σ")
+}
+
+// foldWidthKana folds the forms rekordbox's text matching treats as equal
+// (SMART_PLAYLIST_ORACLE, "Text collation"): fullwidth ASCII and the
+// ideographic space to their ASCII forms, and katakana to hiragana.
+func foldWidthKana(r rune) rune {
+	switch {
+	case r >= 0xff01 && r <= 0xff5e:
+		return r - 0xfee0
+	case r == 0x3000:
+		return ' '
+	case r >= 0x30a1 && r <= 0x30f6:
+		return r - 0x60
+	}
+	return r
 }
 
 // camelotCompatible reports whether `a` is a harmonically-compatible

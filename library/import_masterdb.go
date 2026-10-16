@@ -151,6 +151,9 @@ type masterDBTrack struct {
 	// the REMIXER and ORIGINAL ARTIST category drills resolve.
 	Remixer        string `json:"remixer"`
 	OriginalArtist string `json:"original_artist"`
+	MixName        string `json:"mix_name"`
+	AlbumArtist    string `json:"album_artist"`
+	Composer       string `json:"composer"`
 	RemixerID      string `json:"remixer_id"`
 	OrigArtistID   string `json:"orig_artist_id"`
 }
@@ -617,6 +620,10 @@ func masterDBToLibrary(t *masterDBTrack, path string) *Track {
 		AutoLoadHotCue: t.HotCueAutoLoad != "",
 		Remixer:        t.Remixer,
 		OriginalArtist: t.OriginalArtist,
+		MixName:        t.MixName,
+		KeyID:          parseRBID(t.KeyID),
+		AlbumArtist:    t.AlbumArtist,
+		Composer:       t.Composer,
 	}
 }
 
