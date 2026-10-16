@@ -60,13 +60,16 @@ type Track struct {
 	Remixer        string      `json:"remixer"`
 	MixName        string      `json:"mix_name"` // mix/version name
 	DateAdded      time.Time   `json:"date_added"`
-	Bitrate        int         `json:"bitrate"`      // kbps
-	SampleRate     int         `json:"sample_rate"`  // Hz
-	SampleDepth    int         `json:"sample_depth"` // bits
-	PlayCount      int         `json:"play_count"`
-	ColorID        uint8       `json:"color_id"`               // 0=none, 1=pink, 2=red, etc.
-	ArtChecked     bool        `json:"art_checked,omitempty"`  // true after artwork extraction attempted
-	FileMissing    bool        `json:"file_missing,omitempty"` // FilePath doesn't exist on disk — unplayable (e.g. an imported path not remapped to a local file)
+	// DateCreated is rekordbox's separate DateCreated, from an import; smart
+	// playlist rules on dateCreated test it (zero when unknown).
+	DateCreated time.Time `json:"date_created,omitempty"`
+	Bitrate     int       `json:"bitrate"`      // kbps
+	SampleRate  int       `json:"sample_rate"`  // Hz
+	SampleDepth int       `json:"sample_depth"` // bits
+	PlayCount   int       `json:"play_count"`
+	ColorID     uint8     `json:"color_id"`               // 0=none, 1=pink, 2=red, etc.
+	ArtChecked  bool      `json:"art_checked,omitempty"`  // true after artwork extraction attempted
+	FileMissing bool      `json:"file_missing,omitempty"` // FilePath doesn't exist on disk — unplayable (e.g. an imported path not remapped to a local file)
 
 	// Beat-grid override fields. DetectedBPM is the auto-detected value
 	// snapshotted before any manual override; BPM (above) is the

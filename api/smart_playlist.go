@@ -122,6 +122,8 @@ func evalLeaf(field, op string, value any, t *library.Track, tags TagLookup, now
 
 	case "date_added":
 		return dateMatch(op, value, t.DateAdded, now)
+	case "date_created":
+		return dateMatch(op, value, t.DateCreated, now)
 	}
 	return false
 }

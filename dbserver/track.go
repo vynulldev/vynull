@@ -9,6 +9,7 @@ import (
 	"math"
 	"path/filepath"
 	"strings"
+	"unicode/utf16"
 
 	"github.com/vynulldev/vynull/analysis"
 	"github.com/vynulldev/vynull/library"
@@ -158,31 +159,58 @@ func (h *Handler) handleGetMetadata(msg *proto.DBMessage) []*proto.DBMessage {
 
 	// Metadata items in the standard format (16 items).
 	// ParentID values: some items have parent=1, others parent=0.
+	// The title row is an ordinary track row (title with the key as its
+	// second column, key and BPM in the extended fields), as rekordbox's is;
+	// the key alone, not the "Key - BPM" composite, as its render reads it.
+	titleRow := &menuItem{ID: tID, Label1: title, ArtID: artworkID, ItemType: 0x0004, ParentID: 1, FileType: fileType}
+	if h.pdb != nil {
+		if pt := h.pdb.TrackByID(trackID); pt != nil {
+			titleRow = h.pdbTrackToStdItem(pt)
+		}
+	} else if h.lib != nil {
+		if t := h.lib.Track(trackID); t != nil {
+			titleRow = h.trackToStdItem(t)
+			titleRow.songInfoTitle = h.newSongInfoTitle(t, 1)
+		}
+	}
+
+	// rekordbox's sixteen Display Song Info rows, in its order (link-spec
+	// DISPLAY_SONG_INFO_ORACLE). Argument 0 (ParentID) is 1 on the rows whose
+	// category is enabled, 0 on Date Added and Comment.
 	metaItems := []*menuItem{
-		{ID: tID, Label1: title, ArtID: artworkID, ItemType: 0x0004, ParentID: 1, FileType: fileType}, // title
-		{ID: artistID, Label1: artist, ItemType: 0x0007, ParentID: 1},                                 // artist
-		{ID: albumID, Label1: album, ItemType: 0x0002, ParentID: 1, noArtHandle: true},                // album
-		{ID: duration / 1000, Label1: "", ItemType: 0x000b},                                           // duration (parent=0)
-		{ID: tempo, Label1: "", ItemType: 0x000d, ParentID: 1},                                        // BPM (* 100)
-		{ID: keyID, Label1: key, ItemType: 0x000f, ParentID: 1},                                       // key
-		{ID: rating, Label1: "", ItemType: 0x000a},                                                    // rating
-		// TRACK INFO colour row. Match the pattern every other
-		// metadata row uses: ItemType is just the field type marker
-		// (0x0013 here, no high-byte colour encoding — that was a
-		// guess that made the deck wrap the label in "[…]" and skip
-		// the chip rendering). ID carries the actual colour value
-		// (0 = none, 1 = Pink, … 8 = Purple) the deck looks up in
-		// its own palette.
-		{ID: colorID, Label1: trackColorName(uint8(colorID)),
-			ItemType: 0x0013},
-		{ID: genreID, Label1: genre, ItemType: 0x0006, ParentID: 1},                         // genre
-		{ID: tID, Label1: dateAdded, ItemType: 0x002e, ParentID: 1},                         // date added
-		{ID: tID, Label1: comment, ItemType: 0x0023},                                        // comment (parent=0)
-		{ID: labelID, Label1: label, ItemType: 0x000e, ParentID: 1},                         // label
-		{ID: bitrate, Label1: "", ItemType: 0x0010},                                         // bitrate (parent=0)
-		{ID: year, Label1: "", ItemType: 0x0011, ParentID: 1},                               // year
-		{ID: catID("origartist", originalArtist), Label1: originalArtist, ItemType: 0x0028}, // original artist (parent=0)
-		{ID: catID("remixer", remixer), Label1: remixer, ItemType: 0x0029},                  // remixer (parent=0)
+		titleRow,
+		{ID: artistID, Label1: artist, ItemType: 0x0007, ParentID: 1},                  // artist
+		{ID: albumID, Label1: album, ItemType: 0x0002, ParentID: 1, noArtHandle: true}, // album
+		{ID: duration / 1000, ItemType: 0x000b, ParentID: 1},                           // duration (seconds)
+		{ID: tempo, ItemType: 0x000d, ParentID: 1},                                     // BPM (* 100)
+		{ID: keyID, Label1: key, ItemType: 0x000f, ParentID: 1},                        // key
+		{ID: rating, ItemType: 0x000a, ParentID: 1},                                    // rating
+		// Colour: the ID is the colour (0 = none, 1 = Pink ... 8 = Purple) and
+		// the type is 0x13 + that ID, as in the COLOUR menu (0x14 = Pink).
+		{ID: colorID, Label1: trackColorName(uint8(colorID)), ItemType: 0x13 + colorID&0xff, ParentID: 1},
+		{ID: genreID, Label1: genre, ItemType: 0x0006, ParentID: 1},                                      // genre
+		{ID: tID, Label1: dateAdded, ItemType: 0x002e},                                                   // date added
+		{ID: tID, Label1: comment, ItemType: 0x0023},                                                     // comment
+		{ID: bitrate, ItemType: 0x0010, ParentID: 1},                                                     // bitrate
+		{ID: year, ItemType: 0x0011, ParentID: 1},                                                        // year
+		{ID: labelID, Label1: label, ItemType: 0x000e, ParentID: 1},                                      // label
+		{ID: catID("origartist", originalArtist), Label1: originalArtist, ItemType: 0x0028, ParentID: 1}, // original artist
+		{ID: catID("remixer", remixer), Label1: remixer, ItemType: 0x0029, ParentID: 1},                  // remixer
+	}
+	// rekordbox's string limits for these rows (DISPLAY_SONG_INFO_ORACLE,
+	// "string paths"): 127 UTF-16 units for the title and lookup names, 255
+	// for Comment and Date Added, and 127 characters for the title row's key.
+	for i, it := range metaItems {
+		limit := 127
+		if it.ItemType == 0x0023 || it.ItemType == 0x002e {
+			limit = 255
+		}
+		it.Label1 = truncateUTF16(it.Label1, limit)
+		if i == 0 {
+			if r := []rune(it.Label2); len(r) > 127 {
+				it.Label2 = string(r[:127])
+			}
+		}
 	}
 	h.setPendingAll(msg, metaItems)
 
@@ -1116,4 +1144,15 @@ func (h *Handler) handleGetNXS2CuePoints(msg *proto.DBMessage) []*proto.DBMessag
 func isDrivePath(p string) bool {
 	return len(p) >= 3 && p[1] == ':' && (p[2] == '/' || p[2] == '\\') &&
 		(p[0] >= 'A' && p[0] <= 'Z' || p[0] >= 'a' && p[0] <= 'z')
+}
+
+// truncateUTF16 cuts s to at most n UTF-16 code units, as rekordbox's string
+// fields do. A cut through a surrogate pair leaves a lone high surrogate,
+// which decodes (on the wire, too) as U+FFFD.
+func truncateUTF16(s string, n int) string {
+	units := utf16.Encode([]rune(s))
+	if len(units) <= n {
+		return s
+	}
+	return string(utf16.Decode(units[:n]))
 }

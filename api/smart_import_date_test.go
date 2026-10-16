@@ -15,7 +15,9 @@ import (
 // imported playlist matched nothing).
 func TestSmartImportDateConditions(t *testing.T) {
 	now := time.Date(2025, 6, 1, 0, 0, 0, 0, time.UTC)
-	track := func(d time.Time) *library.Track { return &library.Track{ID: 1, DateAdded: d} }
+	// Both dates set: dateCreated rules test DateCreated, stockDate rules
+	// DateAdded (rekordbox's StockDate).
+	track := func(d time.Time) *library.Track { return &library.Track{ID: 1, DateAdded: d, DateCreated: d} }
 	before := track(time.Date(2022, 6, 1, 0, 0, 0, 0, time.UTC))
 	after := track(time.Date(2024, 6, 1, 0, 0, 0, 0, time.UTC))
 
@@ -60,5 +62,23 @@ func TestSmartImportDateConditions(t *testing.T) {
 				t.Errorf("2022 track: match=%v want %v", got, tc.matchBefore)
 			}
 		})
+	}
+}
+
+// rekordbox's stockDate (Date Added) and dateCreated are separate dates: a
+// rule on one must not test the other.
+func TestSmartImportDateFieldsAreDistinct(t *testing.T) {
+	now := time.Date(2025, 6, 1, 0, 0, 0, 0, time.UTC)
+	tr := &library.Track{ID: 1, DateAdded: time.Date(2024, 6, 1, 0, 0, 0, 0, time.UTC)} // no DateCreated
+	rule := func(prop string) *SmartRules {
+		rules, _, _ := smartRulesFromRekordbox(&library.RBSmartList{Logical: 1,
+			Conditions: []library.RBSmartCond{{Property: prop, Operator: 3, Left: "2023-01-01"}}})
+		return rules
+	}
+	if !rule("stockDate").Match(tr, nil, now) {
+		t.Errorf("stockDate after 2023 should match the 2024 date added")
+	}
+	if rule("dateCreated").Match(tr, nil, now) {
+		t.Errorf("dateCreated after 2023 matched a track with no created date")
 	}
 }
