@@ -672,8 +672,11 @@ func readMessage(conn net.Conn) (*proto.DBMessage, error) {
 	//   0x2805 = tagged analysis-section read — sends a ~150-byte binary spec
 	//            blob (e.g. "PVB2"/"EXT"). This was the cause of the deck
 	//            dropping the dbserver link mid-session.
+	//   0x3207 = TRACK FILTER condition — the condition blob (on, kind,
+	//            count, values). Skipping it dropped the session the moment a
+	//            filter was ticked, and the deck unticked it.
 	actualArgCount := argCount
-	sendsTrailingBinary := msgType == 0x2705 || msgType == 0x2805
+	sendsTrailingBinary := msgType == 0x2705 || msgType == 0x2805 || msgType == 0x3207
 	if !sendsTrailingBinary {
 		// A tag list shorter than the argument count (malformed) has no tag
 		// for the missing positions; treat those as sent, so the read below
