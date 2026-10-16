@@ -99,3 +99,49 @@ func TestTrackFilterNarrowsTrackList(t *testing.T) {
 		t.Errorf("filter off = %d tracks, want 5", n)
 	}
 }
+
+// Rating [n, 0] keeps tracks rated exactly n stars; colour is a bitmask of
+// colours (bit colour-1: yellow, colour 4, is 8), and a zero mask keeps all.
+// From real rekordbox captures: "5 stars exact" sends [5, 0], yellow sends
+// [8], red [2].
+func TestTrackFilterRatingAndColour(t *testing.T) {
+	lib := library.New()
+	for i, tr := range []struct {
+		rating uint8
+		color  uint8
+	}{{5, 4}, {5, 0}, {4, 4}, {2, 2}, {0, 4}, {0, 8}} {
+		lib.AddTrack(&library.Track{ID: uint32(i + 1), Title: string(rune('A' + i)), Rating: tr.rating, ColorID: tr.color})
+	}
+	h := &Handler{lib: lib}
+	const ctx = 0x01010401
+	send := func(kind uint16, args ...proto.DBArg) {
+		h.Handle(&proto.DBMessage{TxID: 4, Type: kind, Args: append([]proto.DBArg{proto.ArgI32(ctx)}, args...)})
+	}
+	count := func() int {
+		h.Handle(&proto.DBMessage{TxID: 3, Type: proto.DBMsgGetTracks, Args: []proto.DBArg{proto.ArgI32(ctx), proto.ArgI32(0)}})
+		return len(h.pendingItems)
+	}
+	setCond := func(prop uint32, blob string) {
+		send(0x3207, proto.ArgI32(prop), proto.ArgI32(0), proto.ArgI32(uint32(len(blob)/2)), proto.ArgBlob(mustHex(t, blob)))
+	}
+	send(0x3007, proto.ArgI32(1))
+	for _, tc := range []struct {
+		prop       uint32
+		blob, name string
+		want       int
+	}{
+		{filterPropRating, "010002000500000000000000", "rating 5 exact", 2},
+		{filterPropRating, "010002000400000000000000", "rating 4 exact", 1},
+		{filterPropRating, "010002000100000000000000", "rating 1 exact", 0},
+		{filterPropRating, "000002000100000000000000", "rating off", 6},
+		{filterPropColor, "0111010008000000", "yellow", 3},
+		{filterPropColor, "0111010002000000", "red", 1},
+		{filterPropColor, "011101000a000000", "yellow or red", 4},
+		{filterPropColor, "0111010000000000", "no colour chosen", 6},
+	} {
+		setCond(tc.prop, tc.blob)
+		if n := count(); n != tc.want {
+			t.Errorf("%s: %d tracks, want %d", tc.name, n, tc.want)
+		}
+	}
+}
