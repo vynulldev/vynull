@@ -3,8 +3,11 @@
 package dbserver
 
 import (
+	"bytes"
 	"encoding/hex"
+	"net"
 	"testing"
+	"time"
 
 	"github.com/vynulldev/vynull/library"
 	"github.com/vynulldev/vynull/proto"
@@ -143,5 +146,27 @@ func TestTrackFilterRatingAndColour(t *testing.T) {
 		if n := count(); n != tc.want {
 			t.Errorf("%s: %d tracks, want %d", tc.name, n, tc.want)
 		}
+	}
+}
+
+// A 0x3207 carries its condition blob as a trailing binary argument, which
+// the reader must wait for: skipping it left the blob in the stream, the
+// next read failed ("unexpected byte 0x14"), the session dropped, and the
+// deck unticked the filter it had just ticked.
+func TestReadSetFilterConditionBlob(t *testing.T) {
+	blob := mustHex(t, "01060200bc2f0000d4350000")
+	frame := proto.MarshalDBMessage(&proto.DBMessage{TxID: 9, Type: 0x3207, Args: []proto.DBArg{
+		proto.ArgI32(0x01010401), proto.ArgI32(filterPropBPM), proto.ArgI32(0), proto.ArgI32(uint32(len(blob))), proto.ArgBlob(blob)}})
+	client, server := net.Pipe()
+	defer client.Close()
+	defer server.Close()
+	go client.Write(frame)
+	server.SetReadDeadline(time.Now().Add(2 * time.Second))
+	msg, err := readMessage(server)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(msg.Args) != 5 || !bytes.Equal(msg.Args[4].Bytes, blob) {
+		t.Fatalf("0x3207 read as %+v, want 5 arguments ending in the condition blob", msg.Args)
 	}
 }
