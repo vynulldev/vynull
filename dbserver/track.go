@@ -38,8 +38,12 @@ func (h *Handler) handleGetMetadata(msg *proto.DBMessage) []*proto.DBMessage {
 	go h.lazyAnalyze(trackID)
 
 	// Look up from PDB first, then library.
-	var title, artist, album, genre, key, comment, dateAdded string
+	var title, artist, album, genre, key, comment, dateAdded, label string
 	var tID, artworkID, keyID, duration uint32
+	// Category rows carry the category's ID, as rekordbox's do: the deck's
+	// information jump (TRACK INFO -> ARTIST/ALBUM/...) opens that menu entry
+	// by this ID.
+	var artistID, albumID, genreID, labelID uint32
 	if h.pdb != nil {
 		pt := h.pdb.TrackByID(trackID)
 		if pt != nil {
@@ -53,6 +57,7 @@ func (h *Handler) handleGetMetadata(msg *proto.DBMessage) []*proto.DBMessage {
 			dateAdded = pt.DateAdded
 			artworkID = pt.ArtworkID
 			keyID = pt.KeyID
+			artistID, albumID, genreID, labelID = pt.ArtistID, pt.AlbumID, pt.GenreID, pt.LabelID
 			duration = uint32(pt.Duration) * 1000 // seconds to ms
 		}
 	}
@@ -66,6 +71,7 @@ func (h *Handler) handleGetMetadata(msg *proto.DBMessage) []*proto.DBMessage {
 			genre = track.Genre
 			key = track.Key
 			comment = track.Comment
+			label = track.Label
 			artworkID = track.ArtID
 			if !track.DateAdded.IsZero() {
 				dateAdded = track.DateAdded.Format("2006-01-02")
@@ -119,6 +125,30 @@ func (h *Handler) handleGetMetadata(msg *proto.DBMessage) []*proto.DBMessage {
 		}
 	}
 
+	// Library tracks: the same IDs the category menus list (rekordbox's own
+	// IDs for an imported library, else the hashed name IDs).
+	catID := func(kind, name string) uint32 {
+		if name == "" {
+			return 0
+		}
+		return h.catID(kind, name)
+	}
+	if artistID == 0 {
+		artistID = catID("artist", artist)
+	}
+	if albumID == 0 {
+		albumID = catID("album", album)
+	}
+	if genreID == 0 {
+		genreID = catID("genre", genre)
+	}
+	if labelID == 0 {
+		labelID = catID("label", label)
+	}
+	if keyID == 0 {
+		keyID = catID("key", key)
+	}
+
 	// Use 0x7FFFFFFF as sentinel for unknown key.
 	if keyID == 0 && key == "" {
 		keyID = 0x7FFFFFFF
@@ -130,8 +160,8 @@ func (h *Handler) handleGetMetadata(msg *proto.DBMessage) []*proto.DBMessage {
 	// ParentID values: some items have parent=1, others parent=0.
 	metaItems := []*menuItem{
 		{ID: tID, Label1: title, ArtID: artworkID, ItemType: 0x0004, ParentID: 1, FileType: fileType}, // title
-		{ID: tID, Label1: artist, ItemType: 0x0007, ParentID: 1},                                      // artist
-		{ID: tID, Label1: album, ItemType: 0x0002, ParentID: 1},                                       // album
+		{ID: artistID, Label1: artist, ItemType: 0x0007, ParentID: 1},                                 // artist
+		{ID: albumID, Label1: album, ItemType: 0x0002, ParentID: 1},                                   // album
 		{ID: duration / 1000, Label1: "", ItemType: 0x000b},                                           // duration (parent=0)
 		{ID: tempo, Label1: "", ItemType: 0x000d, ParentID: 1},                                        // BPM (* 100)
 		{ID: keyID, Label1: key, ItemType: 0x000f, ParentID: 1},                                       // key
@@ -145,14 +175,14 @@ func (h *Handler) handleGetMetadata(msg *proto.DBMessage) []*proto.DBMessage {
 		// its own palette.
 		{ID: colorID, Label1: trackColorName(uint8(colorID)),
 			ItemType: 0x0013},
-		{ID: 0, Label1: genre, ItemType: 0x0006, ParentID: 1},       // genre
-		{ID: tID, Label1: dateAdded, ItemType: 0x002e, ParentID: 1}, // date added
-		{ID: tID, Label1: comment, ItemType: 0x0023},                // comment (parent=0)
-		{ID: 0, Label1: "", ItemType: 0x000e, ParentID: 1},          // label
-		{ID: bitrate, Label1: "", ItemType: 0x0010},                 // bitrate (parent=0)
-		{ID: year, Label1: "", ItemType: 0x0011, ParentID: 1},       // year
-		{ID: 0, Label1: originalArtist, ItemType: 0x0028},           // original artist (parent=0)
-		{ID: 0, Label1: remixer, ItemType: 0x0029},                  // remixer (parent=0)
+		{ID: genreID, Label1: genre, ItemType: 0x0006, ParentID: 1},                         // genre
+		{ID: tID, Label1: dateAdded, ItemType: 0x002e, ParentID: 1},                         // date added
+		{ID: tID, Label1: comment, ItemType: 0x0023},                                        // comment (parent=0)
+		{ID: labelID, Label1: label, ItemType: 0x000e, ParentID: 1},                         // label
+		{ID: bitrate, Label1: "", ItemType: 0x0010},                                         // bitrate (parent=0)
+		{ID: year, Label1: "", ItemType: 0x0011, ParentID: 1},                               // year
+		{ID: catID("origartist", originalArtist), Label1: originalArtist, ItemType: 0x0028}, // original artist (parent=0)
+		{ID: catID("remixer", remixer), Label1: remixer, ItemType: 0x0029},                  // remixer (parent=0)
 	}
 	h.setPendingAll(msg, metaItems)
 
@@ -851,33 +881,32 @@ func (h *Handler) handleGetNXS2Cues(msg *proto.DBMessage) []*proto.DBMessage {
 }
 
 func (h *Handler) handleMountInfo(msg *proto.DBMessage) []*proto.DBMessage {
-	// 0x3100 is the SHORT CUT preview query. Before a SHORT CUT button
-	// (TRACK / PLAYLIST / SEARCH) opens its list, the deck asks which
-	// root-menu slot that shortcut lives in: arg[1] is the target
-	// category's item ID and the response value is that item's *index*
-	// within the root menu. The deck then renders a 1-item preview at
-	// that offset (0x3000, count=1) for the top-bar label and opens the
-	// list there. Returning a fixed 0 makes every shortcut resolve to
-	// root-menu slot 0 (ARTIST), so TRACK/PLAYLIST both open ARTIST.
-	//
-	// Look the requested ID up in the actual root menu so the offset
-	// stays correct regardless of the configured menu order. Unknown or
-	// absent IDs fall back to 0 (the old ack behaviour) — e.g. plain
-	// mount notifications that carry no category ID.
+	// 0x3100 is rekordbox's CMD_GET_OFFSET_CONTENTID (GetListBufOffset):
+	// [context, id] asks where id sits in the list loaded at the context's
+	// menu location, and the reply is that index. Decks use it to put the
+	// cursor on an item: the SHORT CUT buttons ask for a category in the root
+	// menu (location 7), and TRACK INFO's jumps ask for the loaded track in
+	// the list they just opened, so it comes up selected. An ID not in the
+	// list answers 0 (the top), as plain mount notifications expect.
 	offset := 0
 	wantID := uint32(0)
+	menu := dmstMenu(msg)
 	if len(msg.Args) >= 2 {
 		wantID = msg.Args[1].Int()
-		if wantID != 0 {
-			for i, item := range h.rootMenu() {
-				if item.ID == wantID {
-					offset = i
-					break
-				}
+	}
+	if wantID != 0 {
+		list := h.getPending(menu)
+		if menu == 7 || list == nil {
+			list = h.rootMenu()
+		}
+		for i, item := range list {
+			if item.ID == wantID {
+				offset = i
+				break
 			}
 		}
 	}
-	dlog.Debugf("dbserver: mount info (0x3100) shortcut id=0x%x -> root offset %d", wantID, offset)
+	dlog.Debugf("dbserver: list offset (0x3100) menu=%d id=0x%x -> offset %d", menu, wantID, offset)
 	return []*proto.DBMessage{{
 		TxID: msg.TxID,
 		Type: proto.DBMsgSuccess,
