@@ -118,6 +118,8 @@ type SmartPlaylistSource interface {
 
 // Server implements the Pro DJ Link database server protocol.
 type Server struct {
+	// filters holds every player's TRACK FILTER settings across sessions.
+	filters      trackFilters
 	Library      *library.Library
 	PDB          *pdb.Database
 	DeviceNumber uint8
@@ -433,6 +435,7 @@ func (s *Server) handleSession(ctx context.Context, conn net.Conn) {
 		menu:         s.Menu,
 		cues:         s.Cues,
 		settings:     s.Settings,
+		filters:      &s.filters,
 	}
 
 	for {
