@@ -70,6 +70,9 @@ type Track struct {
 	// DateCreated is rekordbox's separate DateCreated, from an import; smart
 	// playlist rules on dateCreated test it (zero when unknown).
 	DateCreated time.Time `json:"date_created,omitempty"`
+	// ReleaseDate is rekordbox's ReleaseDate, from an import; smart playlist
+	// rules on dateReleased test it (zero when unknown).
+	ReleaseDate time.Time `json:"release_date,omitempty"`
 	Bitrate     int       `json:"bitrate"`      // kbps
 	SampleRate  int       `json:"sample_rate"`  // Hz
 	SampleDepth int       `json:"sample_depth"` // bits
