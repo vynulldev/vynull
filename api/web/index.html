@@ -11312,9 +11312,17 @@ function renderSmartValueInput(c, meta) {
     return `<input type="number" data-sm-val value="${v}" style="width:100px">`;
   }
   if (meta.type === 'key') {
-    return `<select data-sm-val>${SMART_KEYS.map(k =>
-      `<option value="${k}" ${k === c.value ? 'selected' : ''}>${k}</option>`
-    ).join('')}</select>`;
+    // An imported rekordbox rule may name its key in classic notation
+    // ("Am"); keep that value as its own option so opening the editor never
+    // swaps the rule's key for the first one listed.
+    const v = c.value == null ? '' : String(c.value);
+    const opts = SMART_KEYS.map(k =>
+      `<option value="${k}" ${k === v ? 'selected' : ''}>${k}</option>`);
+    if (v && !SMART_KEYS.includes(v)) {
+      const p = KEY_PAIRS[v.trim().toUpperCase()];
+      opts.unshift(`<option value="${escape(v)}" selected>${escape(v)}${p ? ' · ' + p[0] : ''}</option>`);
+    }
+    return `<select data-sm-val>${opts.join('')}</select>`;
   }
   if (meta.type === 'tag') {
     const tags = (allTagsCache || []);
@@ -11601,8 +11609,10 @@ function smartMatchLeaf(c, t) {
     return false;
   }
   if (meta.type === 'key') {
-    const trackKey = (t.key || '').toUpperCase();
-    const target = (v || '').toString().toUpperCase();
+    // Compare keys in either notation, as the server does.
+    const cam = x => { const k = String(x || '').toUpperCase(); return (KEY_PAIRS[k] || [k])[0]; };
+    const trackKey = cam(t.key);
+    const target = cam(v);
     if (op === 'is') return trackKey === target;
     if (op === 'is_not') return trackKey !== target;
     // compatible — quick approximation; server does the authoritative check
