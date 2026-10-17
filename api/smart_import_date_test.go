@@ -3,6 +3,7 @@
 package api
 
 import (
+	"fmt"
 	"testing"
 	"time"
 
@@ -37,6 +38,7 @@ func TestSmartImportDateConditions(t *testing.T) {
 		{"equal a blank date — dropped (matches nothing)", library.RBSmartCond{Property: "dateCreated", Operator: 1, Left: ""}, false, false, true},
 		{"reversed range — dropped (matches nothing)", library.RBSmartCond{Property: "stockDate", Operator: 5, Left: "2025-01-01", Right: "2023-01-01"}, false, false, true},
 		{"unparseable date — dropped", library.RBSmartCond{Property: "dateCreated", Operator: 3, Left: "not-a-date"}, false, false, true},
+		{"other separators read by position", library.RBSmartCond{Property: "dateCreated", Operator: 1, Left: "2024/06.01"}, true, false, false},
 		{"date with a time part — dropped", library.RBSmartCond{Property: "dateCreated", Operator: 3, Left: "2023-01-01 12:00:00"}, false, false, true},
 		{"date with spaces — dropped", library.RBSmartCond{Property: "dateCreated", Operator: 3, Left: " 2023-01-01"}, false, false, true},
 		{"epoch date — dropped", library.RBSmartCond{Property: "dateCreated", Operator: 3, Left: "1970-01-01"}, false, false, true},
@@ -80,5 +82,76 @@ func TestSmartImportDateFieldsAreDistinct(t *testing.T) {
 	}
 	if rule("dateCreated").Match(tr, nil, now) {
 		t.Errorf("dateCreated after 2023 matched a track with no created date")
+	}
+}
+
+// Relative date rules follow rekordbox's pastDayToDay and pastMonthToDay
+// (link-spec conformance smart-relative-date-matrix, rekordbox 7.2.19, whose
+// clock and dates these are): in the last n days starts n-1 days back, in
+// the last n months starts on the last day of the month n months back, only
+// the unit month counts months, and a count below one counts as one.
+func TestSmartImportRelativeDates(t *testing.T) {
+	now := time.Date(2032, 3, 31, 12, 0, 0, 0, time.UTC)
+	dates := []string{"2032-03-31", "2032-03-30", "2032-03-24", "2032-02-29", "2032-02-28",
+		"2031-03-31", "2031-03-30", "2032-04-01", "", "not-a-date"}
+	tracks := make([]*library.Track, len(dates))
+	for i, d := range dates {
+		tracks[i] = &library.Track{ID: uint32(i + 1), DateAdded: library.ParseRekordboxDate(d)}
+	}
+	cases := []struct {
+		count, unit string
+		in          []uint32 // tracks in the last count units; every other dated track is not
+	}{
+		{"1", "day", []uint32{1, 8}},
+		{"1", "week", []uint32{1, 8}},
+		{"1", "year", []uint32{1, 8}},
+		{"1", "months", []uint32{1, 8}},
+		{"1", "", []uint32{1, 8}},
+		{"1", "month", []uint32{1, 2, 3, 4, 8}},
+		{"1", "MONTH", []uint32{1, 2, 3, 4, 8}},
+		{"2", "day", []uint32{1, 2, 8}},
+		{"31", "day", []uint32{1, 2, 3, 8}},
+		{"2", "month", []uint32{1, 2, 3, 4, 5, 8}},
+		{"0", "day", []uint32{1, 8}},
+		{"-1", "day", []uint32{1, 8}},
+		{"", "day", []uint32{1, 8}},
+		{"not-a-number", "day", []uint32{1, 8}},
+		{"1.5", "day", []uint32{1, 8}},
+	}
+	for _, tc := range cases {
+		for _, op := range []int{6, 7} {
+			rules, _, _ := smartRulesFromRekordbox(&library.RBSmartList{Logical: 1,
+				Conditions: []library.RBSmartCond{{Property: "stockDate", Operator: op, Left: tc.count, Unit: tc.unit}}})
+			var got, want []uint32
+			for _, tr := range tracks {
+				if rules.Match(tr, nil, now) {
+					got = append(got, tr.ID)
+				}
+				if tr.DateAdded.IsZero() {
+					continue
+				}
+				in := false
+				for _, id := range tc.in {
+					in = in || id == tr.ID
+				}
+				if in == (op == 6) {
+					want = append(want, tr.ID)
+				}
+			}
+			if fmt.Sprint(got) != fmt.Sprint(want) {
+				t.Errorf("op %d count %q unit %q: got %v, want %v", op, tc.count, tc.unit, got, want)
+			}
+		}
+	}
+}
+
+// A rule on dateReleased tests the track's release date.
+func TestSmartImportReleaseDate(t *testing.T) {
+	now := time.Date(2025, 6, 1, 0, 0, 0, 0, time.UTC)
+	tr := &library.Track{ID: 1, DateAdded: now, ReleaseDate: time.Date(2024, 6, 1, 0, 0, 0, 0, time.UTC)}
+	rules, mapped, _ := smartRulesFromRekordbox(&library.RBSmartList{Logical: 1,
+		Conditions: []library.RBSmartCond{{Property: "dateReleased", Operator: 1, Left: "2024/06/01"}}})
+	if mapped != 1 || !rules.Match(tr, nil, now) {
+		t.Errorf("dateReleased equal 2024/06/01 should match the 2024-06-01 release date (mapped=%d)", mapped)
 	}
 }
