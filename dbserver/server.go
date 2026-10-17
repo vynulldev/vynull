@@ -84,6 +84,22 @@ type MenuSource interface {
 	TrackDetail() string
 }
 
+// MyTagSource gives the dbserver the MyTag catalog and assignments for the
+// TRACK FILTER's MyTag condition: the columns (categories) in order, a
+// column's tags in order, and a track's tag IDs. Tags that no track carries
+// are left out of a column's list, as rekordbox does.
+type MyTagSource interface {
+	MyTagColumns() []MyTagEntry
+	MyTagsIn(columnID uint32) []MyTagEntry
+	TrackMyTags(trackID uint32) []uint32
+}
+
+// MyTagEntry is one MyTag column or tag.
+type MyTagEntry struct {
+	ID   uint32
+	Name string
+}
+
 // PlaylistEntry is the minimal shape the dbserver needs to render the
 // CDJ's PLAYLIST menu. Implemented by api.PlaylistStore (and any future
 // playlist source) so the dbserver doesn't depend on the api package.
@@ -118,6 +134,10 @@ type SmartPlaylistSource interface {
 
 // Server implements the Pro DJ Link database server protocol.
 type Server struct {
+	// MyTags serves the TRACK FILTER's MyTag lists and matching (nil: none).
+	MyTags MyTagSource
+	// filters holds every player's TRACK FILTER settings across sessions.
+	filters      trackFilters
 	Library      *library.Library
 	PDB          *pdb.Database
 	DeviceNumber uint8
@@ -433,6 +453,8 @@ func (s *Server) handleSession(ctx context.Context, conn net.Conn) {
 		menu:         s.Menu,
 		cues:         s.Cues,
 		settings:     s.Settings,
+		filters:      &s.filters,
+		mytags:       s.MyTags,
 	}
 
 	for {
@@ -669,8 +691,11 @@ func readMessage(conn net.Conn) (*proto.DBMessage, error) {
 	//   0x2805 = tagged analysis-section read — sends a ~150-byte binary spec
 	//            blob (e.g. "PVB2"/"EXT"). This was the cause of the deck
 	//            dropping the dbserver link mid-session.
+	//   0x3207 = TRACK FILTER condition — the condition blob (on, kind,
+	//            count, values). Skipping it dropped the session the moment a
+	//            filter was ticked, and the deck unticked it.
 	actualArgCount := argCount
-	sendsTrailingBinary := msgType == 0x2705 || msgType == 0x2805
+	sendsTrailingBinary := msgType == 0x2705 || msgType == 0x2805 || msgType == 0x3207
 	if !sendsTrailingBinary {
 		// A tag list shorter than the argument count (malformed) has no tag
 		// for the missing positions; treat those as sent, so the read below

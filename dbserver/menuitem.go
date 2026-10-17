@@ -4,6 +4,7 @@ package dbserver
 
 import (
 	"fmt"
+	"math"
 	"sort"
 	"strconv"
 	"strings"
@@ -29,6 +30,7 @@ type menuItem struct {
 	FileType  string // "mp3", "m4a", "flac", "wav", "aiff" — for title items
 	TrackInfo bool   // true for track-info title items (no special flags)
 	ColorID   uint32 // track color (1=pink, 2=red, ..., 8=purple) for arg[11]
+	rating    uint32 // track rating (0-5 stars), for the TRACK FILTER
 
 	// Sort metadata (for tracks).
 	sortArtist string
@@ -133,6 +135,7 @@ func (h *Handler) pdbTrackToStdItem(t *pdb.Track) *menuItem {
 		ArtID:    t.ArtworkID,
 		FileType: h.resolveFileType(t.ID),
 		ColorID:  uint32(t.ColorID),
+		rating:   uint32(t.Rating),
 		// USB exports carry hot-cue autoload; the compatibility bit and
 		// new-key index fall out of the codec string and Camelot key. The PDB
 		// row has no FileTypeID/sample-rate, so those use the string fallback.
@@ -154,9 +157,10 @@ func (h *Handler) trackToStdItem(t *library.Track) *menuItem {
 		ArtID:          t.ArtID,
 		FileType:       t.FileType,
 		ColorID:        uint32(t.ColorID),
+		rating:         uint32(t.Rating),
 		sortArtist:     t.Artist,
 		sortAlbum:      t.Album,
-		sortBPM:        uint32(t.BPM * 100),
+		sortBPM:        uint32(math.Round(t.BPM * 100)), // exact for range checks (TRACK FILTER)
 		sortKey:        t.Key,
 		hasSongTag:     h.lib != nil && h.lib.HasSongTag(t.ID),
 		autoLoadHotCue: t.AutoLoadHotCue,

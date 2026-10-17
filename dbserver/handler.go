@@ -19,6 +19,10 @@ import (
 
 // Handler processes individual dbserver messages and returns responses.
 type Handler struct {
+	mytags MyTagSource // TRACK FILTER MyTag lists (nil: none)
+	// filters holds the players' TRACK FILTER settings, shared by the
+	// server's sessions (trackfilter.go).
+	filters *trackFilters
 	// ctxTrackType is the context track type of the browse request being
 	// served (the low byte of its first argument). rekordbox echoes it in
 	// argument 7 of hierarchy track rows (see markContextType).
@@ -219,8 +223,18 @@ func (h *Handler) Handle(msg *proto.DBMessage) []*proto.DBMessage {
 	switch msg.Type {
 	case proto.DBMsgSetup:
 		return h.handleSetup(msg)
-	case 0x3007: // set filter on/off (CMD_SET_FILTER_ONOFF)
+	case 0x3007: // TRACK FILTER on/off (CMD_SET_FILTER_ONOFF)
 		return h.handleSetFilterOnOff(msg)
+	case 0x3107: // TRACK FILTER conditions (CMD_GET_FILTER_CONDITION_PROPERTY)
+		return h.handleGetFilterConditions(msg)
+	case 0x3207: // set a TRACK FILTER condition
+		return h.handleSetFilterCondition(msg)
+	case 0x3307: // TRACK FILTER MyTag condition on/off
+		return h.handleSetFilterMyTag(msg)
+	case 0x3407: // add/remove a TRACK FILTER MyTag
+		return h.handleAddFilterMyTag(msg)
+	case 0x1015: // TRACK FILTER MyTag columns, or a column's tags
+		return h.handleGetFilterMyTags(msg)
 	case proto.DBMsgRootMenu: // 0x1000
 		return h.handleRootMenu(msg)
 	case 0x3e03: // NXS2 extension
@@ -505,27 +519,6 @@ func (h *Handler) handleSetup(msg *proto.DBMessage) []*proto.DBMessage {
 			proto.ArgI32(0),
 			proto.ArgI32(uint32(h.deviceNumber)),
 		},
-	}}
-}
-
-// handleSetFilterOnOff handles 0x3007, which decks send before each root
-// menu request. It is the first of rekordbox's filter commands (0x3007 to
-// 0x3407 in 0x100 steps, dispatched by PSvDBMain::OnFilterCmd), and XDJ-RR
-// firmware sends it from dbcl_SetFilterOnOff (link-spec's static analysis
-// in docs/LINK_EXPORT_REQUEST_VOCABULARY.md and
-// data/static-analysis/xdj-rr-client-navigation.json). We keep no filter
-// state, so it is only acknowledged. rekordbox's reply has not been
-// captured; this plain success is what decks have always accepted from us.
-func (h *Handler) handleSetFilterOnOff(msg *proto.DBMessage) []*proto.DBMessage {
-	argVals := make([]string, len(msg.Args))
-	for i, a := range msg.Args {
-		argVals[i] = fmt.Sprintf("0x%08x", a.Int())
-	}
-	dlog.Debugf("dbserver: set filter on/off (0x3007) args=%v", argVals)
-	return []*proto.DBMessage{{
-		TxID: msg.TxID,
-		Type: proto.DBMsgSuccess,
-		Args: []proto.DBArg{proto.ArgI32(0x3007), proto.ArgI32(0)},
 	}}
 }
 
