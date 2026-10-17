@@ -232,7 +232,7 @@ func keyMatch(op string, value any, trackKey string) bool {
 	case "is_not", "ne", "!=":
 		return !sameKey(target, trackKey)
 	case "compatible":
-		return camelotCompatible(trackKey, target)
+		return camelotCompatible(camelotName(trackKey), camelotName(target))
 	case "contains", "starts_with", "ends_with":
 		// Text operators compare the key's name, as rekordbox does, in
 		// either notation: an import stores keys as Camelot, but the rule
@@ -265,6 +265,15 @@ func sameKey(rule, trackKey string) bool {
 	a, _ := analysis.KeyNamesFrom(rule)
 	b, _ := analysis.KeyNamesFrom(trackKey)
 	return a != "" && a == b && rule == strings.TrimSpace(rule)
+}
+
+// camelotName is a key's Camelot name when it names a key in either
+// notation ("Am" is 8A), else the text unchanged.
+func camelotName(key string) string {
+	if cam, _ := analysis.KeyNamesFrom(key); cam != "" {
+		return cam
+	}
+	return key
 }
 
 // keyNames is a track key's name in each notation it has: the stored name

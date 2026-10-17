@@ -11323,8 +11323,10 @@ function renderSmartValueInput(c, meta) {
     // ("Am"); keep that value as its own option so opening the editor never
     // swaps the rule's key for the first one listed.
     const v = c.value == null ? '' : String(c.value);
+    // Each key is stored in Camelot and labelled in both notations, led by
+    // the user's key display setting ("8A · Am" or "Am · 8A").
     const opts = SMART_KEYS.map(k =>
-      `<option value="${k}" ${k === v ? 'selected' : ''}>${k}</option>`);
+      `<option value="${k}" ${k === v ? 'selected' : ''}>${escape(keyBoth(k))}</option>`);
     if (v && !SMART_KEYS.includes(v)) {
       const p = KEY_PAIRS[v.trim().toUpperCase()];
       opts.unshift(`<option value="${escape(v)}" selected>${escape(v)}${p ? ' · ' + p[0] : ''}</option>`);

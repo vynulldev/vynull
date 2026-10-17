@@ -14,9 +14,14 @@ import (
 // rule in either notation must find a key stored in the other.
 func TestSmartKeyRulesAcrossNotations(t *testing.T) {
 	match := func(op int, left, key string) bool {
+		tr := &library.Track{ID: 1, Key: key}
+		if op == 0 { // Vynull's own "is compatible with", which rekordbox lacks
+			return (&SmartRules{Combinator: "all", Conditions: []SmartCond{
+				{Field: "key", Operator: "compatible", Value: left}}}).Match(tr, nil, time.Now())
+		}
 		rules, _, _ := smartRulesFromRekordbox(&library.RBSmartList{Logical: 1,
 			Conditions: []library.RBSmartCond{{Property: "key", Operator: op, Left: left}}})
-		return rules.Match(&library.Track{ID: 1, Key: key}, nil, time.Now())
+		return rules.Match(tr, nil, time.Now())
 	}
 	for _, tc := range []struct {
 		op        int
@@ -35,6 +40,8 @@ func TestSmartKeyRulesAcrossNotations(t *testing.T) {
 		{10, "8", "8A", true},       // starts with, in Camelot
 		{1, " Am", "8A", false},     // text with spaces is not a key name
 		{1, "Alpha", "Alpha", true}, // non-key text compares as text
+		{0, "Am", "9A", true},       // compatible (a neighbour), typed in classic
+		{0, "Am", "3B", false},
 	} {
 		if got := match(tc.op, tc.left, tc.key); got != tc.want {
 			t.Errorf("op %d %q vs key %q = %v, want %v", tc.op, tc.left, tc.key, got, tc.want)
