@@ -11140,13 +11140,17 @@ const SMART_OPS = {
   number: [['eq','equals'], ['ne','is not'], ['lt','<'], ['lte','≤'], ['gt','>'], ['gte','≥'], ['between','between']],
   string: [['is','equals'], ['is_not','is not'], ['contains','contains'], ['not_contains','doesn’t contain'],
            ['starts_with','starts with'], ['ends_with','ends with'], ['is_empty','is empty'], ['not_empty','not empty']],
-  key:    [['is','equals'], ['is_not','is not'], ['compatible','is compatible with']],
+  // rekordbox's key operators, plus Vynull's harmonic-mixing match.
+  key:    [['is','equals'], ['is_not','is not'], ['contains','contains'], ['not_contains','doesn’t contain'],
+           ['starts_with','starts with'], ['ends_with','ends with'], ['compatible','is compatible with']],
   tag:    [['has','has tag'], ['not_has','doesn’t have tag'], ['has_any','has any tag'], ['none','has no tags']],
   date:   [['in_last_days','in the last (days)'], ['not_in_last_days','not in the last (days)'],
            ['in_last_months','in the last (months)'], ['not_in_last_months','not in the last (months)'],
            ['on','is'], ['not_on','is not'], ['before','before'], ['after','after'], ['between','between']],
   color:  [['eq','is'], ['ne','is not']],
 };
+// Key operators that test the key's name as text, so take a typed value.
+const SMART_KEY_TEXT_OPS = ['contains', 'not_contains', 'starts_with', 'ends_with'];
 // Date operators whose value is a count of days or months, not a date.
 const SMART_DATE_COUNT_OPS = ['in_last_days', 'not_in_last_days', 'in_last_months', 'not_in_last_months'];
 // Camelot key list for key field dropdowns.
@@ -11310,6 +11314,9 @@ function renderSmartValueInput(c, meta) {
       ].map(([n,l]) => `<option value="${n}" ${n == v ? 'selected' : ''}>${l}</option>`).join('')}</select>`;
     }
     return `<input type="number" data-sm-val value="${v}" style="width:100px">`;
+  }
+  if (meta.type === 'key' && SMART_KEY_TEXT_OPS.includes(op)) {
+    return `<input type="text" data-sm-val value="${escape(c.value || '')}" style="min-width:100px">`;
   }
   if (meta.type === 'key') {
     // An imported rekordbox rule may name its key in classic notation
@@ -11615,6 +11622,18 @@ function smartMatchLeaf(c, t) {
     const target = cam(v);
     if (op === 'is') return trackKey === target;
     if (op === 'is_not') return trackKey !== target;
+    if (SMART_KEY_TEXT_OPS.includes(op)) {
+      // The key's name in each notation, as the server tests it.
+      const raw = String(t.key || '');
+      const p = KEY_PAIRS[raw.trim().toUpperCase()];
+      const names = (p ? [raw, p[0], p[1]] : [raw]).map(n => n.toLowerCase());
+      const q = String(v || '').toLowerCase();
+      const hit = f => names.some(f);
+      if (op === 'contains') return hit(n => n.includes(q));
+      if (op === 'not_contains') return raw !== '' && !hit(n => n.includes(q));
+      if (op === 'starts_with') return hit(n => n.startsWith(q));
+      if (op === 'ends_with') return hit(n => n.endsWith(q));
+    }
     // compatible — quick approximation; server does the authoritative check
     return trackKey === target;
   }
