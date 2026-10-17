@@ -38,13 +38,38 @@ type filterCondition struct {
 	values []uint32
 }
 
+// MyTag condition modes, per column: a track must carry every ticked tag
+// (AND) or any of them (OR).
+const (
+	mytagAnd = 0x10
+	mytagOr  = 0x11
+)
+
+// mytagCondition is the MyTag condition of one column: whether it's on, its
+// AND/OR mode, and the ticked tags.
+type mytagCondition struct {
+	on   bool
+	mode uint32
+	tags []uint32
+}
+
 // trackFilter is one player's filter settings.
 type trackFilter struct {
-	on       bool
-	conds    map[uint32]*filterCondition
-	mytagOn  bool
-	mytagArg uint32 // the 0x3307 mode argument, kept as sent
-	tags     []uint32
+	on     bool
+	conds  map[uint32]*filterCondition
+	mytags map[uint32]*mytagCondition // by MyTag column
+}
+
+func (f *trackFilter) mytag(column uint32) *mytagCondition {
+	if f.mytags == nil {
+		f.mytags = map[uint32]*mytagCondition{}
+	}
+	c := f.mytags[column]
+	if c == nil {
+		c = &mytagCondition{mode: mytagAnd}
+		f.mytags[column] = c
+	}
+	return c
 }
 
 // newTrackFilter returns the settings a player starts with: everything off,
@@ -177,37 +202,106 @@ func (h *Handler) handleSetFilterCondition(msg *proto.DBMessage) []*proto.DBMess
 	return filterAck(msg)
 }
 
-// handleSetFilterMyTag handles 0x3307 [ctx, 0, 1, on, mode]: the MyTag
-// condition on or off.
+// handleSetFilterMyTag handles 0x3307 [ctx, 0, column, on, mode]: a MyTag
+// column's condition on or off, with its mode (0x10 AND, 0x11 OR).
 func (h *Handler) handleSetFilterMyTag(msg *proto.DBMessage) []*proto.DBMessage {
 	f := h.filterFor(msg)
+	column := msgArg(msg, 2)
 	h.filters.mu.Lock()
-	f.mytagOn = msgArg(msg, 3) != 0
-	f.mytagArg = msgArg(msg, 4)
+	c := f.mytag(column)
+	c.on = msgArg(msg, 3) != 0
+	if m := msgArg(msg, 4); m == mytagAnd || m == mytagOr {
+		c.mode = m
+	}
 	h.filters.mu.Unlock()
-	dlog.Debugf("dbserver: track filter MyTag (0x3307) on=%v mode=%#x", f.mytagOn, f.mytagArg)
+	dlog.Debugf("dbserver: track filter MyTag (0x3307) column=%d on=%v mode=%#x", column, c.on, c.mode)
 	return filterAck(msg)
 }
 
-// handleAddFilterMyTag handles 0x3407 [ctx, 0, 1, tag ID, add]: a MyTag added
-// to (1) or removed from (0) the MyTag condition.
+// handleAddFilterMyTag handles 0x3407 [ctx, 0, column, tag ID, add]: a tag
+// ticked (1) or unticked (0) in a MyTag column's condition.
 func (h *Handler) handleAddFilterMyTag(msg *proto.DBMessage) []*proto.DBMessage {
 	f := h.filterFor(msg)
-	tag, add := msgArg(msg, 3), msgArg(msg, 4) != 0
+	column, tag, add := msgArg(msg, 2), msgArg(msg, 3), msgArg(msg, 4) != 0
 	h.filters.mu.Lock()
-	kept := f.tags[:0]
-	for _, t := range f.tags {
+	c := f.mytag(column)
+	kept := c.tags[:0]
+	for _, t := range c.tags {
 		if t != tag {
 			kept = append(kept, t)
 		}
 	}
-	f.tags = kept
+	c.tags = kept
 	if add {
-		f.tags = append(f.tags, tag)
+		c.tags = append(c.tags, tag)
 	}
 	h.filters.mu.Unlock()
-	dlog.Debugf("dbserver: track filter MyTag item (0x3407) tag=%#x add=%v", tag, add)
+	dlog.Debugf("dbserver: track filter MyTag item (0x3407) column=%d tag=%d add=%v", column, tag, add)
 	return filterAck(msg)
+}
+
+// handleGetFilterMyTags handles 0x1015 [ctx, sort, parent, 0], the TRACK
+// FILTER's MyTag screen: parent 0 lists the MyTag columns, any other the
+// tags in that column (only tags some track carries, as rekordbox lists
+// them). Rows are [0, id, len, name, 2, "", 0x4a or 0x4b, 0, mode, index]:
+// item type 0x4b marks a column whose condition is on, or a ticked tag, and
+// a column row carries its AND/OR mode in argument 8.
+func (h *Handler) handleGetFilterMyTags(msg *proto.DBMessage) []*proto.DBMessage {
+	f := h.filterFor(msg)
+	parent := msgArg(msg, 2)
+	var items []*menuItem
+	if h.mytags != nil {
+		h.filters.mu.Lock()
+		if parent == 0 {
+			for i, col := range h.mytags.MyTagColumns() {
+				c := f.mytag(col.ID)
+				items = append(items, &menuItem{ID: col.ID, Label1: col.Name, ItemType: tickType(c.on), ArtID: c.mode, trackPos: uint32(i)})
+			}
+		} else {
+			c := f.mytag(parent)
+			for i, tag := range h.mytags.MyTagsIn(parent) {
+				items = append(items, &menuItem{ID: tag.ID, Label1: tag.Name, ItemType: tickType(containsU32(c.tags, tag.ID)), trackPos: uint32(i)})
+			}
+		}
+		h.filters.mu.Unlock()
+	}
+	h.setPendingAll(msg, items)
+	dlog.Debugf("dbserver: track filter MyTag list (0x1015) parent=%d returning %d rows", parent, len(items))
+	return []*proto.DBMessage{h.successWithCount(msg)}
+}
+
+// tickType is the MyTag screen row type: 0x4b ticked, 0x4a not.
+func tickType(ticked bool) uint32 {
+	if ticked {
+		return 0x4b
+	}
+	return 0x4a
+}
+
+// mytagMatch reports whether a track passes every enabled MyTag column
+// condition: a column on with ticked tags keeps tracks carrying all of them
+// (AND) or any of them (OR); a column with nothing ticked doesn't narrow.
+func (h *Handler) mytagMatch(f *trackFilter, trackID uint32) bool {
+	var have []uint32
+	loaded := false
+	for _, c := range f.mytags {
+		if !c.on || len(c.tags) == 0 {
+			continue
+		}
+		if !loaded {
+			have, loaded = h.mytags.TrackMyTags(trackID), true
+		}
+		hits := 0
+		for _, t := range c.tags {
+			if containsU32(have, t) {
+				hits++
+			}
+		}
+		if c.mode == mytagOr && hits == 0 || c.mode != mytagOr && hits < len(c.tags) {
+			return false
+		}
+	}
+	return true
 }
 
 // applyTrackFilter narrows a TRACK list (0x1004) at menu location 1 by the
@@ -218,8 +312,8 @@ func (h *Handler) handleAddFilterMyTag(msg *proto.DBMessage) []*proto.DBMessage 
 //   - rating [n, 0] keeps tracks rated exactly n stars;
 //   - colour [mask] keeps tracks whose colour's bit (1 << (colour-1); yellow,
 //     colour 4, is 8) is set, and a zero mask (no colour chosen) keeps all.
-//
-// The MyTag condition isn't decoded yet and doesn't narrow the list.
+//   - each MyTag column whose condition is on keeps tracks carrying all its
+//     ticked tags (AND) or any of them (OR).
 func (h *Handler) applyTrackFilter(msg *proto.DBMessage, items []*menuItem) []*menuItem {
 	if dmstMenu(msg) != 1 {
 		return items
@@ -241,7 +335,15 @@ func (h *Handler) applyTrackFilter(msg *proto.DBMessage, items []*menuItem) []*m
 	if color != nil && color.values[0] == 0 {
 		color = nil // no colour chosen
 	}
-	if bpm == nil && key == nil && rating == nil && color == nil {
+	useMyTag := false
+	if h.mytags != nil {
+		for _, c := range f.mytags {
+			if c.on && len(c.tags) > 0 {
+				useMyTag = true
+			}
+		}
+	}
+	if bpm == nil && key == nil && rating == nil && color == nil && !useMyTag {
 		return items
 	}
 	var out []*menuItem
@@ -256,6 +358,9 @@ func (h *Handler) applyTrackFilter(msg *proto.DBMessage, items []*menuItem) []*m
 			continue
 		}
 		if color != nil && (it.ColorID == 0 || it.ColorID > 32 || color.values[0]&(1<<(it.ColorID-1)) == 0) {
+			continue
+		}
+		if useMyTag && !h.mytagMatch(f, it.ID) {
 			continue
 		}
 		out = append(out, it)
