@@ -19,6 +19,7 @@ import (
 
 // Handler processes individual dbserver messages and returns responses.
 type Handler struct {
+	mytags MyTagSource // TRACK FILTER MyTag lists (nil: none)
 	// filters holds the players' TRACK FILTER settings, shared by the
 	// server's sessions (trackfilter.go).
 	filters *trackFilters
@@ -232,6 +233,8 @@ func (h *Handler) Handle(msg *proto.DBMessage) []*proto.DBMessage {
 		return h.handleSetFilterMyTag(msg)
 	case 0x3407: // add/remove a TRACK FILTER MyTag
 		return h.handleAddFilterMyTag(msg)
+	case 0x1015: // TRACK FILTER MyTag columns, or a column's tags
+		return h.handleGetFilterMyTags(msg)
 	case proto.DBMsgRootMenu: // 0x1000
 		return h.handleRootMenu(msg)
 	case 0x3e03: // NXS2 extension

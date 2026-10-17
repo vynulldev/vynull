@@ -263,6 +263,26 @@ func (ts *TagStore) GetTagsForTrack(trackID uint32) []TagInfo {
 	return out
 }
 
+// TrackTagIDs returns the IDs of the tags assigned to a track.
+func (ts *TagStore) TrackTagIDs(trackID uint32) []uint32 {
+	ts.mu.RLock()
+	defer ts.mu.RUnlock()
+	return append([]uint32(nil), ts.trackTags[trackID]...)
+}
+
+// TagTrackCounts returns how many tracks carry each tag.
+func (ts *TagStore) TagTrackCounts() map[uint32]int {
+	ts.mu.RLock()
+	defer ts.mu.RUnlock()
+	counts := make(map[uint32]int)
+	for _, ids := range ts.trackTags {
+		for _, id := range ids {
+			counts[id]++
+		}
+	}
+	return counts
+}
+
 func (ts *TagStore) SetTagsForTrack(trackID uint32, tagIDs []uint32) {
 	ts.mu.Lock()
 	defer ts.mu.Unlock()
