@@ -501,6 +501,10 @@ func (s *Store) AnalyzeInBackground(trackID uint32, filePath string, onDone func
 			}
 		}
 
+		if _, err := os.Stat(filePath); err != nil {
+			log.Printf("lazy-analysis: track %d not analyzed, its file is missing: %s", trackID, filePath)
+			return
+		}
 		log.Printf("lazy-analysis: analyzing track %d (%s)...", trackID, filepath.Base(filePath))
 		s.SetStatus(fmt.Sprintf("Analyzing: %s", filepath.Base(filePath)))
 		r, err := AnalyzeTrack(filePath)

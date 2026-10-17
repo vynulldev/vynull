@@ -2075,8 +2075,32 @@ func (s *Server) tryQueueAnalysis(trackID uint32, filePath string) bool {
 		s.applyAnalysisToTrack(trackID, r)
 		return false
 	}
+	// A missing file can't be analyzed. Without this check, every waveform
+	// request for the track (the web UI asks again on each render) queued
+	// another ffmpeg run that failed the same way.
+	if s.audioMissing(trackID, filePath) {
+		s.queuedAnalyses.Delete(trackID)
+		return false
+	}
 	s.Analysis.IncPending()
 	s.queueAnalysis(trackID, filePath)
+	return true
+}
+
+// audioMissing reports whether a track's audio file is absent, flagging the
+// library track as missing when it wasn't already, so the web UI shows it.
+// The file is checked each time, so one that reappears is analyzed then.
+func (s *Server) audioMissing(trackID uint32, filePath string) bool {
+	if _, err := os.Stat(filePath); err == nil {
+		return false
+	}
+	if s.Library != nil {
+		if t := s.Library.Track(trackID); t != nil && !t.FileMissing {
+			t.FileMissing = true
+			s.Library.Save()
+			log.Printf("api: track %d's file is missing, not analyzing: %s", trackID, filePath)
+		}
+	}
 	return true
 }
 
