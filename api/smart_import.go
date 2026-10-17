@@ -78,26 +78,6 @@ func rbDate(s string) string {
 	return t.Format(time.RFC3339)
 }
 
-// rbCount reads a relative-date count as rekordbox does (JUCE
-// String::getIntValue): an optionally signed run of leading digits, so 1.5
-// is 1 and blank or other text is 0.
-func rbCount(s string) int {
-	s = strings.TrimLeft(s, " \t\r\n")
-	neg := false
-	if s != "" && (s[0] == '-' || s[0] == '+') {
-		neg = s[0] == '-'
-		s = s[1:]
-	}
-	n := 0
-	for i := 0; i < len(s) && s[i] >= '0' && s[i] <= '9' && n < 1<<24; i++ {
-		n = n*10 + int(s[i]-'0')
-	}
-	if neg {
-		return -n
-	}
-	return n
-}
-
 // rbRecent translates in-last (6) and not-in-last (7). rekordbox counts
 // calendar months only for the unit month, in any case; every other unit,
 // week and year included, counts days (smart-relative-date-matrix,
@@ -110,13 +90,14 @@ func rbRecent(field string, c library.RBSmartCond) SmartCond {
 	if c.Operator == 7 {
 		op = "not_" + op
 	}
-	return SmartCond{Field: field, Operator: op, Value: float64(rbCount(c.Left))}
+	return SmartCond{Field: field, Operator: op, Value: float64(rbInt(c.Left))}
 }
 
 // rbInt reads a numeric rule value as rekordbox does (link-spec
 // smart-numeric-matrix and smart-numeric-boundaries, rekordbox 7.2.19): an
 // optionally signed run of leading digits, so 0.5 is 0 and blank or other
-// text is 0, saturating at the int32 limits.
+// text is 0, saturating at the int32 limits. Relative-date counts read the
+// same way.
 func rbInt(s string) int64 {
 	s = strings.TrimLeft(s, " \t\r\n")
 	neg := false
