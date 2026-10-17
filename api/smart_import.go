@@ -16,8 +16,7 @@ import (
 // rekordbox 7.2.19): it accepts counter (play count), remixedBy, fileName
 // (or filename), and mixName, and rejects look-alikes such as playCount,
 // remixer, title, color, and composer. Properties not listed are unsupported
-// (or, like albumArtist, producer, grouping, and dateReleased, have no track
-// data here); their conditions are dropped during translation.
+// (or, like albumArtist, producer, and grouping, have no track data here); their conditions are dropped during translation.
 var rbFieldMap = map[string]string{
 	"bpm":            "bpm",
 	"genre":          "genre",
@@ -42,6 +41,7 @@ var rbFieldMap = map[string]string{
 	"myTag":          "tag",
 	"stockDate":      "date_added",
 	"dateCreated":    "date_created",
+	"dateReleased":   "release_date",
 }
 
 func isNumericField(field string) bool {
@@ -54,16 +54,49 @@ func isNumericField(field string) bool {
 
 // rbDate converts a rekordbox SmartList date value to the RFC3339 form
 // dateMatch expects, or "" if rekordbox would not accept it (so the caller
-// treats the condition as unsatisfiable). rekordbox is strict
-// (smart-date-format-matrix, rekordbox 7.2.19): only YYYY-MM-DD, with no
-// surrounding spaces and no time part, nothing on or before 1970-01-01,
-// which it treats as no date, and nothing in year 9999.
+// treats the condition as unsatisfiable). rekordbox reads rule dates as it
+// reads track dates; see library.ParseRekordboxDate.
 func rbDate(s string) string {
-	t, err := time.Parse("2006-01-02", s)
-	if err != nil || !t.After(time.Date(1970, 1, 1, 0, 0, 0, 0, time.UTC)) || t.Year() >= 9999 {
+	t := library.ParseRekordboxDate(s)
+	if t.IsZero() {
 		return ""
 	}
-	return t.UTC().Format(time.RFC3339)
+	return t.Format(time.RFC3339)
+}
+
+// rbCount reads a relative-date count as rekordbox does (JUCE
+// String::getIntValue): an optionally signed run of leading digits, so 1.5
+// is 1 and blank or other text is 0.
+func rbCount(s string) int {
+	s = strings.TrimLeft(s, " \t\r\n")
+	neg := false
+	if s != "" && (s[0] == '-' || s[0] == '+') {
+		neg = s[0] == '-'
+		s = s[1:]
+	}
+	n := 0
+	for i := 0; i < len(s) && s[i] >= '0' && s[i] <= '9' && n < 1<<24; i++ {
+		n = n*10 + int(s[i]-'0')
+	}
+	if neg {
+		return -n
+	}
+	return n
+}
+
+// rbRecent translates in-last (6) and not-in-last (7). rekordbox counts
+// calendar months only for the unit month, in any case; every other unit,
+// week and year included, counts days (smart-relative-date-matrix,
+// rekordbox 7.2.19). The right-hand value is ignored.
+func rbRecent(field string, c library.RBSmartCond) SmartCond {
+	op := "in_last_days"
+	if strings.EqualFold(c.Unit, "month") {
+		op = "in_last_months"
+	}
+	if c.Operator == 7 {
+		op = "not_" + op
+	}
+	return SmartCond{Field: field, Operator: op, Value: float64(rbCount(c.Left))}
 }
 
 // smartRulesFromRekordbox translates a parsed rekordbox SmartList into the
@@ -104,7 +137,7 @@ func rbCondToSmart(c library.RBSmartCond) (SmartCond, bool) {
 		return SmartCond{}, false
 	}
 	isTag := field == "tag"
-	isDate := field == "date_added" || field == "date_created"
+	isDate := field == "date_added" || field == "date_created" || field == "release_date"
 	isNum := isNumericField(field)
 
 	// num parses a rekordbox numeric value string, scaling BPM down by 100.
@@ -194,27 +227,9 @@ func rbCondToSmart(c library.RBSmartCond) (SmartCond, bool) {
 			}
 			return SmartCond{}, false
 		}
-	case 6: // IN_LAST (relative date)
+	case 6, 7: // IN_LAST, NOT_IN_LAST (relative date)
 		if isDate {
-			days := num(c.Left)
-			switch strings.ToLower(c.Unit) {
-			case "month":
-				days *= 30
-			case "year":
-				days *= 365
-			}
-			return SmartCond{Field: field, Operator: "in_last_days", Value: days}, true
-		}
-	case 7: // NOT_IN_LAST (relative date)
-		if isDate {
-			days := num(c.Left)
-			switch strings.ToLower(c.Unit) {
-			case "month":
-				days *= 30
-			case "year":
-				days *= 365
-			}
-			return SmartCond{Field: field, Operator: "not_in_last_days", Value: days}, true
+			return rbRecent(field, c), true
 		}
 	case 8: // CONTAINS
 		switch {

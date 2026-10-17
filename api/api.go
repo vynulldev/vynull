@@ -763,6 +763,8 @@ type TrackInfo struct {
 	ColorID        uint8    `json:"color_id,omitempty"`
 	ColorName      string   `json:"color_name,omitempty"`
 	DateAdded      string   `json:"date_added,omitempty"`
+	DateCreated    string   `json:"date_created,omitempty"` // rekordbox's DateCreated, from an import
+	ReleaseDate    string   `json:"release_date,omitempty"` // rekordbox's ReleaseDate, from an import
 	PlayCount      int      `json:"play_count,omitempty"`
 	Tags           []string `json:"tags,omitempty"`
 	ArtID          uint32   `json:"art_id,omitempty"`
@@ -828,6 +830,12 @@ func (s *Server) libTrackToInfo(t *library.Track) TrackInfo {
 	}
 	if !t.DateAdded.IsZero() {
 		info.DateAdded = t.DateAdded.Format("2006-01-02")
+	}
+	if !t.DateCreated.IsZero() {
+		info.DateCreated = t.DateCreated.Format("2006-01-02")
+	}
+	if !t.ReleaseDate.IsZero() {
+		info.ReleaseDate = t.ReleaseDate.Format("2006-01-02")
 	}
 	if s.Tags != nil {
 		for _, tag := range s.Tags.GetTagsForTrack(t.ID) {

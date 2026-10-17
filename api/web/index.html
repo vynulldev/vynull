@@ -4056,7 +4056,7 @@ const COL_W_MIN = 44, COL_W_MAX = 900;
 const DEFAULT_COL_WIDTHS = {
   waveform: 156, id: 58, title: 280, artist: 180, album: 180, genre: 150,
   bpm: 74, key: 66, duration: 74, year: 60, rating: 96, color: 70,
-  date_added: 110, play_count: 64, bitrate: 74, file_type: 70, comment: 200,
+  date_added: 110, date_created: 110, release_date: 110, play_count: 64, bitrate: 74, file_type: 70, comment: 200,
   label: 150, remixer: 160, tags: 180, file_path: 300, webui: 70, source: 90,
   cdj_menu: 90, my_setting: 110, djm_my_setting: 120, dev_setting: 110,
 };
@@ -6203,6 +6203,12 @@ const LIBRARY_COLUMNS = [
   { key: 'date_added', label: 'ADDED', default: false,
     sort: t => t.date_added || '',
     cell: t => `<span style="color: var(--text3)">${escape(t.date_added || '')}</span>` },
+  { key: 'date_created', label: 'CREATED', default: false,
+    sort: t => t.date_created || '',
+    cell: t => `<span style="color: var(--text3)">${escape(t.date_created || '')}</span>` },
+  { key: 'release_date', label: 'RELEASED', default: false,
+    sort: t => t.release_date || '',
+    cell: t => `<span style="color: var(--text3)">${escape(t.release_date || '')}</span>` },
   { key: 'play_count', label: 'PLAYS', default: false, thClass: 'num', tdClass: 'num',
     sort: t => t.play_count || 0,
     cell: t => t.play_count ? String(t.play_count) : '' },
@@ -8388,6 +8394,8 @@ function renderDetail(t, cues, wave, phrases, analysis) {
     ['COLOR', t.color_name || '—'],
     ['PLAY COUNT', t.play_count || 0],
     ['ADDED', t.date_added || '—'],
+    ['CREATED', t.date_created || '—'],
+    ['RELEASED', t.release_date || '—'],
     ['LABEL', t.label || '', 'label'],
     ['REMIXER', t.remixer || '', 'remixer'],
     ['ORIG. ARTIST', t.original_artist || '', 'original_artist'],
@@ -11125,6 +11133,8 @@ const SMART_FIELDS = {
   key:             { label: 'Key',             type: 'key'    },
   tag:             { label: 'Tag',             type: 'tag'    },
   date_added:      { label: 'Date added',      type: 'date'   },
+  date_created:    { label: 'Date created',    type: 'date'   },
+  release_date:    { label: 'Release date',    type: 'date'   },
 };
 const SMART_OPS = {
   number: [['eq','equals'], ['ne','is not'], ['lt','<'], ['lte','≤'], ['gt','>'], ['gte','≥'], ['between','between']],
@@ -11132,9 +11142,13 @@ const SMART_OPS = {
            ['starts_with','starts with'], ['ends_with','ends with'], ['is_empty','is empty'], ['not_empty','not empty']],
   key:    [['is','equals'], ['is_not','is not'], ['compatible','is compatible with']],
   tag:    [['has','has tag'], ['not_has','doesn’t have tag'], ['has_any','has any tag'], ['none','has no tags']],
-  date:   [['in_last_days','in the last (days)'], ['before','before'], ['after','after']],
+  date:   [['in_last_days','in the last (days)'], ['not_in_last_days','not in the last (days)'],
+           ['in_last_months','in the last (months)'], ['not_in_last_months','not in the last (months)'],
+           ['on','is'], ['not_on','is not'], ['before','before'], ['after','after'], ['between','between']],
   color:  [['eq','is'], ['ne','is not']],
 };
+// Date operators whose value is a count of days or months, not a date.
+const SMART_DATE_COUNT_OPS = ['in_last_days', 'not_in_last_days', 'in_last_months', 'not_in_last_months'];
 // Camelot key list for key field dropdowns.
 const SMART_KEYS = (function() {
   const out = [];
@@ -11315,9 +11329,17 @@ function renderSmartValueInput(c, meta) {
     return `<select data-sm-val>${opts.join('') || '<option value="">— NO TAGS YET —</option>'}</select>`;
   }
   if (meta.type === 'date') {
-    if (op === 'in_last_days') {
-      const v = (c.value != null) ? c.value : 7;
+    if (SMART_DATE_COUNT_OPS.includes(op)) {
+      const v = (c.value != null && c.value !== '') ? c.value : 7;
       return `<input type="number" data-sm-val value="${v}" style="width:80px">`;
+    }
+    if (op === 'between') {
+      const day = x => (typeof x === 'string') ? x.substring(0, 10) : '';
+      const lo = Array.isArray(c.value) ? day(c.value[0]) : '';
+      const hi = Array.isArray(c.value) ? day(c.value[1]) : '';
+      return `<input type="date" data-sm-val data-sm-idx="0" value="${lo}">
+            <span style="color:var(--text3)">…</span>
+            <input type="date" data-sm-val data-sm-idx="1" value="${hi}">`;
     }
     const v = (typeof c.value === 'string') ? c.value.substring(0, 10) : '';
     return `<input type="date" data-sm-val value="${v}">`;
@@ -11407,7 +11429,7 @@ function wireSmartEditor() {
       const cond = smartAt(path);
       cond.operator = sel.value;
       // Reset value shape when switching to/from "between" or no-arg ops.
-      cond.value = sel.value === 'between' ? [0, 0] : '';
+      cond.value = sel.value === 'between' ? [0, 0] : SMART_DATE_COUNT_OPS.includes(sel.value) ? 7 : '';
       renderSmartEditor();
     };
   });
@@ -11419,7 +11441,7 @@ function wireSmartEditor() {
       const idx = el.getAttribute('data-sm-idx');
       let v = el.value;
       if (meta.type === 'number' || meta.type === 'color' ||
-          (meta.type === 'date' && cond.operator === 'in_last_days')) {
+          (meta.type === 'date' && SMART_DATE_COUNT_OPS.includes(cond.operator))) {
         v = v === '' ? null : Number(v);
       }
       if (cond.operator === 'between') {

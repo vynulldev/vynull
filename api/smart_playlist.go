@@ -128,6 +128,8 @@ func evalLeaf(field, op string, value any, t *library.Track, tags TagLookup, now
 		return dateMatch(op, value, t.DateAdded, now)
 	case "date_created":
 		return dateMatch(op, value, t.DateCreated, now)
+	case "release_date":
+		return dateMatch(op, value, t.ReleaseDate, now)
 	}
 	return false
 }
@@ -349,8 +351,9 @@ func tagMatch(op string, value any, trackID uint32, tags TagLookup) bool {
 }
 
 // dateMatch only supports "in_last_days" (recency filter) and a few
-// equality / range modes for completeness. Value is a number of days
-// for in_last_days, or RFC3339 string for the comparison operators.
+// equality / range modes for completeness. Value is a number of days (or
+// months, for in_last_months) for the recency operators, or RFC3339 string
+// for the comparison operators.
 func dateMatch(op string, value any, date time.Time, now time.Time) bool {
 	if date.IsZero() {
 		// Unset date — only matches "is_empty"/"not_empty" sentinels.
@@ -363,7 +366,7 @@ func dateMatch(op string, value any, date time.Time, now time.Time) bool {
 		if !ok {
 			return false
 		}
-		d, err := time.Parse(time.RFC3339, ts)
+		d, err := parseRuleDate(ts)
 		if err != nil {
 			return false
 		}
@@ -371,19 +374,21 @@ func dateMatch(op string, value any, date time.Time, now time.Time) bool {
 		y2, m2, d2 := d.UTC().Date()
 		same := y1 == y2 && m1 == m2 && d1 == d2
 		return same == (op == "on")
-	case "in_last_days", "not_in_last_days":
-		days, ok := toFloat(value)
+	case "in_last_days", "not_in_last_days", "in_last_months", "not_in_last_months":
+		n, ok := toFloat(value)
 		if !ok {
 			return false
 		}
-		within := now.Sub(date) <= time.Duration(days*24)*time.Hour
-		return within == (op == "in_last_days")
+		months := op == "in_last_months" || op == "not_in_last_months"
+		y, m, d := date.UTC().Date()
+		within := !time.Date(y, m, d, 0, 0, 0, 0, time.UTC).Before(recentCutoff(int(n), months, now))
+		return within == (op == "in_last_days" || op == "in_last_months")
 	case "before":
 		ts, ok := value.(string)
 		if !ok {
 			return false
 		}
-		t, err := time.Parse(time.RFC3339, ts)
+		t, err := parseRuleDate(ts)
 		if err != nil {
 			return false
 		}
@@ -393,7 +398,7 @@ func dateMatch(op string, value any, date time.Time, now time.Time) bool {
 		if !ok {
 			return false
 		}
-		t, err := time.Parse(time.RFC3339, ts)
+		t, err := parseRuleDate(ts)
 		if err != nil {
 			return false
 		}
@@ -408,8 +413,8 @@ func dateMatch(op string, value any, date time.Time, now time.Time) bool {
 		if !ok1 || !ok2 {
 			return false
 		}
-		lo, e1 := time.Parse(time.RFC3339, los)
-		hi, e2 := time.Parse(time.RFC3339, his)
+		lo, e1 := parseRuleDate(los)
+		hi, e2 := parseRuleDate(his)
 		if e1 != nil || e2 != nil {
 			return false
 		}
@@ -420,6 +425,33 @@ func dateMatch(op string, value any, date time.Time, now time.Time) bool {
 		return false
 	}
 	return false
+}
+
+// parseRuleDate reads a date rule's value: RFC3339, as imported rules and
+// the API carry it, or a plain YYYY-MM-DD, as the web editor's date input
+// gives it.
+func parseRuleDate(s string) (time.Time, error) {
+	if t, err := time.Parse("2006-01-02", s); err == nil {
+		return t, nil
+	}
+	return time.Parse(time.RFC3339, s)
+}
+
+// recentCutoff is the first day "in the last n days" (or months) includes,
+// as rekordbox's pastDayToDay and pastMonthToDay compute it (link-spec
+// static analysis, smart-relative-date-matrix, rekordbox 7.2.19): the last
+// n days end with today, so the cutoff is n-1 days back, and the last n
+// months start with the last day of the month n months back. A count
+// below one counts as one. Later dates, even future ones, are within.
+func recentCutoff(n int, months bool, now time.Time) time.Time {
+	if n--; n < 0 {
+		n = 0
+	}
+	y, m, d := now.Date()
+	if months {
+		return time.Date(y, m-time.Month(n), 0, 0, 0, 0, 0, time.UTC)
+	}
+	return time.Date(y, m, d-n, 0, 0, 0, 0, time.UTC)
 }
 
 // ── small helpers ──────────────────────────────────────────────────────
