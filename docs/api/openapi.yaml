@@ -781,6 +781,8 @@ components:
         color_id: { type: integer }
         color_name: { type: string }
         date_added: { type: string }
+        date_created: { type: string, description: "rekordbox's date created (YYYY-MM-DD), from an import." }
+        release_date: { type: string, description: "rekordbox's release date (YYYY-MM-DD), from an import." }
         play_count: { type: integer }
         tags: { type: array, items: { type: string } }
         art_id: { type: integer, format: int64 }
