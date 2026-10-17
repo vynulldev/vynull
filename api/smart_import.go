@@ -3,7 +3,7 @@
 package api
 
 import (
-	"strconv"
+	"math"
 	"strings"
 	"time"
 
@@ -44,6 +44,20 @@ var rbFieldMap = map[string]string{
 	"dateCreated":    "date_created",
 }
 
+// rbField looks up a SmartList PropertyName, which rekordbox matches in any
+// letter case (smart-xml-matrix, rekordbox 7.2.19: GENRE works as genre).
+func rbField(property string) (string, bool) {
+	if field, ok := rbFieldMap[property]; ok {
+		return field, true
+	}
+	for name, field := range rbFieldMap {
+		if strings.EqualFold(name, property) {
+			return field, true
+		}
+	}
+	return "", false
+}
+
 func isNumericField(field string) bool {
 	switch field {
 	case "bpm", "year", "rating", "play_count", "duration_sec", "color":
@@ -64,6 +78,29 @@ func rbDate(s string) string {
 		return ""
 	}
 	return t.UTC().Format(time.RFC3339)
+}
+
+// rbInt reads a numeric rule value as rekordbox does (link-spec
+// smart-numeric-matrix and smart-numeric-boundaries, rekordbox 7.2.19): an
+// optionally signed run of leading digits, so 0.5 is 0 and blank or other
+// text is 0, saturating at the int32 limits.
+func rbInt(s string) int64 {
+	s = strings.TrimLeft(s, " \t\r\n")
+	neg := false
+	if s != "" && (s[0] == '-' || s[0] == '+') {
+		neg = s[0] == '-'
+		s = s[1:]
+	}
+	var n int64
+	for i := 0; i < len(s) && s[i] >= '0' && s[i] <= '9'; i++ {
+		if n = n*10 + int64(s[i]-'0'); n > math.MaxInt32+1 {
+			n = math.MaxInt32 + 1
+		}
+	}
+	if neg {
+		return max(-n, math.MinInt32)
+	}
+	return min(n, math.MaxInt32)
 }
 
 // smartRulesFromRekordbox translates a parsed rekordbox SmartList into the
@@ -99,7 +136,7 @@ func smartRulesFromRekordbox(rb *library.RBSmartList) (rules *SmartRules, mapped
 // 11=ends-with. BPM values are stored ×100; myTag values arrive already
 // resolved to the tag name by the dump helper.
 func rbCondToSmart(c library.RBSmartCond) (SmartCond, bool) {
-	field, ok := rbFieldMap[c.Property]
+	field, ok := rbField(c.Property)
 	if !ok {
 		return SmartCond{}, false
 	}
@@ -109,7 +146,7 @@ func rbCondToSmart(c library.RBSmartCond) (SmartCond, bool) {
 
 	// num parses a rekordbox numeric value string, scaling BPM down by 100.
 	num := func(s string) float64 {
-		f, _ := strconv.ParseFloat(strings.TrimSpace(s), 64)
+		f := float64(rbInt(s))
 		if field == "bpm" {
 			f /= 100
 		}

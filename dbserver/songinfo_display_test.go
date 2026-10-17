@@ -177,6 +177,23 @@ func TestKeyColumnEmptyKey(t *testing.T) {
 	}
 }
 
+// The KEY column shows the key alone for a zero tempo and a stored negative
+// tempo by its magnitude (link-spec smart-numeric-boundaries).
+func TestKeyColumnZeroAndNegativeTempo(t *testing.T) {
+	h := &Handler{menu: keyColumnMenu{}}
+	for _, tc := range []struct {
+		bpm  float64
+		want string
+	}{
+		{0, "Am"}, {0.015, "Am - 0.0 bpm"}, {-0.01, "Am - 0.0 bpm"},
+		{-21474836.48, "Am - 21474836.5 bpm"}, {128, "Am - 128.0 bpm"},
+	} {
+		if got := h.trackToStdItem(&library.Track{ID: 1, Key: "Am", BPM: tc.bpm}).Label2; got != tc.want {
+			t.Errorf("BPM %v: %q, want %q", tc.bpm, got, tc.want)
+		}
+	}
+}
+
 // keyColumnMenu is a MenuSource whose track lists show the KEY column.
 type keyColumnMenu struct{}
 

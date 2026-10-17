@@ -26,8 +26,8 @@ Output schema (JSON):
 
 import json
 import os
+import re
 import sys
-import xml.etree.ElementTree as ET
 import sqlcipher3
 
 
@@ -67,6 +67,184 @@ def open_db(db_path, provided_key):
         sys.exit(1)
 
 
+def juce_int(s):
+    """Read text as rekordbox does an integer attribute (JUCE getIntValue):
+    an optionally signed run of leading digits after any spaces, 0 if none,
+    so "1.5" is 1 and "wat" is 0."""
+    m = re.match(r"\s*([+-]?\d+)", s or "")
+    return int(m.group(1)) if m else 0
+
+
+def db_int(v, bits=32, signed=True):
+    """A stored numeric column as rekordbox reads it into a fixed-width
+    integer: truncated toward zero (REAL 1.5 is 1, -0.5 is 0), NULL as 0,
+    keeping the low `bits` bits (link-spec smart-numeric-boundaries,
+    rekordbox 7.2.19)."""
+    try:
+        n = int(v or 0)
+    except (TypeError, ValueError):
+        return 0
+    n &= (1 << bits) - 1
+    if signed and n >= 1 << (bits - 1):
+        n -= 1 << bits
+    return n
+
+
+class _XMLError(Exception):
+    pass
+
+
+_ENTITIES = {"amp": "&", "lt": "<", "gt": ">", "quot": '"', "apos": "'"}
+
+
+def _unescape(text):
+    out, i = [], 0
+    while True:
+        j = text.find("&", i)
+        if j < 0:
+            out.append(text[i:])
+            return "".join(out)
+        out.append(text[i:j])
+        k = text.find(";", j)
+        if k < 0:
+            raise _XMLError("bare &")
+        name = text[j + 1:k]
+        if name.startswith("#x") or name.startswith("#X"):
+            try:
+                out.append(chr(int(name[2:], 16)))
+            except ValueError:
+                raise _XMLError("bad entity")
+        elif name.startswith("#"):
+            try:
+                out.append(chr(int(name[1:])))
+            except ValueError:
+                raise _XMLError("bad entity")
+        elif name in _ENTITIES:
+            out.append(_ENTITIES[name])
+        else:
+            raise _XMLError("unknown entity")
+        i = k + 1
+
+
+class _Element:
+    def __init__(self, tag):
+        self.tag, self.attrib, self.children = tag, {}, []
+
+
+def parse_smartlist_xml(text):
+    """Parse a SmartList blob the way rekordbox's JUCE XmlDocument does
+    (link-spec smart-xml-matrix, rekordbox 7.2.19), which is more lenient
+    than a conforming XML parser: a closing tag need not match its opening
+    tag, a repeated attribute keeps its first value, and anything after the
+    first root element (another root, text, a NUL) is ignored. A byte-order
+    mark or text before the root, an unclosed element, or a bad entity or
+    attribute makes it unreadable. Returns the root element, or None."""
+    if text.startswith("\ufeff"):
+        return None
+    text = text.split("\0", 1)[0]
+    pos = 0
+    n = len(text)
+
+    def skip_misc(p):
+        while True:
+            while p < n and text[p] in " \t\r\n":
+                p += 1
+            if text.startswith("<?", p):
+                e = text.find("?>", p)
+                if e < 0:
+                    raise _XMLError("unclosed PI")
+                p = e + 2
+            elif text.startswith("<!--", p):
+                e = text.find("-->", p)
+                if e < 0:
+                    raise _XMLError("unclosed comment")
+                p = e + 3
+            else:
+                return p
+
+    def element(p):
+        # text[p] == "<"
+        p += 1
+        q = p
+        while q < n and text[q] not in " \t\r\n/>":
+            q += 1
+        if q == p:
+            raise _XMLError("no tag name")
+        el = _Element(text[p:q])
+        p = q
+        while True:
+            while p < n and text[p] in " \t\r\n":
+                p += 1
+            if p >= n:
+                raise _XMLError("unclosed tag")
+            if text.startswith("/>", p):
+                return el, p + 2
+            if text[p] == ">":
+                p += 1
+                break
+            q = p
+            while q < n and text[q] not in " \t\r\n=/>":
+                q += 1
+            name = text[p:q]
+            p = q
+            while p < n and text[p] in " \t\r\n":
+                p += 1
+            if not name or p >= n or text[p] != "=":
+                raise _XMLError("bad attribute")
+            p += 1
+            while p < n and text[p] in " \t\r\n":
+                p += 1
+            if p >= n or text[p] not in "\"'":
+                raise _XMLError("unquoted attribute")
+            e = text.find(text[p], p + 1)
+            if e < 0:
+                raise _XMLError("unclosed attribute")
+            if name not in el.attrib:
+                el.attrib[name] = _unescape(text[p + 1:e])
+            p = e + 1
+        while True:
+            if p >= n:
+                raise _XMLError("unclosed element")
+            if text.startswith("</", p):
+                e = text.find(">", p)
+                if e < 0:
+                    raise _XMLError("unclosed end tag")
+                return el, e + 1
+            if text.startswith("<!--", p):
+                e = text.find("-->", p)
+                if e < 0:
+                    raise _XMLError("unclosed comment")
+                p = e + 3
+            elif text.startswith("<![CDATA[", p):
+                e = text.find("]]>", p)
+                if e < 0:
+                    raise _XMLError("unclosed CDATA")
+                p = e + 3
+            elif text.startswith("<?", p):
+                e = text.find("?>", p)
+                if e < 0:
+                    raise _XMLError("unclosed PI")
+                p = e + 2
+            elif text[p] == "<":
+                child, p = element(p)
+                el.children.append(child)
+            else:
+                e = text.find("<", p)
+                if e < 0:
+                    raise _XMLError("unclosed element")
+                _unescape(text[p:e])
+                p = e
+
+    try:
+        pos = skip_misc(pos)
+        if pos >= n or text[pos] != "<":
+            return None
+        root, _ = element(pos)
+        return root
+    except _XMLError:
+        return None
+
+
 def parse_smartlist(xml_str, tags_by_id):
     """Parse a rekordbox djmdPlaylist.SmartList XML blob into a structured
     rule object. rekordbox encodes a smart playlist as:
@@ -82,12 +260,14 @@ def parse_smartlist(xml_str, tags_by_id):
     `myTag` conditions store the tag ID as a SIGNED int32; djmdMyTag.ID is its
     unsigned form — resolve to the tag NAME here (only the DB knows the map).
     BPM values are ×100 (handled Go-side)."""
-    try:
-        root = ET.fromstring(xml_str)
-    except Exception:
+    root = parse_smartlist_xml(xml_str or "")
+    if root is None:
         return None
+    # Element names match in any case; a root other than NODE has no rules.
+    if root.tag.lower() != "node":
+        return {"logical": 1, "conditions": []}
     conds = []
-    for cnd in root.findall("CONDITION"):
+    for cnd in (c for c in root.children if c.tag.lower() == "condition"):
         a = cnd.attrib
         prop = a.get("PropertyName", "")
         left = a.get("ValueLeft", "")
@@ -99,13 +279,15 @@ def parse_smartlist(xml_str, tags_by_id):
                 pass
         conds.append({
             "property": prop,
-            "operator": int(a.get("Operator", "0") or 0),
+            "operator": juce_int(a.get("Operator", "")),
             "unit":     a.get("ValueUnit", ""),
             "left":     left,
             "right":    a.get("ValueRight", ""),
         })
+    # rekordbox treats any LogicalOperator but 2 (any-of) as all-of.
+    logical = 2 if juce_int(root.attrib.get("LogicalOperator", "")) == 2 else 1
     return {
-        "logical": int(root.attrib.get("LogicalOperator", "1") or 1),
+        "logical": logical,
         "conditions": conds,
     }
 
@@ -155,8 +337,12 @@ def main():
     cols = [d[0] for d in cur.description]
     for row in cur.fetchall():
         d = dict(zip(cols, row))
-        # rekordbox stores BPM × 100; Length in ms? Check schema.
-        bpm = (d.get("BPM") or 0) / 100.0 if d.get("BPM") else 0
+        # Numeric columns are read the way rekordbox's smart playlists read
+        # them (link-spec smart-numeric-boundaries, rekordbox 7.2.19), which
+        # leaves real library values unchanged: BPM (stored x100) as a signed
+        # 32-bit integer, Length (seconds), ReleaseYear and DJPlayCount as
+        # small unsigned integers, Rating as a signed byte.
+        bpm = db_int(d.get("BPM")) / 100.0
         # File path: FolderPath is a "/Users/.../Music/..." style native path
         # (may include Windows drive letters). Use as-is — Go-side caller
         # may need to translate to USB layout.
@@ -172,7 +358,7 @@ def main():
             "file_name":    d.get("FileNameL") or "",
             "file_size":    d.get("FileSize") or 0,
             "bpm":          bpm,
-            "duration_sec": d.get("Length") or 0,
+            "duration_sec": db_int(d.get("Length"), 16, False),
             "bitrate":      d.get("BitRate") or 0,
             "sample_rate":  d.get("SampleRate") or 0,
             # rekordbox FileType enum (1=mp3, 4=m4a, 5=flac, 11=wav, 12=aiff).
@@ -181,12 +367,12 @@ def main():
             "file_type_id": d.get("FileType") or 0,
             # Non-empty when the deck should auto-load this track's hot cues.
             "hot_cue_auto_load": d.get("HotCueAutoLoad") or "",
-            "rating":       d.get("Rating") or 0,  # rekordbox stores the 0-5 star count directly
-            "year":         d.get("ReleaseYear") or 0,
+            "rating":       db_int(d.get("Rating"), 8),  # rekordbox stores the 0-5 star count directly
+            "year":         db_int(d.get("ReleaseYear"), 16, False),
             "track_num":    d.get("TrackNo") or 0,
             "disc_num":     d.get("DiscNo") or 0,
             "comment":      d.get("Commnt") or "",
-            "play_count":   d.get("DJPlayCount") or 0,
+            "play_count":   db_int(d.get("DJPlayCount"), 16, False),
             # StockDate is rekordbox's "Date Added" (TRACK INFO, the DATE
             # ADDED menu); DateCreated is often empty.
             "date_added":   d.get("StockDate") or d.get("DateCreated") or "",

@@ -4,6 +4,7 @@ package dbserver
 
 import (
 	"fmt"
+	"math"
 	"sort"
 	"strconv"
 	"strings"
@@ -287,9 +288,15 @@ func (h *Handler) applyTrackDetail(m *menuItem, t *library.Track) {
 			m.Label2 += " - " + t.Key
 		}
 	case "key":
-		// rekordbox composes "<key> - <bpm> bpm" even for an empty key.
+		// rekordbox composes "<key> - <bpm> bpm" even for an empty key, but
+		// shows the key alone when the tempo is zero, and a stored negative
+		// tempo by its magnitude (link-spec smart-numeric-boundaries,
+		// rekordbox 7.2.19).
 		m.ParentID = h.trackKeyID(t)
-		m.Label2 = fmt.Sprintf("%s - %.1f bpm", t.Key, t.BPM)
+		m.Label2 = t.Key
+		if raw := math.Round(t.BPM * 100); raw != 0 {
+			m.Label2 = fmt.Sprintf("%s - %.1f bpm", t.Key, math.Abs(raw)/100)
+		}
 	case "artist":
 		m.ParentID = h.catID("artist", t.Artist)
 		m.Label2 = t.Artist
