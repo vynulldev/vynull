@@ -79,11 +79,14 @@ func (c SmartCond) match(t *library.Track, tags TagLookup, now time.Time) bool {
 func evalLeaf(field, op string, value any, t *library.Track, tags TagLookup, now time.Time) bool {
 	switch field {
 	case "bpm":
-		return numericMatch(op, value, t.BPM)
+		// rekordbox's smart playlists skip a track whose stored BPM reads
+		// as negative (link-spec smart-numeric-boundaries, rekordbox 7.2.19).
+		return t.BPM >= 0 && numericMatch(op, value, t.BPM)
 	case "year":
 		return numericMatch(op, value, float64(t.Year))
 	case "rating":
-		return numericMatch(op, value, float64(t.Rating))
+		// rekordbox reads the rating as a signed byte.
+		return numericMatch(op, value, float64(int8(t.Rating)))
 	case "play_count":
 		return numericMatch(op, value, float64(t.PlayCount))
 	case "duration_sec":
