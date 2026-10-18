@@ -570,7 +570,7 @@ paths:
       responses: { "200": { description: OK, content: { application/json: { schema: { $ref: "#/components/schemas/AckOK" } } } }, "400": { description: Invalid items/detail. } }
 
   /api/menu-items/reset:
-    post: { tags: [Settings & Menu], summary: Restore the default CDJ menu., responses: { "200": { description: OK, content: { application/json: { schema: { $ref: "#/components/schemas/AckOK" } } } }, "503": { description: No menu store. } } }
+    post: { tags: [Settings & Menu], summary: "Restore the default CDJ menu (with sorts=1, the default SORT menu instead).", parameters: [{ name: sorts, in: query, required: false, schema: { type: string } }], responses: { "200": { description: OK, content: { application/json: { schema: { $ref: "#/components/schemas/AckOK" } } } }, "503": { description: No menu store. } } }
 
   # --------------------------------------------------------------- Overlay
   /api/overlay/config:

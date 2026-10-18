@@ -5082,6 +5082,7 @@ func (s *Server) handleMenuItems(w http.ResponseWriter, r *http.Request) {
 }
 
 // POST /api/menu-items/reset → restore default order + visibility
+// (?sorts=1: the SORT menu's instead)
 func (s *Server) handleMenuItemsReset(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Access-Control-Allow-Origin", "*")
 	if r.Method != "POST" {
@@ -5092,6 +5093,11 @@ func (s *Server) handleMenuItemsReset(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "menu store not available", http.StatusServiceUnavailable)
 		return
 	}
-	s.Menu.ResetToDefaults()
+	// ?sorts=1 resets the SORT menu instead of the root menu.
+	if r.URL.Query().Get("sorts") != "" {
+		s.Menu.ResetSorts()
+	} else {
+		s.Menu.ResetToDefaults()
+	}
 	writeJSON(w, struct{ OK bool }{true})
 }

@@ -134,3 +134,12 @@ func (ms *MenuStore) ImportSorts(imp []library.SortImport) {
 	ms.saveLocked()
 	log.Printf("api: imported rekordbox's sort menu (%d sorts) and track column %q", len(imp), column)
 }
+
+// ResetSorts restores rekordbox's default SORT menu.
+func (ms *MenuStore) ResetSorts() {
+	ms.mu.Lock()
+	defer ms.mu.Unlock()
+	ms.sorts = defaultSortItems()
+	ms.saveLocked()
+	log.Printf("api: CDJ sort menu reset to defaults")
+}
