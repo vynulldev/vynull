@@ -597,11 +597,7 @@ func parseRBID(s string) uint32 {
 }
 
 func masterDBToLibrary(t *masterDBTrack, path string) *Track {
-	ext := strings.ToLower(filepath.Ext(path))
-	ft := strings.TrimPrefix(ext, ".")
-	if ft == "aif" {
-		ft = "aiff"
-	}
+	ft := fileTypeOrExt(path)
 	// rekordbox's FileType enum is authoritative over the extension (it stores
 	// .wav-named files as FileType 1, say); fall back to the extension when the
 	// dump carries no FileType.

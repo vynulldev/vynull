@@ -8854,7 +8854,12 @@ function renderDetail(t, cues, wave, phrases, analysis) {
           method: 'PUT', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ path: val }),
         });
-        if (!r.ok) { toast('PATH SAVE FAILED', 'error'); inp.value = saved; return; }
+        if (!r.ok) {
+          const why = (await r.text().catch(() => '')).trim();
+          toast('PATH SAVE FAILED' + (why ? ': ' + why.toUpperCase() : ''), 'error');
+          inp.value = saved;
+          return;
+        }
         saved = val;
         toast('PATH UPDATED', 'success');
         openDetail(t.id); // re-render so the FILE MISSING badge / size / type update

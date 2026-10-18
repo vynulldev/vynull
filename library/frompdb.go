@@ -4,7 +4,6 @@ package library
 
 import (
 	"path/filepath"
-	"strings"
 	"time"
 
 	"github.com/vynulldev/vynull/pdb"
@@ -36,7 +35,7 @@ func FromPDB(tracks []*pdb.Track, musicDir string) *Library {
 			TrackNum: int(t.TrackNum),
 			Bitrate:  int(t.Bitrate),
 			FilePath: abs,
-			FileType: supportedExtensions[strings.ToLower(filepath.Ext(abs))],
+			FileType: fileTypeOrEmpty(abs),
 			ArtID:    t.ArtworkID,
 		})
 	}
