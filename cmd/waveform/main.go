@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/vynulldev/vynull/analysis"
+	"github.com/vynulldev/vynull/link/prolink"
 )
 
 func main() {
@@ -21,6 +22,10 @@ func main() {
 		fmt.Fprintf(os.Stderr, "Usage: waveform [--out dir] <audio-file> [audio-file...]\n")
 		os.Exit(1)
 	}
+
+	// The analyzer encodes waveforms with the installed encoder, as the
+	// daemon sets up at startup; without one, AnalyzeTrack panics.
+	analysis.SetEncoder(prolink.NewEncoder())
 
 	for _, file := range flag.Args() {
 		base := strings.TrimSuffix(filepath.Base(file), filepath.Ext(file))
