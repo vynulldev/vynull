@@ -32,6 +32,7 @@ func (h *Handler) handleGetTracks(msg *proto.DBMessage) []*proto.DBMessage {
 		orderByTitle(h.pendingItems) // sorts keep title order on ties
 	}
 	h.sortTracks(h.pendingItems, order)
+	h.pendingItems = h.applyTrackFilter(msg, h.pendingItems)
 	dlog.Debugf("dbserver: get tracks returning %d items (sort=%d)", len(h.pendingItems), order)
 	return []*proto.DBMessage{h.successWithCount(msg)}
 }

@@ -515,6 +515,7 @@ func main() {
 		Analysis:     analysisStore,
 		Folders:      folderLookup,
 		Playlists:    playlistSource{ps: playlistStore, lib: lib, tags: tagStore},
+		MyTags:       mytagSource{ts: tagStore},
 		Menu:         menuSource{ms: menuStore},
 		Cues:         cueStore,
 		Settings:     cdjSettings,
@@ -969,6 +970,44 @@ func (a playlistSource) HistoryFolderID() uint32 {
 // menuSource adapts api.MenuStore to dbserver.MenuSource. Only the
 // visible entries reach the CDJ; hidden ones stay in storage so the
 // user can flip them back on without losing their order.
+// mytagSource adapts the tag store to dbserver.MyTagSource for the TRACK
+// FILTER's MyTag condition: categories are the columns, in creation order (a
+// rekordbox import creates them in rekordbox's order), and a column lists
+// its tags in that order, leaving out tags no track carries.
+type mytagSource struct{ ts *api.TagStore }
+
+func (a mytagSource) MyTagColumns() []dbserver.MyTagEntry {
+	if a.ts == nil {
+		return nil
+	}
+	var out []dbserver.MyTagEntry
+	for _, c := range a.ts.GetAllCategories() {
+		out = append(out, dbserver.MyTagEntry{ID: c.ID, Name: c.Name})
+	}
+	return out
+}
+
+func (a mytagSource) MyTagsIn(columnID uint32) []dbserver.MyTagEntry {
+	if a.ts == nil {
+		return nil
+	}
+	used := a.ts.TagTrackCounts()
+	var out []dbserver.MyTagEntry
+	for _, t := range a.ts.GetAllTags() {
+		if t.CategoryID == columnID && used[t.ID] > 0 {
+			out = append(out, dbserver.MyTagEntry{ID: t.ID, Name: t.Name})
+		}
+	}
+	return out
+}
+
+func (a mytagSource) TrackMyTags(trackID uint32) []uint32 {
+	if a.ts == nil {
+		return nil
+	}
+	return a.ts.TrackTagIDs(trackID)
+}
+
 type menuSource struct{ ms *api.MenuStore }
 
 func (a menuSource) RootMenu() []dbserver.RootMenuEntry {
