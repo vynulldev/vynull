@@ -1,0 +1,12 @@
+# Keep the build context small: only source is needed, not local state.
+# NOTE: docs/ must stay in context — docs/api/embed.go go:embeds the OpenAPI
+# spec and Swagger UI assets, and api/web is embedded too.
+.git
+.github
+*.md
+vynull
+tmp-data-dir0
+tools/__pycache__
+**/*_test.go
+testdata
+*.log
