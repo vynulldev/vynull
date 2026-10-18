@@ -137,3 +137,25 @@ func TestSortCollationKey(t *testing.T) {
 		}
 	}
 }
+
+// In a playlist, tracks a sort ranks equal keep the playlist's order (link-
+// spec smart-serving-crosses sort-12), and ALPHABET orders by title.
+func TestSortTracksKeepsListOrderOnTies(t *testing.T) {
+	h := &Handler{lib: fixtureLibrary()}
+	order := func(sortID uint32, ids ...uint32) []int {
+		items := h.trackIDsToMenuItems(ids)
+		h.applyPlaylistTrackScope(items, sortID, false)
+		var got []int
+		for _, m := range items {
+			got = append(got, int(m.ID)-10000)
+		}
+		return got
+	}
+	// Playlist order 8, 6, 2, 4 (all key C): key sort leaves them as they are.
+	if got := order(12, 10008, 10006, 10002, 10004); !slices.Equal(got, []int{8, 6, 2, 4}) {
+		t.Errorf("key sort: %v, want playlist order [8 6 2 4]", got)
+	}
+	if got := order(1, 10008, 10006, 10002, 10004); !slices.Equal(got, []int{2, 4, 8, 6}) {
+		t.Errorf("ALPHABET: %v, want title order [2 4 8 6]", got)
+	}
+}

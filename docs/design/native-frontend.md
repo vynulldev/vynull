@@ -7,9 +7,10 @@ Vynull's connected hardware. The desktop app should feel familiar to a rekordbox
 user: a dense track browser, a collection/playlist tree, a prominent waveform,
 direct cue and grid editing, and visible player state.
 
-The recommended first release covers **library preparation, local preview,
-Pro DJ Link, and USB export**. This is a working scope assumption pending product
-feedback. A full software mixing engine would be a separate expansion.
+The confirmed first-release scope is **library preparation, local preview,
+Pro DJ Link, and USB export** (user decision, 2026-10-17). It includes browsing,
+waveforms, cues, playlists, and connected hardware players. A full software mixing
+engine would be a separate expansion.
 
 “Native” here means a compiled Rust UI with native windows and GPU rendering,
 without a browser runtime. Controls are custom drawn to maintain a consistent DJ
@@ -124,7 +125,7 @@ Three workspace presets share the same selection, collection, and job state:
 └─────────────────────────────────────────────────────────────────────┘
 ```
 
-At 1440×900 logical pixels, target a 48 px workspace bar, roughly 250 px preview
+At 1440×900 logical pixels, target a 48 px workspace bar, roughly 300 px preview
 area, 220 px navigation tree, 280 px inspector, and 28 px status bar. Splitters
 resize panels and persist per workspace. At 1280×720, collapse the inspector by
 default and retain the table and essential transport controls. Support 100–200%
@@ -175,7 +176,8 @@ expanded folders, waveform zoom, and output device independently of library data
   Replacing/deleting a saved cue is an explicit action. Use backend slot limits.
 - Quantize is visible and snaps against the authoritative beat grid. Provide
   unquantized placement, editable loop in/out points, cue colors, and a memory
-  cue list. Cue names are deferred until the API can persist them.
+  cue list. Cue names are deferred until they round-trip through persistence:
+  `CueInfo.Label` exists, but the current `CueStoreAdapter` drops it.
 - The Grid tab provides BPM entry, half/double BPM, time nudge, first-downbeat
   assignment, and lock/unlock. Do not imply support for arbitrary variable-tempo
   grid editing through the existing global-adjustment API.
@@ -368,6 +370,10 @@ See the [Iced project](https://github.com/iced-rs/iced) and
 [Slint project](https://slint.dev/) for their supported capabilities. Pin tested
 versions after the spike instead of designing against unspecified latest APIs.
 
+The prototype may connect to today's local API without these new managed-service
+features. The packaged product requires the updated service contract; an old
+daemon must produce a clear compatibility message rather than an assumed match.
+
 Build one vertical slice before settling the toolkit: 100k synthetic tracks,
 resizable columns, selection, editable text with IME, tree drag/drop, a zoomable
 waveform, local audio, native dialogs, clipboard, and keyboard focus. Exercise it
@@ -443,11 +449,9 @@ and firmware, as described in [CONTRIBUTING](../../CONTRIBUTING.md).
 
 ## Decisions to revisit after review
 
-1. Confirm preparation/Link/USB as v1 scope versus a full software performance
-   product. Two local rehearsal decks can be an intermediate milestone.
-2. Confirm whether all three platforms must ship together or can preview in
+1. Confirm whether all three platforms must ship together or can preview in
    sequence; keep cross-platform feasibility in gate 0 either way.
-3. Choose a visual density and workflow baseline from the concept; this draft
+2. Choose a visual density and workflow baseline from the concept; this draft
    proposes familiar operation rather than pixel-for-pixel reproduction.
-4. Choose representative libraries, audio interfaces, and deck/firmware targets
+3. Choose representative libraries, audio interfaces, and deck/firmware targets
    for acceptance. A supported matrix must be based on those tests.

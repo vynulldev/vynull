@@ -245,23 +245,24 @@ func orderByTitle(items []*menuItem) {
 
 // sortTracks orders a track list by a deck-requested sort ID and gives its
 // rows that sort's second column; sort 0 (DEFAULT) leaves the list and its
-// configured column alone. Ties keep title order. Sorted rows carry the
-// request's context track type in argument 7, as rekordbox's do.
+// configured column alone. Tracks the sort ranks equal keep the list's own
+// order (title order for TRACK, playlist order for a playlist), as
+// rekordbox's do. Sorted rows carry the request's context track type in
+// argument 7, as rekordbox's do.
 func (h *Handler) sortTracks(items []*menuItem, order uint32) {
 	if order == sortDefault {
 		return
 	}
 	spec, ok := sortSpecs[order]
 	if !ok {
-		// ID 14 and anything beyond 17: title order, configured column.
-		orderByTitle(items)
-		return
+		return // ID 14 and anything beyond 17: the list's order and column
 	}
-	titles := make(map[*menuItem]string, len(items))
 	texts := make(map[*menuItem]string, len(items))
 	for _, m := range items {
-		titles[m] = sortCollationKey(m.Label1)
-		if m.sv != nil && spec.kind == sortText {
+		switch {
+		case spec.kind == sortTitleOrd:
+			texts[m] = sortCollationKey(m.Label1)
+		case m.sv != nil && spec.kind == sortText:
 			texts[m] = sortCollationKey(m.sv.text(order))
 		}
 		h.applySortColumn(m, order, spec)
@@ -276,6 +277,10 @@ func (h *Handler) sortTracks(items []*menuItem, order uint32) {
 			return false, false
 		}
 		switch spec.kind {
+		case sortTitleOrd:
+			if texts[a] != texts[b] {
+				return texts[a] < texts[b], true
+			}
 		case sortText:
 			ta, tb := texts[a], texts[b]
 			if (ta == "") != (tb == "") {
@@ -317,10 +322,8 @@ func (h *Handler) sortTracks(items []*menuItem, order uint32) {
 		return false, false
 	}
 	sort.SliceStable(items, func(i, j int) bool {
-		if l, decided := less(items[i], items[j]); decided {
-			return l
-		}
-		return titles[items[i]] < titles[items[j]]
+		l, _ := less(items[i], items[j])
+		return l
 	})
 }
 
@@ -335,7 +338,7 @@ func (h *Handler) applySortColumn(m *menuItem, order uint32, spec sortSpec) {
 	m.ParentID = 0
 	m.Label2 = ""
 	switch spec.kind {
-	case sortTitleOrd: // ALPHABET: the title again
+	case sortTitleOrd: // ALPHABET: ordered by title, which it shows again
 		m.Label2 = v.title
 	case sortText:
 		m.Label2 = v.text(order)
