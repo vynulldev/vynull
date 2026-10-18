@@ -1325,14 +1325,12 @@ func (s *Server) applyImportBundle(w http.ResponseWriter, bundle *library.Import
 		log.Printf("import: materialized %d MyTag(s), %d track assignments", len(tags), tagged)
 	}
 
-	// Persist track colour labels (from each TRACK's Colour attribute) to
-	// the tag store, which is the app's authoritative colour source — the
-	// in-memory library Track.ColorID was already set during import.
-	if s.Tags != nil && len(colors) > 0 {
-		for _, c := range colors {
-			s.Tags.SetTrackColor(c.TrackID, c.ColorID)
-		}
-		log.Printf("import: materialized %d track colour label(s)", len(colors))
+	// Track colour labels (from each TRACK's Colour attribute) go to the
+	// library, which owns them; this also covers tracks the import merged
+	// into existing ones.
+	if len(colors) > 0 {
+		n := s.Library.SetColors(colors)
+		log.Printf("import: materialized %d track colour label(s)", n)
 	}
 
 	// Import ANLZ analysis (waveforms, beat grids, phrases) and cover art from
@@ -4346,24 +4344,28 @@ func (s *Server) handleTrackColor(w http.ResponseWriter, r *http.Request) {
 	if r.Method == "OPTIONS" {
 		return
 	}
-
-	if s.Tags == nil {
-		http.Error(w, "tag store not available", http.StatusServiceUnavailable)
+	if s.Library == nil {
+		http.Error(w, "library not available", http.StatusServiceUnavailable)
 		return
 	}
-
 	trackID := parseTrackIDFromPath(r.URL.Path, "/api/tracks/")
 	if trackID == 0 {
 		http.Error(w, "track ID required", http.StatusBadRequest)
 		return
 	}
+	t := s.Library.Track(trackID)
+	if t == nil {
+		http.Error(w, "track not found", http.StatusNotFound)
+		return
+	}
 
+	// The library owns track colours: what the decks, smart rules and the
+	// track list read.
 	switch r.Method {
 	case "GET":
-		color := s.Tags.GetTrackColor(trackID)
 		writeJSON(w, struct {
 			ColorID uint8 `json:"color_id"`
-		}{color})
+		}{t.ColorID})
 
 	case "PUT", "POST":
 		var req struct {
@@ -4373,12 +4375,11 @@ func (s *Server) handleTrackColor(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "invalid JSON: "+err.Error(), http.StatusBadRequest)
 			return
 		}
-		s.Tags.SetTrackColor(trackID, req.ColorID)
-		// Also update the library track so it's visible in browse menus.
-		if t := s.Library.Track(trackID); t != nil {
-			t.ColorID = req.ColorID
+		if req.ColorID > 8 {
+			http.Error(w, "color_id must be 0-8", http.StatusBadRequest)
+			return
 		}
-		s.Library.Touch() // colour lives in the tag store, not a library Save()
+		s.Library.SetColor(trackID, req.ColorID)
 		if s.Device != nil {
 			s.Device.BroadcastTrackRefresh(trackID)
 		}
@@ -4546,24 +4547,27 @@ func (s *Server) handleTrackRating(w http.ResponseWriter, r *http.Request) {
 	if r.Method == "OPTIONS" {
 		return
 	}
-
-	if s.Tags == nil {
-		http.Error(w, "tag store not available", http.StatusServiceUnavailable)
+	if s.Library == nil {
+		http.Error(w, "library not available", http.StatusServiceUnavailable)
 		return
 	}
-
 	trackID := parseTrackIDFromPath(r.URL.Path, "/api/tracks/")
 	if trackID == 0 {
 		http.Error(w, "track ID required", http.StatusBadRequest)
 		return
 	}
+	t := s.Library.Track(trackID)
+	if t == nil {
+		http.Error(w, "track not found", http.StatusNotFound)
+		return
+	}
 
+	// The library owns ratings, whether set here or on a deck (0x2107).
 	switch r.Method {
 	case "GET":
-		rating := s.Tags.GetTrackRating(trackID)
 		writeJSON(w, struct {
 			Rating uint8 `json:"rating"`
-		}{rating})
+		}{t.Rating})
 
 	case "PUT", "POST":
 		var req struct {
@@ -4573,16 +4577,7 @@ func (s *Server) handleTrackRating(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "invalid JSON: "+err.Error(), http.StatusBadRequest)
 			return
 		}
-		if req.Rating > 5 {
-			req.Rating = 5
-		}
-		s.Tags.SetTrackRating(trackID, req.Rating)
-		// Mirror onto the in-memory library so browse menus / CDJ requests
-		// see the new value without needing a restart.
-		if t := s.Library.Track(trackID); t != nil {
-			t.Rating = req.Rating
-		}
-		s.Library.Touch() // rating lives in the tag store, not a library Save()
+		s.Library.SetRating(trackID, req.Rating) // clamps to 5
 		if s.Device != nil {
 			s.Device.BroadcastRatingRefresh(trackID)
 		}

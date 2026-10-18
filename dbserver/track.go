@@ -238,10 +238,7 @@ func (h *Handler) handleSetRating(msg *proto.DBMessage) []*proto.DBMessage {
 	log.Printf("dbserver: rating update track=%d rating=%d", trackID, rating)
 
 	if h.lib != nil {
-		if t := h.lib.Track(trackID); t != nil {
-			t.Rating = uint8(rating)
-			h.lib.Save()
-		}
+		h.lib.SetRating(trackID, uint8(min(rating, 5)))
 	}
 
 	return []*proto.DBMessage{{
