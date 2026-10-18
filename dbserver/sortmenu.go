@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strings"
 	"unicode"
+	"unicode/utf8"
 
 	"github.com/vynulldev/vynull/internal/dlog"
 	"github.com/vynulldev/vynull/library"
@@ -211,12 +212,18 @@ func (v *sortValues) number(id uint32) int64 {
 }
 
 // sortCollationKey orders text as rekordbox's sorts do, checked against a
-// real library's sorted positions: case and accents are ignored, spaces and
-// punctuation don't count, and digits come after every letter, so "A380"
-// sorts after "About" and titles starting with digits or symbols after the
-// lettered ones.
+// real library's sorted positions: text that doesn't start with a letter (a
+// digit, a symbol, even a space) sorts after all text that does; within each
+// group case and accents are ignored, spaces and punctuation don't count, and
+// digits come after every letter, so "A380" sorts after "About".
 func sortCollationKey(s string) string {
+	if s == "" {
+		return ""
+	}
 	var b strings.Builder
+	if first, _ := utf8.DecodeRuneInString(s); !unicode.IsLetter(first) {
+		b.WriteRune(0x10FFFE) // after every letter-initial key
+	}
 	for _, r := range norm.NFKD.String(s) {
 		switch {
 		case unicode.Is(unicode.Mn, r):

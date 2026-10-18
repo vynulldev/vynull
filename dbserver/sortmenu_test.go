@@ -126,10 +126,10 @@ func TestSortMenuRows(t *testing.T) {
 }
 
 // Text sorts ignore case, accents, spaces and punctuation, and put digits
-// after letters, as rekordbox's do. (Whether a leading symbol counts, as in
-// "(What's the Story)", is unconfirmed: it files under W here.)
+// after letters; text not starting with a letter (a digit, a symbol or a
+// space) sorts after all text that does, as rekordbox's do.
 func TestSortCollationKey(t *testing.T) {
-	ordered := []string{"ABC", "About Damn Time", "A380 (Extended)", "Café", "cafe z", "(What's the Story)", "Zebra", "2mysoul"}
+	ordered := []string{"ABC", "About Damn Time", "A380 (Extended)", "Café", "cafe z", "Zebra", " HTE Recordings", "(What's the Story)", "2mysoul"}
 	for i := 1; i < len(ordered); i++ {
 		a, b := sortCollationKey(ordered[i-1]), sortCollationKey(ordered[i])
 		if a > b {
