@@ -3,6 +3,8 @@
 package api
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/vynulldev/vynull/analysis"
@@ -14,9 +16,11 @@ import (
 // analysis, and the web UI queues the rows on screen in between; those queued
 // jobs used to overwrite the imported grids.
 func TestQueuedAnalysisKeepsImportedResult(t *testing.T) {
+	dir := t.TempDir()
+	one, two := audioFile(t, dir, "one.flac"), audioFile(t, dir, "two.flac")
 	lib := library.New()
-	lib.AddTrack(&library.Track{ID: 1, Title: "Imported", FilePath: "/music/one.flac"})
-	lib.AddTrack(&library.Track{ID: 2, Title: "New", FilePath: "/music/two.flac"})
+	lib.AddTrack(&library.Track{ID: 1, Title: "Imported", FilePath: one})
+	lib.AddTrack(&library.Track{ID: 2, Title: "New", FilePath: two})
 	store := analysis.NewStore()
 	analyzed := map[uint32]int{}
 	store.Importer = func(id uint32, _ string) *analysis.Result {
@@ -49,5 +53,64 @@ func TestQueuedAnalysisKeepsImportedResult(t *testing.T) {
 	}
 	if got := store.Get(2); got == nil || got.BPM != 99 || analyzed[2] != 1 {
 		t.Errorf("track 2 (no analysis): want analyzed once, got %+v after %d run(s)", got, analyzed[2])
+	}
+}
+
+// audioFile creates an (empty) audio file for a queue test; only its
+// presence matters, since the tests' Importer stands in for analysis.
+func audioFile(t *testing.T, dir, name string) string {
+	t.Helper()
+	p := filepath.Join(dir, name)
+	if err := os.WriteFile(p, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return p
+}
+
+// A track whose file is missing is not queued: the web UI asks for its
+// waveform on every render, and each request used to start another ffmpeg
+// run that failed. The track is flagged as missing, and queued again once
+// its file is back.
+func TestMissingFileIsNotQueuedForAnalysis(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "gone.mp3")
+	lib := library.New()
+	lib.AddTrack(&library.Track{ID: 1, Title: "Gone", FilePath: path})
+	srv := &Server{Library: lib, Analysis: analysis.NewStore()}
+	srv.analyzeOnce.Do(func() { srv.analyzeCh = make(chan analyzeJob, 4) })
+
+	for i := 0; i < 3; i++ {
+		if srv.tryQueueAnalysis(1, "") {
+			t.Fatalf("request %d queued a track whose file is missing", i+1)
+		}
+	}
+	if len(srv.analyzeCh) != 0 {
+		t.Errorf("%d job(s) queued, want 0", len(srv.analyzeCh))
+	}
+	if !lib.Track(1).FileMissing {
+		t.Errorf("track not flagged as missing")
+	}
+
+	audioFile(t, dir, "gone.mp3")
+	if !srv.tryQueueAnalysis(1, "") {
+		t.Errorf("track not queued once its file is back")
+	}
+}
+
+// On-demand analysis (the track drawer's waveform and grid requests) skips a
+// missing file instead of running ffmpeg for it each time.
+func TestMissingFileIsNotAnalyzedOnDemand(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "gone.mp3")
+	lib := library.New()
+	lib.AddTrack(&library.Track{ID: 1, Title: "Gone", FilePath: path})
+	store := analysis.NewStore()
+	ran := 0
+	store.Importer = func(uint32, string) *analysis.Result { ran++; return nil }
+	srv := &Server{Library: lib, Analysis: store}
+	if r := srv.getOrAnalyze(1); r != nil || ran != 0 {
+		t.Errorf("getOrAnalyze = %v after %d analysis attempt(s), want nil and none", r, ran)
+	}
+	if !lib.Track(1).FileMissing {
+		t.Errorf("track not flagged as missing")
 	}
 }
