@@ -7339,7 +7339,9 @@ async function loadMenuItems() {
   menuItemsCache = (r && Array.isArray(r.items)) ? r.items : [];
   trackDetailCache = (r && r.track_detail) ? r.track_detail : 'bpm';
   trackDetailFieldsCache = (r && Array.isArray(r.track_detail_fields)) ? r.track_detail_fields : [];
+  sortItemsCache = (r && Array.isArray(r.sorts)) ? r.sorts : [];
   renderMenuItems();
+  renderSortItems();
 }
 
 function renderMenuItems() {
@@ -7554,6 +7556,139 @@ async function saveMenuItems() {
   if (!r.ok) { toast('SAVE FAILED', 'error'); return; }
 }
 
+// ───────── CDJ SORT MENU ─────────
+// The deck's SORT menu (the sorts its sort button offers for a track list),
+// in the same two-list layout as the root menu: hidden sorts on the left,
+// shown ones on the right in menu order. Saved with PUT /api/menu-items
+// {sorts}; the deck reads it the next time its sort button is pressed.
+let sortItemsCache = [];
+const sortSelected = { active: new Set(), inactive: new Set() };
+// Double-click moves a sort across, as in the root-menu editor. Detected by
+// hand (see menuLastClick): the single-click re-render replaces the row
+// between the two clicks, so the native dblclick never fires.
+let sortLastClick = { id: null, t: 0 };
+
+function renderSortItems() {
+  const host = document.getElementById('cdj-sort-config');
+  if (!host) return;
+  const shown = sortItemsCache.filter(s => s.visible);
+  const hidden = sortItemsCache.filter(s => !s.visible);
+  const col = (items, side) => items.map(s => {
+    const sel = sortSelected[side].has(s.id) ? ' selected' : '';
+    return `<div class="menu-row${sel}" data-side="${side}" data-id="${s.id}">${escape(s.label || String(s.id))}</div>`;
+  }).join('');
+  host.innerHTML = `
+    <div class="hint">The sorts the deck's sort button offers in a track list. Move sorts between Hidden and Shown with → / ← or a double-click · order with Up/Down. DEFAULT keeps the track-list detail column above; every other sort shows its own field. A rekordbox import with settings brings in your library's sort menu.</div>
+    <div class="menu-twolist">
+      <div class="col">
+        <div class="col-head">HIDDEN SORTS</div>
+        <div class="col-body">${col(hidden, 'inactive') || '<div class="empty-state" style="padding:18px">— ALL SHOWN —</div>'}</div>
+      </div>
+      <div class="actions">
+        <button type="button" id="sort-show" title="Show selected">→</button>
+        <button type="button" id="sort-hide" title="Hide selected">←</button>
+      </div>
+      <div class="col">
+        <div class="col-head">SHOWN SORTS</div>
+        <div class="col-body">${col(shown, 'active') || '<div class="empty-state" style="padding:18px">— NONE SHOWN —</div>'}</div>
+        <div class="menu-updown" style="padding: 0 12px 10px">
+          <button type="button" id="sort-up">UP</button>
+          <button type="button" id="sort-down">DOWN</button>
+        </div>
+      </div>
+    </div>
+    <div class="menu-config-foot">
+      <button type="button" id="sort-reset">RESET TO DEFAULTS</button>
+    </div>`;
+  wireSortItems(host);
+}
+
+function wireSortItems(host) {
+  host.querySelectorAll('.menu-row').forEach(row => {
+    row.onclick = (e) => {
+      const side = row.getAttribute('data-side');
+      const id = Number(row.getAttribute('data-id'));
+      const now = Date.now();
+      const dbl = sortLastClick.id === id && (now - sortLastClick.t) < 400;
+      sortLastClick = dbl ? { id: null, t: 0 } : { id, t: now };
+      if (dbl) {
+        sortSelected.active.clear();
+        sortSelected.inactive.clear();
+        sortSelected[side].add(id);
+        host.querySelector(side === 'inactive' ? '#sort-show' : '#sort-hide').click();
+        return;
+      }
+      const set = sortSelected[side];
+      if (!(e.metaKey || e.ctrlKey)) {
+        sortSelected[side === 'active' ? 'inactive' : 'active'].clear();
+        const only = set.has(id) && set.size === 1;
+        set.clear();
+        if (!only) set.add(id);
+      } else if (set.has(id)) {
+        set.delete(id);
+      } else {
+        set.add(id);
+      }
+      renderSortItems();
+    };
+  });
+  // Show / hide the selected sorts; shown ones join the end of the menu.
+  const move = (from, to, visible) => {
+    const ids = Array.from(sortSelected[from]);
+    if (!ids.length) return;
+    if (!visible && sortItemsCache.filter(s => s.visible && !ids.includes(s.id)).length === 0) {
+      toast('THE SORT MENU NEEDS ONE SORT', 'error');
+      return;
+    }
+    const moved = sortItemsCache.filter(s => ids.includes(s.id));
+    sortItemsCache = sortItemsCache.filter(s => !ids.includes(s.id));
+    moved.forEach(s => { s.visible = visible; });
+    sortItemsCache = visible ? [...sortItemsCache, ...moved] : [...moved, ...sortItemsCache];
+    sortSelected[from].clear();
+    moved.forEach(s => sortSelected[to].add(s.id));
+    renderSortItems();
+    saveSortItems();
+  };
+  host.querySelector('#sort-show').onclick = () => move('inactive', 'active', true);
+  host.querySelector('#sort-hide').onclick = () => move('active', 'inactive', false);
+  const reorder = (delta) => {
+    const ids = Array.from(sortSelected.active);
+    if (ids.length !== 1) return;
+    const shown = sortItemsCache.filter(s => s.visible);
+    const pos = shown.findIndex(s => s.id === ids[0]);
+    const to = pos + delta;
+    if (pos < 0 || to < 0 || to >= shown.length) return;
+    const [it] = shown.splice(pos, 1);
+    shown.splice(to, 0, it);
+    sortItemsCache = [...shown, ...sortItemsCache.filter(s => !s.visible)];
+    renderSortItems();
+    saveSortItems();
+  };
+  host.querySelector('#sort-up').onclick = () => reorder(-1);
+  host.querySelector('#sort-down').onclick = () => reorder(+1);
+  host.querySelector('#sort-reset').onclick = async () => {
+    if (!await openConfirmModal({
+      title: 'RESET SORT MENU',
+      message: "Reset the CDJ sort menu to rekordbox's defaults?",
+      okLabel: 'RESET', danger: true,
+    })) return;
+    const r = await fetch('/api/menu-items/reset?sorts=1', { method: 'POST' });
+    if (!r.ok) { toast('RESET FAILED', 'error'); return; }
+    toast('SORT MENU RESET', 'success');
+    sortSelected.active.clear();
+    sortSelected.inactive.clear();
+    await loadMenuItems();
+  };
+}
+
+async function saveSortItems() {
+  const r = await fetch('/api/menu-items', {
+    method: 'PUT', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({ sorts: sortItemsCache.map(s => ({ id: s.id, visible: s.visible })) }),
+  });
+  if (!r.ok) { toast('SAVE FAILED', 'error'); return; }
+}
+
 // Section catalog for the SETTINGS tab sidebar.
 // Our beat detector searches 60-200 BPM (autocorrelation + peak spacing); it
 // can't see outside that, so the presets and the custom inputs stay inside it —
@@ -7674,8 +7809,12 @@ function renderSettings(cfg) {
     el.innerHTML = `<div class="settings-block">
       <div class="head"><span class="inner">CDJ MENU</span></div>
       <div class="body"><div id="cdj-menu-config" class="menu-config"><div class="empty-state">LOADING</div></div></div>
+    </div>
+    <div class="settings-block">
+      <div class="head"><span class="inner">CDJ SORT MENU</span></div>
+      <div class="body"><div id="cdj-sort-config" class="menu-config"><div class="empty-state">LOADING</div></div></div>
     </div>`;
-    if (menuItemsCache.length) renderMenuItems(); else loadMenuItems();
+    if (menuItemsCache.length) { renderMenuItems(); renderSortItems(); } else loadMenuItems();
     return;
   }
 

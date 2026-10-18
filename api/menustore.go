@@ -74,7 +74,8 @@ type MenuStore struct {
 	mu          sync.RWMutex
 	dir         string
 	items       []MenuItem
-	trackDetail string // key from TrackDetailFields; default "bpm"
+	trackDetail string     // key from TrackDetailFields; default "bpm"
+	sorts       []SortItem // the deck's SORT menu, in order (menustore_sorts.go)
 }
 
 // TrackDetailFields lists every track-detail column the CDJ knows how
@@ -131,6 +132,11 @@ func NewMenuStore(dir string) *MenuStore {
 	}
 	if ms.trackDetail == "" || !isKnownTrackDetail(ms.trackDetail) {
 		ms.trackDetail = defaultTrackDetail
+	}
+	if len(ms.sorts) == 0 {
+		ms.sorts = defaultSortItems()
+	} else {
+		ms.sorts = normalizeSorts(ms.sorts)
 	}
 	return ms
 }
@@ -309,6 +315,7 @@ func countVisible(items []MenuItem) int {
 type menuFileData struct {
 	Items       []MenuItem `json:"items"`
 	TrackDetail string     `json:"track_detail"`
+	Sorts       []SortItem `json:"sorts,omitempty"`
 }
 
 func (ms *MenuStore) saveLocked() {
@@ -318,6 +325,7 @@ func (ms *MenuStore) saveLocked() {
 	b, err := json.MarshalIndent(menuFileData{
 		Items:       ms.items,
 		TrackDetail: ms.trackDetail,
+		Sorts:       ms.sorts,
 	}, "", "  ")
 	if err != nil {
 		log.Printf("menu: marshal: %v", err)
@@ -373,6 +381,7 @@ func (ms *MenuStore) load() {
 		ms.items = append(ms.items, d)
 	}
 	ms.trackDetail = fd.TrackDetail
+	ms.sorts = fd.Sorts
 	log.Printf("api: loaded %d CDJ menu items (%d visible, detail=%q)",
 		len(ms.items), countVisible(ms.items), ms.trackDetail)
 }

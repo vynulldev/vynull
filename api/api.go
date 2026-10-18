@@ -1521,6 +1521,11 @@ func (s *Server) applyImportBundle(w http.ResponseWriter, bundle *library.Import
 			log.Printf("import: imported %d settings file(s): %v", len(imported), imported)
 		}
 	}
+	// The deck's SORT menu and track-list column (master.db's djmdSort) are
+	// browse settings too: adopted when the import includes settings.
+	if incSettings && s.Menu != nil && len(bundle.Sorts) > 0 {
+		s.Menu.ImportSorts(bundle.Sorts)
+	}
 
 	writeJSON(w, result)
 }
@@ -5041,6 +5046,9 @@ func (s *Server) handlePlaylistRules(w http.ResponseWriter, r *http.Request, id 
 
 // GET /api/menu-items  → flat ordered list, visible + hidden
 // PUT /api/menu-items  → replace ordered list {items: [{key, label?, visible}, ...]}
+//
+// Both also carry the deck's SORT menu as "sorts" ([{id, visible}, ...] in
+// menu order).
 func (s *Server) handleMenuItems(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Access-Control-Allow-Origin", "*")
 	w.Header().Set("Access-Control-Allow-Methods", "GET, PUT, OPTIONS")
@@ -5058,10 +5066,12 @@ func (s *Server) handleMenuItems(w http.ResponseWriter, r *http.Request) {
 			Items             []MenuItem         `json:"items"`
 			TrackDetail       string             `json:"track_detail"`
 			TrackDetailFields []TrackDetailField `json:"track_detail_fields"`
+			Sorts             []SortItem         `json:"sorts"`
 		}{
 			Items:             s.Menu.All(),
 			TrackDetail:       s.Menu.TrackDetail(),
 			TrackDetailFields: TrackDetailFields,
+			Sorts:             s.Menu.Sorts(),
 		})
 	case "PUT":
 		// Items + track_detail are optional/independent — the UI
@@ -5070,6 +5080,7 @@ func (s *Server) handleMenuItems(w http.ResponseWriter, r *http.Request) {
 		var req struct {
 			Items       *[]MenuItem `json:"items,omitempty"`
 			TrackDetail *string     `json:"track_detail,omitempty"`
+			Sorts       *[]SortItem `json:"sorts,omitempty"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			http.Error(w, "invalid JSON: "+err.Error(), http.StatusBadRequest)
@@ -5087,6 +5098,12 @@ func (s *Server) handleMenuItems(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 		}
+		if req.Sorts != nil {
+			if err := s.Menu.ReplaceSorts(*req.Sorts); err != nil {
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
+		}
 		writeJSON(w, struct{ OK bool }{true})
 	default:
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -5094,6 +5111,7 @@ func (s *Server) handleMenuItems(w http.ResponseWriter, r *http.Request) {
 }
 
 // POST /api/menu-items/reset → restore default order + visibility
+// (?sorts=1: the SORT menu's instead)
 func (s *Server) handleMenuItemsReset(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Access-Control-Allow-Origin", "*")
 	if r.Method != "POST" {
@@ -5104,6 +5122,11 @@ func (s *Server) handleMenuItemsReset(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "menu store not available", http.StatusServiceUnavailable)
 		return
 	}
-	s.Menu.ResetToDefaults()
+	// ?sorts=1 resets the SORT menu instead of the root menu.
+	if r.URL.Query().Get("sorts") != "" {
+		s.Menu.ResetSorts()
+	} else {
+		s.Menu.ResetToDefaults()
+	}
 	writeJSON(w, struct{ OK bool }{true})
 }

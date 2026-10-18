@@ -22,6 +22,9 @@ type ImportBundle struct {
 	Colors        []ColorImport
 	Cues          []ImportedCue
 	Assets        []ImportedAsset
+	// Sorts is the library's SORT menu and track-list column (rekordbox
+	// master.db's djmdSort), in menu order; empty when the format has none.
+	Sorts []SortImport
 	// ShareRoot is the share/ root for ANLZ + artwork (a backup-zip extract, or
 	// a master.db's own library folder). SettingsDir holds the *SETTING.DAT
 	// blobs. Both are empty when the format carries no such assets.

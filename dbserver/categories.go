@@ -26,13 +26,12 @@ func (h *Handler) handleGetTracks(msg *proto.DBMessage) []*proto.DBMessage {
 		tracks := h.lib.Tracks()
 		h.pendingItems = h.tracksToStdItems(tracks)
 		// The library is ordered by ID; rekordbox's default (sort=0) all-track
-		// list is alphabetical by title. The PDB path keeps the export's own
-		// order, which rekordbox already wrote sorted.
-		if order == sortDefault {
-			order = sortTitle
-		}
+		// list is in title order, which other sorts keep for ties. The PDB
+		// path keeps the export's own order, which rekordbox already wrote
+		// sorted.
+		orderByTitle(h.pendingItems) // sorts keep title order on ties
 	}
-	sortItems(h.pendingItems, order)
+	h.sortTracks(h.pendingItems, order)
 	dlog.Debugf("dbserver: get tracks returning %d items (sort=%d)", len(h.pendingItems), order)
 	return []*proto.DBMessage{h.successWithCount(msg)}
 }

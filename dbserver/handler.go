@@ -282,6 +282,8 @@ func (h *Handler) Handle(msg *proto.DBMessage) []*proto.DBMessage {
 		return nil
 	case proto.DBMsgGetTracks:
 		return h.handleGetTracks(msg)
+	case 0x1400: // SORT menu for a list (location 5)
+		return h.handleSortMenu(msg)
 	case proto.DBMsgGetArtists:
 		return h.handleGetArtists(msg)
 	case proto.DBMsgGetAlbums:

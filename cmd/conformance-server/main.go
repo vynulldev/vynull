@@ -41,12 +41,27 @@ import (
 	"github.com/vynulldev/vynull/library"
 )
 
-// confMenu supplies the built-in root menu plus the harness-selected second
-// (detail) column.
-type confMenu struct{ second string }
+// confMenu supplies the built-in root menu, the harness-selected second
+// (detail) column, and the fixture's own SORT menu (its djmdSort).
+type confMenu struct {
+	second string
+	sorts  []dbserver.SortMenuEntry
+}
 
 func (m confMenu) RootMenu() []dbserver.RootMenuEntry { return dbserver.DefaultRootMenu() }
 func (m confMenu) TrackDetail() string                { return m.second }
+func (m confMenu) SortMenu() []dbserver.SortMenuEntry { return m.sorts }
+
+// sortMenuFrom lists an imported library's shown sorts, in menu order.
+func sortMenuFrom(imp []library.SortImport) []dbserver.SortMenuEntry {
+	var out []dbserver.SortMenuEntry
+	for _, s := range imp {
+		if label, itemType, ok := dbserver.SortSpecLabel(s.ID); ok && s.Visible {
+			out = append(out, dbserver.SortMenuEntry{ID: s.ID, Label: label, ItemType: itemType})
+		}
+	}
+	return out
+}
 
 // confPlaylists serves the fixture's playlist tree straight from the dump
 // (which keeps rekordbox's playlist IDs, parent IDs, and membership order,
@@ -173,7 +188,8 @@ func main() {
 		fatalf("parse fixture JSON %s: %v", *fixtureJSON, err)
 	}
 	lib := library.New()
-	if _, err := library.ImportMasterDBDump(lib, &dump); err != nil {
+	bundle, err := library.ImportMasterDBDump(lib, &dump)
+	if err != nil {
 		fatalf("import fixture: %v", err)
 	}
 	log.Printf("conformance: loaded %d tracks from %s", len(dump.Tracks), *fixtureJSON)
@@ -190,7 +206,7 @@ func main() {
 		Library:      lib,
 		DeviceNumber: 17, // rekordbox device number, matching the oracle
 		Analysis:     analysisStore,
-		Menu:         confMenu{second: *secondColumn},
+		Menu:         confMenu{second: *secondColumn, sorts: sortMenuFrom(bundle.Sorts)},
 		Playlists:    confPlaylists{nodes: dump.Playlists, lib: lib, tags: tagsFromDump(dump.Tags), now: conformanceNow()},
 		BindHost:     "127.0.0.1", // loopback only
 		Ready:        make(chan struct{}),

@@ -780,7 +780,7 @@ func (h *Handler) handleGetTracksByAlbum(msg *proto.DBMessage) []*proto.DBMessag
 				items = append(items, h.pdbTrackToStdItem(t))
 			}
 		}
-		sortItems(items, getSortOrder(msg))
+		h.sortTracks(items, getSortOrder(msg))
 		h.pendingItems = items
 		dlog.Debugf("dbserver: get tracks by album %d (PDB) returning %d tracks", albumID, len(items))
 		return []*proto.DBMessage{h.successWithCount(msg)}
@@ -830,7 +830,7 @@ func (h *Handler) handleGetByAlbum(msg *proto.DBMessage) []*proto.DBMessage {
 				items = append(items, h.pdbTrackToStdItem(t))
 			}
 		}
-		sortItems(items, getSortOrder(msg))
+		h.sortTracks(items, getSortOrder(msg))
 		h.pendingItems = items
 		dlog.Debugf("dbserver: get by album %d (PDB) returning %d tracks", albumID, len(items))
 		return []*proto.DBMessage{h.successWithCount(msg)}
