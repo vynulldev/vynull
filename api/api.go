@@ -15,6 +15,7 @@ import (
 	"image"
 	"image/color"
 	"image/png"
+	"io"
 	"log"
 	"math"
 	"net"
@@ -1992,28 +1993,30 @@ func (s *Server) handleReimportTracks(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if s.Library == nil {
+		http.Error(w, "library not available", http.StatusServiceUnavailable)
+		return
+	}
+	// An empty body (or no track_ids) reimports every track; a body that
+	// doesn't parse is refused rather than taken as "everything", which
+	// would overwrite tag edits across the whole library.
 	var req struct {
 		TrackIDs []uint32 `json:"track_ids"`
 	}
-	json.NewDecoder(r.Body).Decode(&req)
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil && err != io.EOF {
+		http.Error(w, "invalid JSON: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	want := make(map[uint32]bool, len(req.TrackIDs))
+	for _, id := range req.TrackIDs {
+		want[id] = true
+	}
 
-	tracks := s.Library.Tracks()
 	updated := 0
-
-	for _, t := range tracks {
-		if len(req.TrackIDs) > 0 {
-			found := false
-			for _, id := range req.TrackIDs {
-				if t.ID == id {
-					found = true
-					break
-				}
-			}
-			if !found {
-				continue
-			}
+	for _, t := range s.Library.Tracks() {
+		if len(want) > 0 && !want[t.ID] {
+			continue
 		}
-
 		s.readTrackTags(t)
 		updated++
 	}
