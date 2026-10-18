@@ -44,28 +44,31 @@ func TestPlayState(t *testing.T) {
 // fakeMarks is an in-memory PlayMarkSource.
 type fakeMarks map[uint32]bool
 
-func (m fakeMarks) IsUnplayed(id uint32) bool { return m[id] }
-func (m fakeMarks) MarkUnplayed(id uint32)    { m[id] = true }
+func (m fakeMarks) PlayMark(id uint32) (bool, bool) { p, ok := m[id]; return p, ok }
+func (m fakeMarks) MarkPlayed(id uint32, p bool)    { m[id] = p }
 
-// A deck's 0x3401 marks a played track unplayed: acknowledged with
-// 0x4000 [0x3401, 0], and the next play-state query answers 0 while the
-// History playlists stay as they are.
-func TestMarkUnplayed(t *testing.T) {
+// A deck marks a played track unplayed with 0x3401 (acknowledged 0x4000
+// [0x3401, 0]) and an unplayed one played with 0x3001 (no reply); the next
+// play-state query follows the mark, and History stays as it is.
+func TestMarkPlayedAndUnplayed(t *testing.T) {
 	marks := fakeMarks{}
 	h := &Handler{playlists: historyPlaylists{}, playMarks: marks}
 	state := func(id uint32) uint32 {
 		r := h.Handle(&proto.DBMessage{TxID: 1, Type: 0x3b03, Args: []proto.DBArg{proto.ArgI32(0x01010401), proto.ArgI32(id)}})
 		return r[0].Args[1].Int()
 	}
-	if state(10) != 2 {
-		t.Fatalf("track 10 should start played")
+	if state(10) != 2 || state(99) != 0 {
+		t.Fatalf("start: track 10 played, 99 unplayed")
 	}
 	r := h.Handle(&proto.DBMessage{TxID: 2, Type: 0x3401, Args: []proto.DBArg{proto.ArgI32(0x01010401), proto.ArgI32(10), proto.ArgI32(0)}})
 	if len(r) != 1 || r[0].Type != proto.DBMsgSuccess || r[0].Args[0].Int() != 0x3401 || r[0].Args[1].Int() != 0 {
 		t.Errorf("0x3401 reply %+v, want 4000 [0x3401, 0]", r)
 	}
-	if state(10) != 0 || state(11) != 2 {
-		t.Errorf("after marking 10 unplayed: states %d, %d; want 0, 2", state(10), state(11))
+	if r := h.Handle(&proto.DBMessage{TxID: 3, Type: 0x3001, Args: []proto.DBArg{proto.ArgI32(0x01010401), proto.ArgI32(99)}}); len(r) != 0 {
+		t.Errorf("0x3001 got a reply %+v, want none", r)
+	}
+	if state(10) != 0 || state(99) != 2 || state(11) != 2 {
+		t.Errorf("after the marks: states %d, %d, %d; want 0, 2, 2", state(10), state(99), state(11))
 	}
 	if len(historyPlaylists{}.Tracks(2)) != 2 {
 		t.Errorf("History changed")

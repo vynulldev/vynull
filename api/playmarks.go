@@ -13,60 +13,70 @@ import (
 	"github.com/vynulldev/vynull/internal/fsutil"
 )
 
-// PlayMarks records tracks a deck has marked unplayed (the deck's
-// CMD_DEL_HISTORY_TRACK, 0x3401). Vynull counts a track as played on the
-// link when its History lists it; a mark overrides that without touching
-// the History playlists, until the track is played again. Persisted as
-// unplayed.json in the data directory.
+// PlayMarks records tracks a deck has marked played or unplayed from a
+// track's menu (CMD_INSERT_HISTORY 0x3001 and CMD_DEL_HISTORY_TRACK 0x3401).
+// Vynull counts a track as played on the link when its History lists it; a
+// mark overrides that without touching the History playlists, until the
+// track is next played. Persisted as playmarks.json in the data directory.
 type PlayMarks struct {
-	mu       sync.Mutex
-	path     string
-	unplayed map[uint32]bool
+	mu    sync.Mutex
+	path  string
+	marks map[uint32]bool // track ID -> marked played (true) or unplayed (false)
+}
+
+type playMarksFile struct {
+	Played   []uint32 `json:"played"`
+	Unplayed []uint32 `json:"unplayed"`
 }
 
 // NewPlayMarks loads the marks from dir (empty if none are saved yet).
 func NewPlayMarks(dir string) *PlayMarks {
-	pm := &PlayMarks{unplayed: map[uint32]bool{}}
+	pm := &PlayMarks{marks: map[uint32]bool{}}
 	if dir == "" {
 		return pm
 	}
-	pm.path = filepath.Join(dir, "unplayed.json")
+	pm.path = filepath.Join(dir, "playmarks.json")
 	if data, err := os.ReadFile(pm.path); err == nil {
-		var ids []uint32
-		if err := json.Unmarshal(data, &ids); err != nil {
+		var f playMarksFile
+		if err := json.Unmarshal(data, &f); err != nil {
 			log.Printf("playmarks: parse %s: %v", pm.path, err)
 		}
-		for _, id := range ids {
-			pm.unplayed[id] = true
+		for _, id := range f.Played {
+			pm.marks[id] = true
+		}
+		for _, id := range f.Unplayed {
+			pm.marks[id] = false
 		}
 	}
 	return pm
 }
 
-// IsUnplayed reports whether a deck has marked the track unplayed since it
-// was last played.
-func (pm *PlayMarks) IsUnplayed(trackID uint32) bool {
+// PlayMark returns the track's mark: played or unplayed, and whether a deck
+// has marked it since it was last played.
+func (pm *PlayMarks) PlayMark(trackID uint32) (played, marked bool) {
 	pm.mu.Lock()
 	defer pm.mu.Unlock()
-	return pm.unplayed[trackID]
+	played, marked = pm.marks[trackID]
+	return played, marked
 }
 
-// MarkUnplayed records a deck's request to mark the track unplayed.
-func (pm *PlayMarks) MarkUnplayed(trackID uint32) {
+// MarkPlayed records a deck marking the track played (true) or unplayed.
+func (pm *PlayMarks) MarkPlayed(trackID uint32, played bool) {
 	pm.mu.Lock()
 	defer pm.mu.Unlock()
-	if !pm.unplayed[trackID] {
-		pm.unplayed[trackID] = true
+	if cur, ok := pm.marks[trackID]; !ok || cur != played {
+		pm.marks[trackID] = played
 		pm.saveLocked()
 	}
 }
 
-// Played clears the track's unplayed mark: it has been played again.
+// Played clears the track's mark: it has been played again, so History
+// speaks for it.
 func (pm *PlayMarks) Played(trackID uint32) {
 	pm.mu.Lock()
 	defer pm.mu.Unlock()
-	if pm.unplayed[trackID] {
-		delete(pm.unplayed, trackID)
+	if _, ok := pm.marks[trackID]; ok {
+		delete(pm.marks, trackID)
 		pm.saveLocked()
 	}
 }
@@ -75,12 +85,17 @@ func (pm *PlayMarks) saveLocked() {
 	if pm.path == "" {
 		return
 	}
-	ids := make([]uint32, 0, len(pm.unplayed))
-	for id := range pm.unplayed {
-		ids = append(ids, id)
+	var f playMarksFile
+	for id, played := range pm.marks {
+		if played {
+			f.Played = append(f.Played, id)
+		} else {
+			f.Unplayed = append(f.Unplayed, id)
+		}
 	}
-	sort.Slice(ids, func(i, j int) bool { return ids[i] < ids[j] })
-	b, _ := json.Marshal(ids)
+	sort.Slice(f.Played, func(i, j int) bool { return f.Played[i] < f.Played[j] })
+	sort.Slice(f.Unplayed, func(i, j int) bool { return f.Unplayed[i] < f.Unplayed[j] })
+	b, _ := json.Marshal(f)
 	if err := fsutil.WriteFile(pm.path, b, 0o644); err != nil {
 		log.Printf("playmarks: write %s: %v", pm.path, err)
 	}

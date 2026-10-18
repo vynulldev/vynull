@@ -507,7 +507,8 @@ func main() {
 		cdjSettings = device.NewCDJSettings(cfg.DataDir)
 	}
 
-	// Tracks a deck has marked unplayed (0x3401); a play clears the mark.
+	// Tracks a deck has marked played or unplayed (0x3001, 0x3401); a play
+	// clears the mark.
 	playMarks := api.NewPlayMarks(cfg.DataDir)
 
 	db := &dbserver.Server{

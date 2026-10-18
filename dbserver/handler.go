@@ -292,9 +292,8 @@ func (h *Handler) Handle(msg *proto.DBMessage) []*proto.DBMessage {
 		return h.handleGetAlbumsForOriginalArtist(msg)
 	case 0x1502: // tracks for original artist + album (original-artist drill-down level 2)
 		return h.handleGetTracksByOriginalArtist(msg)
-	case 0x3001: // metadata notification (CDJ sends ~1min after loading); no response expected
-		dlog.Debugf("dbserver: 0x3001 notification (no response)")
-		return nil
+	case 0x3001: // insert into Link history: mark played (CMD_INSERT_HISTORY); no reply
+		return h.handleMarkPlayed(msg)
 	case proto.DBMsgGetTracks:
 		return h.handleGetTracks(msg)
 	case 0x1400: // SORT menu for a list (location 5)

@@ -145,7 +145,7 @@ type Server struct {
 	Analysis     *analysis.Store
 	Folders      *pdb.FolderLookup
 	Playlists    PlaylistSource // optional; if nil, PLAYLIST menu falls back to filesystem folders
-	// PlayMarks records tracks a deck has marked unplayed (optional).
+	// PlayMarks records tracks a deck has marked played or unplayed (optional).
 	PlayMarks PlayMarkSource
 	Menu      MenuSource // optional; if nil, root menu falls back to a built-in default list
 	Cues      *CueStore

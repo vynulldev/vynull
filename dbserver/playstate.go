@@ -15,19 +15,37 @@ import (
 // CONFIGURATION.md and XDJ_RR_CLIENT_NAVIGATION.md, from rekordbox's and the
 // XDJ-RR firmware's code). Vynull's record of tracks played on the link is
 // its History: a track counts as played when any History session lists it,
-// unless a deck has since marked it unplayed.
+// unless a deck has since marked it otherwise.
 //
-// A deck marks a track unplayed with 0x3401 (CMD_DEL_HISTORY_TRACK) [ctx,
-// track ID, 0], from the track's menu. rekordbox clears the track's
-// Link-played mark; Vynull records the mark (PlayMarkSource) and keeps the
-// History playlists as they are, until the track is played again.
+// From a track's menu, a deck marks it played with 0x3001
+// (CMD_INSERT_HISTORY) [ctx, track ID], which rekordbox doesn't answer, and
+// unplayed with 0x3401 (CMD_DEL_HISTORY_TRACK) [ctx, track ID, 0], answered
+// 0x4000 [0x3401, 0] (link-spec link-played-state suite). rekordbox inserts
+// into or deletes from its Link history; Vynull records the mark
+// (PlayMarkSource) and keeps the History playlists as they are, until the
+// track is next played. Decks also send 0x3001 when they play a track
+// themselves; Vynull's own play monitor adds that play to History.
 
 const playStatePlayed = 2
 
-// PlayMarkSource records tracks a deck has marked unplayed.
+// PlayMarkSource records tracks a deck has marked played or unplayed.
 type PlayMarkSource interface {
-	IsUnplayed(trackID uint32) bool
-	MarkUnplayed(trackID uint32)
+	PlayMark(trackID uint32) (played, marked bool)
+	MarkPlayed(trackID uint32, played bool)
+}
+
+// handleMarkPlayed handles 0x3001 [ctx, track ID]: mark the track played.
+// rekordbox sends no reply.
+func (h *Handler) handleMarkPlayed(msg *proto.DBMessage) []*proto.DBMessage {
+	var trackID uint32
+	if len(msg.Args) > 1 {
+		trackID = msg.Args[1].Int()
+	}
+	if h.playMarks != nil && trackID != 0 {
+		h.playMarks.MarkPlayed(trackID, true)
+	}
+	dlog.Debugf("dbserver: mark played (0x3001) track=%d", trackID)
+	return nil
 }
 
 // handleMarkUnplayed handles 0x3401 [ctx, track ID, 0]: mark the track
@@ -38,7 +56,7 @@ func (h *Handler) handleMarkUnplayed(msg *proto.DBMessage) []*proto.DBMessage {
 		trackID = msg.Args[1].Int()
 	}
 	if h.playMarks != nil && trackID != 0 {
-		h.playMarks.MarkUnplayed(trackID)
+		h.playMarks.MarkPlayed(trackID, false)
 	}
 	dlog.Debugf("dbserver: mark unplayed (0x3401) track=%d", trackID)
 	return []*proto.DBMessage{{
@@ -63,13 +81,18 @@ func (h *Handler) handleGetPlayState(msg *proto.DBMessage) []*proto.DBMessage {
 	}}
 }
 
-// playedOnLink reports whether any History session lists the track and no
-// deck has marked it unplayed since.
+// playedOnLink reports whether a deck has marked the track played or, with
+// no mark, whether any History session lists it.
 func (h *Handler) playedOnLink(trackID uint32) bool {
-	if h.playlists == nil || trackID == 0 {
+	if trackID == 0 {
 		return false
 	}
-	if h.playMarks != nil && h.playMarks.IsUnplayed(trackID) {
+	if h.playMarks != nil {
+		if played, marked := h.playMarks.PlayMark(trackID); marked {
+			return played
+		}
+	}
+	if h.playlists == nil {
 		return false
 	}
 	folder := h.playlists.HistoryFolderID()
