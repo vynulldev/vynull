@@ -40,3 +40,34 @@ func TestPlayState(t *testing.T) {
 		t.Errorf("no playlist source: %+v, want state 0", r)
 	}
 }
+
+// fakeMarks is an in-memory PlayMarkSource.
+type fakeMarks map[uint32]bool
+
+func (m fakeMarks) IsUnplayed(id uint32) bool { return m[id] }
+func (m fakeMarks) MarkUnplayed(id uint32)    { m[id] = true }
+
+// A deck's 0x3401 marks a played track unplayed: acknowledged with
+// 0x4000 [0x3401, 0], and the next play-state query answers 0 while the
+// History playlists stay as they are.
+func TestMarkUnplayed(t *testing.T) {
+	marks := fakeMarks{}
+	h := &Handler{playlists: historyPlaylists{}, playMarks: marks}
+	state := func(id uint32) uint32 {
+		r := h.Handle(&proto.DBMessage{TxID: 1, Type: 0x3b03, Args: []proto.DBArg{proto.ArgI32(0x01010401), proto.ArgI32(id)}})
+		return r[0].Args[1].Int()
+	}
+	if state(10) != 2 {
+		t.Fatalf("track 10 should start played")
+	}
+	r := h.Handle(&proto.DBMessage{TxID: 2, Type: 0x3401, Args: []proto.DBArg{proto.ArgI32(0x01010401), proto.ArgI32(10), proto.ArgI32(0)}})
+	if len(r) != 1 || r[0].Type != proto.DBMsgSuccess || r[0].Args[0].Int() != 0x3401 || r[0].Args[1].Int() != 0 {
+		t.Errorf("0x3401 reply %+v, want 4000 [0x3401, 0]", r)
+	}
+	if state(10) != 0 || state(11) != 2 {
+		t.Errorf("after marking 10 unplayed: states %d, %d; want 0, 2", state(10), state(11))
+	}
+	if len(historyPlaylists{}.Tracks(2)) != 2 {
+		t.Errorf("History changed")
+	}
+}

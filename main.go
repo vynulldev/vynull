@@ -507,6 +507,9 @@ func main() {
 		cdjSettings = device.NewCDJSettings(cfg.DataDir)
 	}
 
+	// Tracks a deck has marked unplayed (0x3401); a play clears the mark.
+	playMarks := api.NewPlayMarks(cfg.DataDir)
+
 	db := &dbserver.Server{
 		Library:      lib,
 		PDB:          pdbDB,
@@ -516,6 +519,7 @@ func main() {
 		Folders:      folderLookup,
 		Playlists:    playlistSource{ps: playlistStore, lib: lib, tags: tagStore},
 		MyTags:       mytagSource{ts: tagStore},
+		PlayMarks:    playMarks,
 		Menu:         menuSource{ms: menuStore},
 		Cues:         cueStore,
 		Settings:     cdjSettings,
@@ -576,6 +580,7 @@ func main() {
 	// menu via the existing PlaylistStore wiring without further work.
 	monitor.OnPlayed = func(trackID uint32, _ uint8) {
 		appendToHistoryPlaylist(playlistStore, trackID, time.Now())
+		playMarks.Played(trackID) // played again: no longer marked unplayed
 	}
 
 	// Track-history file: a single rolling, crash-safe log — each completed

@@ -38,6 +38,7 @@ type Handler struct {
 	analysis     *analysis.Store
 	folders      *pdb.FolderLookup
 	playlists    PlaylistSource
+	playMarks    PlayMarkSource
 	menu         MenuSource
 	cues         *CueStore
 	settings     *device.CDJSettings
@@ -300,6 +301,8 @@ func (h *Handler) Handle(msg *proto.DBMessage) []*proto.DBMessage {
 		return h.handleSortMenu(msg)
 	case 0x3b03: // play state of a track (CMD_GET_PLAYSTATE)
 		return h.handleGetPlayState(msg)
+	case 0x3401: // mark a track unplayed (CMD_DEL_HISTORY_TRACK)
+		return h.handleMarkUnplayed(msg)
 	case proto.DBMsgGetArtists:
 		return h.handleGetArtists(msg)
 	case proto.DBMsgGetAlbums:

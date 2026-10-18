@@ -145,10 +145,12 @@ type Server struct {
 	Analysis     *analysis.Store
 	Folders      *pdb.FolderLookup
 	Playlists    PlaylistSource // optional; if nil, PLAYLIST menu falls back to filesystem folders
-	Menu         MenuSource     // optional; if nil, root menu falls back to a built-in default list
-	Cues         *CueStore
-	Settings     *device.CDJSettings
-	ReplayDir    string // if set, serve raw response packets from this directory
+	// PlayMarks records tracks a deck has marked unplayed (optional).
+	PlayMarks PlayMarkSource
+	Menu      MenuSource // optional; if nil, root menu falls back to a built-in default list
+	Cues      *CueStore
+	Settings  *device.CDJSettings
+	ReplayDir string // if set, serve raw response packets from this directory
 
 	// OnPeerTeardown, if set, is invoked when a CDJ sends us a 0x0100
 	// Teardown message — main.go wires this to PeerTracker.RemoveByIP so
@@ -450,6 +452,7 @@ func (s *Server) handleSession(ctx context.Context, conn net.Conn) {
 		analysis:     s.Analysis,
 		folders:      s.Folders,
 		playlists:    s.Playlists,
+		playMarks:    s.PlayMarks,
 		menu:         s.Menu,
 		cues:         s.Cues,
 		settings:     s.Settings,
