@@ -982,6 +982,9 @@ func (a menuSource) RootMenu() []dbserver.RootMenuEntry {
 
 func (a menuSource) TrackDetail() string { return a.ms.TrackDetail() }
 
+// SortMenu serves the deck's SORT menu (dbserver.SortMenuSource).
+func (a menuSource) SortMenu() []dbserver.SortMenuEntry { return a.ms.SortMenu() }
+
 // appendToHistoryPlaylist upserts a "History · YYYY-MM-DD" playlist
 // inside a top-level "History" folder and appends trackID to it.
 // Consecutive duplicates are skipped — repeatedly cueing the same

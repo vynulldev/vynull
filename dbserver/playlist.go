@@ -203,7 +203,7 @@ func (h *Handler) handleGetPlaylist(msg *proto.DBMessage) []*proto.DBMessage {
 	} else {
 		trackIDs := h.folders.TrackIDs(folderID)
 		items := h.trackIDsToMenuItems(trackIDs)
-		sortItems(items, getSortOrder(msg))
+		h.sortTracks(items, getSortOrder(msg))
 		h.pendingItems = items
 		dlog.Debugf("dbserver: playlist %d returning %d tracks (filesystem fallback)", folderID, len(items))
 	}
@@ -228,11 +228,11 @@ func (h *Handler) applyPlaylistTrackScope(items []*menuItem, order uint32, smart
 	for i := range items {
 		items[i].trackPos = uint32(i + 1)
 	}
-	if !smart {
+	h.sortTracks(items, order)
+	if smart {
+		markContextType(items, 0) // sorted or not, a smart playlist's rows carry none
+	} else {
 		markContextType(items, h.ctxTrackType)
-	}
-	if order != sortDefault {
-		sortItems(items, order)
 	}
 }
 

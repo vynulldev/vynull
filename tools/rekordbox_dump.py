@@ -552,6 +552,19 @@ def main():
     except sqlcipher3.dbapi2.OperationalError:
         pass  # Older DBs may not have the Hot Cue Bank tables
 
+    # The deck's SORT menu and track-list Column (djmdSort): one row per
+    # sort, its djmdMenuItems ID, Seq (menu order), and Disable (bit 0
+    # hides it from the menu, bit 1 selects it as the second column). Rows
+    # come in table order, which is how rekordbox picks the selected column.
+    out["sorts"] = []
+    try:
+        cur.execute("SELECT MenuItemID, Seq, Disable FROM djmdSort "
+                    "WHERE COALESCE(rb_local_deleted, 0) = 0")
+        out["sorts"] = [{"menu_item_id": str(m), "seq": int(q or 0), "disable": int(d or 0)}
+                        for m, q, d in cur.fetchall()]
+    except sqlcipher3.dbapi2.OperationalError:
+        pass  # Older DBs may not have the djmdSort table
+
     json.dump(out, sys.stdout, indent=2, default=str)
 
 

@@ -1,0 +1,368 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="900" viewBox="0 0 1440 900" role="img" aria-labelledby="title desc">
+<!-- SPDX-License-Identifier: GPL-3.0-or-later -->
+<title id="title">Vynull native desktop — preparation workspace concept</title>
+<desc id="desc">Original non-interactive design proposal with fictional music. A local preview and waveform sit above a dense library table, with playlists on the left and selected-track information on the right. Hot cues, grid editing, search, Link state, and jobs have dedicated controls.</desc>
+<style>text{font-family:Inter,DejaVu Sans,sans-serif;fill:#e6e9ee;font-size:13px}.muted{fill:#a0a9b6}.small{font-size:11px}.number{font-family:DejaVu Sans Mono,monospace}.strong{font-weight:600}.orange{fill:#ff934e}</style>
+<rect x="0" y="0" width="1440" height="900" fill="#15181d" rx="0" stroke="none"/>
+<rect x="0" y="0" width="1440" height="48" fill="#20242b" rx="0" stroke="none"/>
+<text x="20" y="31" class="strong" style="font-size:23px">vynull</text>
+<text x="111" y="31" class="muted small">DESKTOP</text>
+<rect x="227" y="8" width="96" height="33" fill="#37302b" rx="4" stroke="none"/>
+<text x="245" y="30" class="strong orange">Prepare</text>
+<text x="344" y="30" class="muted">Browse</text>
+<text x="441" y="30" class="muted">Players</text>
+<circle cx="1029" cy="25" r="4" fill="#71cba0"/>
+<text x="1040" y="30" class="" style="font-size:12px">LINK · 2 players</text>
+<text x="1183" y="30" class="muted" style="font-size:12px">Jobs  0</text>
+<text x="1281" y="30" class="muted" style="font-size:12px">Settings</text>
+<text x="1395" y="30" class="" style="font-size:21px">⋯</text>
+<rect x="16" y="64" width="52" height="52" fill="#36434e" rx="4" stroke="none"/>
+<circle cx="42" cy="90" r="18" fill="none" stroke="#9bc7d1" stroke-width="2"/><circle cx="42" cy="90" r="5" fill="#9bc7d1"/><text x="82" y="77" class="muted small">LOCAL PREVIEW</text>
+<text x="82" y="99" class="strong" style="font-size:19px">Night Current</text>
+<text x="244" y="99" class="muted" style="font-size:13px">Aster Vale · After Hours EP</text>
+<text x="708" y="77" class="muted small">BPM</text>
+<text x="708" y="101" class="number strong" style="font-size:22px">126.00</text>
+<text x="829" y="77" class="muted small">KEY</text>
+<text x="829" y="101" class="number" style="font-size:22px">8A</text>
+<text x="920" y="77" class="muted small">POSITION</text>
+<text x="920" y="101" class="number" style="font-size:22px">01:32.480</text>
+<text x="1112" y="77" class="muted small">REMAINING</text>
+<text x="1112" y="101" class="number" style="font-size:22px">−04:18.520</text>
+<text x="1292" y="77" class="muted small">OUTPUT</text>
+<text x="1292" y="99" class="" style="font-size:12px">Headphones ▾</text>
+<rect x="16" y="128" width="1408" height="40" fill="#101318" rx="2" stroke="none"/>
+<path d="M20.0 146.0v4.1M29.1 143.1v9.8M38.3 140.3v15.5M47.4 138.4v19.3M56.5 137.9v20.2M65.7 139.0v18.1M74.8 141.1v13.7M83.9 144.0v8.0M93.0 143.0v10.0M102.2 140.2v15.6M111.3 138.2v19.7M120.4 137.2v21.5M129.6 137.8v20.4M138.7 139.8v16.4M147.8 142.9v10.3M157.0 144.3v7.5M166.1 142.7v10.7M175.2 142.8v10.5M184.3 143.9v8.2M193.5 141.5v13.1M202.6 140.3v15.5M211.7 141.0v13.9M220.9 143.9v8.3M230.0 139.0v17.9M239.1 134.9v26.3M248.3 132.7v30.6M257.4 133.2v29.7M266.5 136.0v23.9M275.7 140.2v15.6M284.8 144.3v7.4M293.9 144.5v7.0M303.0 144.3v7.4M312.2 143.7v8.7M321.3 141.9v12.3M330.4 141.2v13.5M339.6 142.0v12.0M348.7 143.8v8.3M357.8 144.5v6.9M367.0 141.9v12.1M376.1 139.8v16.5M385.2 138.4v19.3M394.3 138.0v20.0M403.5 138.9v18.2M412.6 141.1v13.7M421.7 144.4v7.3M430.9 140.7v14.6M440.0 138.0v20.1M449.1 137.0v22.0M458.3 138.1v19.8M467.4 140.8v14.3M476.5 144.2v7.7M485.7 146.1v3.8M494.8 144.3v7.5M503.9 140.3v15.4M513.0 136.3v23.3M522.2 133.8v28.4M531.3 133.7v28.5M540.4 136.2v23.5M549.6 140.5v15.0M558.7 142.4v11.2M567.8 139.5v16.9M577.0 138.6v18.8M586.1 139.4v17.1M595.2 141.5v13.1M604.3 143.8v8.4M613.5 145.6v4.7M622.6 146.5v3.0M631.7 144.6v6.9M640.9 142.7v10.6M650.0 141.3v13.3M659.1 140.7v14.7M668.3 140.9v14.3M677.4 142.0v12.0M686.5 144.1v7.8M695.7 142.6v10.9M704.8 138.9v18.2M713.9 135.9v24.1M723.0 134.5v26.9M732.2 135.3v25.4M741.3 138.1v19.8M750.4 142.1v11.8M759.6 144.0v8.1M768.7 142.7v10.6M777.8 143.5v9.1M787.0 142.6v10.8M796.1 140.0v16.0M805.2 139.1v17.8M814.3 140.5v15.1M823.5 143.8v8.5M832.6 139.3v17.5M841.7 135.8v24.5M850.9 134.3v27.4M860.0 135.2v25.6M869.1 137.8v20.3M878.3 141.3v13.3M887.4 144.7v6.6M896.5 144.6v6.8M905.7 143.7v8.7M914.8 143.5v9.0M923.9 143.9v8.1M933.0 144.1v7.9M942.2 144.4v7.3M951.3 145.3v5.5M960.4 145.4v5.1M969.6 142.9v10.2M978.7 140.1v15.8M987.8 137.7v20.6M997.0 136.5v23.0M1006.1 137.1v21.8M1015.2 139.7v16.7M1024.3 143.6v8.8M1033.5 139.5v17.0M1042.6 136.8v22.5M1051.7 136.4v23.3M1060.9 138.3v19.5M1070.0 141.6v12.8M1079.1 145.0v5.9M1088.3 145.5v4.9M1097.4 143.6v8.8M1106.5 139.6v16.7M1115.7 136.2v23.7M1124.8 134.4v27.2M1133.9 135.0v26.1M1143.0 137.7v20.7M1152.2 141.6v12.8M1161.3 143.3v9.5M1170.4 140.8v14.4M1179.6 139.6v16.7M1188.7 139.7v16.6M1197.8 140.8v14.5M1207.0 142.4v11.2M1216.1 144.4v7.3M1225.2 146.3v3.4M1234.3 145.0v6.0M1243.5 144.5v7.0M1252.6 143.6v8.8M1261.7 142.2v11.7M1270.9 141.3v13.4M1280.0 141.7v12.7M1289.1 143.5v8.9M1298.3 141.6v12.9M1307.4 137.2v21.7M1316.5 133.8v28.4M1325.7 132.7v30.7M1334.8 134.1v27.7M1343.9 137.7v20.5M1353.0 142.2v11.5M1362.2 144.3v7.4M1371.3 143.6v8.8M1380.4 144.4v7.2M1389.6 141.3v13.3M1398.7 139.2v17.5M1407.8 139.0v17.9M1417.0 140.9v14.2" fill="none" stroke="#589ccc" stroke-width="2.1"/>
+<path d="M23.0 141.0v13.9M32.2 139.3v17.4M41.3 139.2v17.6M50.4 140.7v14.7M59.6 143.3v9.5M68.7 143.6v8.8M77.8 140.9v14.2M87.0 138.9v18.2M96.1 137.9v20.2M105.2 138.1v19.9M114.3 139.5v17.1M123.5 141.9v12.1M132.6 144.4v7.3M141.7 141.4v13.3M150.9 139.5v17.1M160.0 139.3v17.5M169.1 140.8v14.3M178.3 143.5v9.0M187.4 144.8v6.5M196.5 145.2v5.6M205.7 142.6v10.8M214.8 138.2v19.6M223.9 134.4v27.2M233.0 132.5v30.9M242.2 133.3v29.3M251.3 136.6v22.8M260.4 141.3v13.5M269.6 142.4v11.1M278.7 140.4v15.3M287.8 140.3v15.5M297.0 141.7v12.6M306.1 143.9v8.2M315.2 143.8v8.4M324.3 144.3v7.3M333.5 145.5v5.0M342.6 143.0v10.1M351.7 140.8v14.5M360.9 139.4v17.2M370.0 139.1v17.8M379.1 139.8v16.3M388.3 141.6v12.9M397.4 144.2v7.7M406.5 142.1v11.8M415.7 138.7v18.5M424.8 136.4v23.2M433.9 135.7v24.6M443.0 137.0v22.0M452.2 140.0v16.0M461.3 143.6v8.7M470.4 144.8v6.3M479.6 144.6v6.8M488.7 142.9v10.2M497.8 139.6v16.8M507.0 137.5v21.1M516.1 137.4v21.1M525.2 139.8v16.4M534.3 142.9v10.3M543.5 138.4v19.2M552.6 135.4v25.2M561.7 134.7v26.6M570.9 136.3v23.4M580.0 139.4v17.3M589.1 142.8v10.4M598.3 145.7v4.5M607.4 145.6v4.8M616.5 144.6v6.8M625.7 142.9v10.1M634.8 142.0v12.0M643.9 142.0v12.1M653.0 142.9v10.3M662.2 144.5v7.0M671.3 144.4v7.2M680.4 141.5v12.9M689.6 138.8v18.5M698.7 136.8v22.5M707.8 136.2v23.7M717.0 137.4v21.2M726.1 140.4v15.2M735.2 143.5v9.0M744.3 140.1v15.8M753.5 138.3v19.3M762.6 138.8v18.4M771.7 141.2v13.7M780.9 144.4v7.2M790.0 143.8v8.3M799.1 144.7v6.7M808.3 141.9v12.2M817.4 137.6v20.8M826.5 134.3v27.4M835.7 133.2v29.7M844.8 134.6v26.9M853.9 137.9v20.1M863.0 142.2v11.6M872.2 143.3v9.5M881.3 141.4v13.1M890.4 140.9v14.1M899.6 141.6v12.9M908.7 142.8v10.3M917.8 144.4v7.3M927.0 145.8v4.3M936.1 146.5v2.9M945.2 144.9v6.3M954.3 143.1v9.9M963.5 141.4v13.3M972.6 140.1v15.7M981.7 139.9v16.3M990.9 140.9v14.1M1000.0 143.5v9.0M1009.1 140.8v14.3M1018.3 136.8v22.5M1027.4 134.1v27.7M1036.5 133.8v28.4M1045.7 135.9v24.1M1054.8 139.7v16.6M1063.9 143.8v8.3M1073.0 145.3v5.4M1082.2 145.0v6.1M1091.3 141.6v12.9M1100.4 138.4v19.2M1109.6 136.8v22.4M1118.7 137.5v21.0M1127.8 140.3v15.4M1137.0 143.4v9.3M1146.1 139.7v16.7M1155.2 137.3v21.3M1164.3 136.8v22.4M1173.5 137.9v20.1M1182.6 140.1v15.7M1191.7 142.8v10.4M1200.9 145.4v5.3M1210.0 144.5v6.9M1219.1 143.3v9.4M1228.3 142.8v10.4M1237.4 143.2v9.6M1246.5 144.4v7.2M1255.7 144.4v7.2M1264.8 145.0v5.9M1273.9 144.5v7.0M1283.0 141.0v14.1M1292.2 137.3v21.4M1301.3 134.6v26.7M1310.4 133.9v28.1M1319.6 135.7v24.6M1328.7 139.5v17.1M1337.8 143.2v9.7M1347.0 139.9v16.1M1356.1 138.8v18.5M1365.2 139.9v16.3M1374.3 142.6v10.9M1383.5 143.7v8.6M1392.6 143.1v9.8M1401.7 144.5v7.1M1410.9 142.0v12.0" fill="none" stroke="#a1c8d2" stroke-width="2.1"/>
+<path d="M26.1 141.9v12.3M35.2 143.2v9.6M44.3 144.4v7.2M53.5 141.4v13.1M62.6 139.1v17.7M71.7 138.0v20.0M80.9 138.1v19.7M90.0 139.4v17.1M99.1 141.7v12.6M108.3 144.5v6.9M117.4 142.0v12.0M126.5 139.2v17.6M135.7 137.5v20.9M144.8 137.5v21.0M153.9 139.2v17.6M163.0 142.1v11.9M172.2 145.1v5.7M181.3 146.0v4.1M190.4 143.7v8.6M199.6 140.2v15.7M208.7 137.0v22.0M217.8 135.5v25.0M227.0 136.4v23.1M236.1 139.7v16.6M245.2 142.2v11.6M254.3 138.1v19.9M263.5 135.8v24.4M272.6 135.9v24.1M281.7 138.1v19.7M290.9 141.4v13.2M300.0 144.5v6.9M309.1 146.6v2.7M318.3 144.8v6.4M327.4 142.4v11.1M336.5 140.6v14.9M345.7 139.8v16.5M354.8 140.2v15.6M363.9 141.8v12.5M373.0 144.0v7.9M382.2 143.6v8.9M391.3 140.6v14.8M400.4 138.1v19.8M409.6 136.6v22.8M418.7 136.6v22.8M427.8 138.4v19.3M437.0 141.5v12.9M446.1 143.7v8.5M455.2 141.2v13.6M464.3 140.4v15.2M473.5 141.6v12.8M482.6 144.2v7.6M491.7 142.4v11.2M500.9 142.2v11.5M510.0 144.1v7.8M519.1 140.3v15.3M528.3 135.9v24.1M537.4 133.1v29.8M546.5 132.7v30.5M555.7 134.9v26.2M564.8 138.8v18.4M573.9 143.1v9.7M583.0 143.7v8.6M592.2 142.6v10.8M601.3 142.8v10.3M610.4 143.9v8.2M619.6 143.5v9.0M628.7 143.6v8.7M637.8 144.7v6.6M647.0 145.5v4.9M656.1 143.3v9.4M665.2 141.2v13.6M674.3 139.6v16.9M683.5 138.7v18.6M692.6 139.0v17.9M701.7 140.8v14.4M710.9 143.8v8.4M720.0 140.5v14.9M729.1 137.0v21.9M738.3 135.2v25.6M747.4 135.7v24.6M756.5 138.2v19.5M765.7 141.9v12.2M774.8 145.4v5.2M783.9 145.9v4.2M793.0 142.6v10.8M802.2 138.8v18.4M811.3 135.8v24.3M820.4 134.9v26.1M829.6 136.5v22.9M838.7 140.2v15.7M847.8 142.7v10.5M857.0 139.3v17.4M866.1 137.6v20.8M875.2 137.8v20.5M884.3 139.4v17.2M893.5 141.8v12.4M902.6 144.2v7.5M911.7 146.3v3.4M920.9 145.6v4.8M930.0 144.8v6.5M939.1 143.6v8.9M948.3 142.8v10.5M957.4 142.5v11.0M966.5 143.0v10.1M975.7 144.4v7.3M984.8 143.4v9.2M993.9 139.7v16.6M1003.0 136.2v23.5M1012.2 134.2v27.7M1021.3 134.2v27.5M1030.4 136.6v22.8M1039.6 140.7v14.7M1048.7 143.4v9.2M1057.8 141.1v13.8M1067.0 140.9v14.1M1076.1 142.7v10.5M1085.2 142.9v10.3M1094.3 141.2v13.6M1103.5 141.6v12.8M1112.6 144.0v8.1M1121.7 140.5v15.0M1130.9 136.8v22.4M1140.0 134.7v26.5M1149.1 134.9v26.2M1158.3 137.0v22.1M1167.4 140.2v15.5M1176.5 143.8v8.5M1185.7 144.0v8.1M1194.8 142.3v11.3M1203.9 141.6v12.9M1213.0 141.6v12.7M1222.2 142.5v11.1M1231.3 143.9v8.2M1240.4 145.6v4.8M1249.6 146.5v3.0M1258.7 144.5v7.0M1267.8 142.0v12.1M1277.0 139.4v17.2M1286.1 137.6v20.7M1295.2 137.5v21.0M1304.3 139.4v17.2M1313.5 143.0v9.9M1322.6 139.4v17.2M1331.7 135.8v24.3M1340.9 134.5v27.0M1350.0 135.7v24.6M1359.1 138.9v18.2M1368.3 142.8v10.4M1377.4 146.0v3.9M1386.5 145.3v5.5M1395.7 141.9v12.2M1404.8 138.5v19.0M1413.9 136.3v23.4" fill="none" stroke="#b698c9" stroke-width="2.1"/>
+<rect x="327" y="128" width="157" height="40" fill="#cedde81a" rx="0" stroke="#8293a3"/>
+<path d="M352 128v40" stroke="#ffb37f"/>
+<rect x="94" y="128" width="16" height="15" fill="#a5d890" rx="2" stroke="none"/>
+<text x="98" y="139" class="strong small">A</text>
+<rect x="352" y="128" width="16" height="15" fill="#efb465" rx="2" stroke="none"/>
+<text x="356" y="139" class="strong small">B</text>
+<rect x="806" y="128" width="16" height="15" fill="#74cbd1" rx="2" stroke="none"/>
+<text x="810" y="139" class="strong small">C</text>
+<rect x="1160" y="128" width="16" height="15" fill="#ba9de3" rx="2" stroke="none"/>
+<text x="1164" y="139" class="strong small">D</text>
+<rect x="16" y="179" width="1024" height="100" fill="#101318" rx="2" stroke="none"/>
+<path d="M24 179v100" stroke="#4b5360"/>
+<text x="29" y="192" class="muted small">41</text>
+<path d="M66 179v100" stroke="#2a3039"/>
+<path d="M108 179v100" stroke="#2a3039"/>
+<path d="M150 179v100" stroke="#2a3039"/>
+<path d="M192 179v100" stroke="#4b5360"/>
+<text x="197" y="192" class="muted small">42</text>
+<path d="M234 179v100" stroke="#2a3039"/>
+<path d="M276 179v100" stroke="#2a3039"/>
+<path d="M318 179v100" stroke="#2a3039"/>
+<path d="M360 179v100" stroke="#4b5360"/>
+<text x="365" y="192" class="muted small">43</text>
+<path d="M402 179v100" stroke="#2a3039"/>
+<path d="M444 179v100" stroke="#2a3039"/>
+<path d="M486 179v100" stroke="#2a3039"/>
+<path d="M528 179v100" stroke="#4b5360"/>
+<text x="533" y="192" class="muted small">44</text>
+<path d="M570 179v100" stroke="#2a3039"/>
+<path d="M612 179v100" stroke="#2a3039"/>
+<path d="M654 179v100" stroke="#2a3039"/>
+<path d="M696 179v100" stroke="#4b5360"/>
+<text x="701" y="192" class="muted small">45</text>
+<path d="M738 179v100" stroke="#2a3039"/>
+<path d="M780 179v100" stroke="#2a3039"/>
+<path d="M822 179v100" stroke="#2a3039"/>
+<path d="M864 179v100" stroke="#4b5360"/>
+<text x="869" y="192" class="muted small">46</text>
+<path d="M906 179v100" stroke="#2a3039"/>
+<path d="M948 179v100" stroke="#2a3039"/>
+<path d="M990 179v100" stroke="#2a3039"/>
+<path d="M1032 179v100" stroke="#4b5360"/>
+<text x="1037" y="192" class="muted small">47</text>
+<path d="M20.0 229.2v8.5M32.2 223.2v20.5M44.4 217.3v32.4M56.6 213.3v40.3M68.8 212.4v42.2M81.0 214.6v37.9M93.2 219.2v28.7M105.3 225.1v16.8M117.5 223.0v21.0M129.7 217.2v32.6M141.9 212.9v41.2M154.1 211.0v45.1M166.3 212.1v42.8M178.5 216.3v34.3M190.7 222.8v21.5M202.9 225.7v15.6M215.1 222.3v22.4M227.3 222.5v22.0M239.5 224.9v17.2M251.6 219.8v27.4M263.8 217.3v32.4M276.0 218.9v29.1M288.2 224.8v17.3M300.4 214.7v37.6M312.6 206.0v55.1M324.8 201.4v64.2M337.0 202.5v62.1M349.2 208.4v50.1M361.4 217.1v32.7M373.6 225.7v15.6M385.8 226.2v14.7M398.0 225.7v15.6M410.1 224.4v18.2M422.3 220.7v25.7M434.5 219.4v28.3M446.7 220.9v25.2M458.9 224.8v17.5M471.1 226.2v14.5M483.3 220.8v25.4M495.5 216.3v34.5M507.7 213.3v40.4M519.9 212.6v41.9M532.1 214.5v38.0M544.3 219.1v28.7M556.4 225.9v15.2M568.6 218.2v30.5M580.8 212.5v42.0M593.0 210.4v46.1M605.2 212.8v41.5M617.4 218.5v30.0M629.6 225.5v16.1M641.8 229.6v7.9M654.0 225.7v15.6M666.2 217.4v32.3M678.4 209.1v48.8M690.6 203.8v59.4M702.8 203.6v59.7M714.9 208.9v49.3M727.1 217.8v31.4M739.3 221.8v23.5M751.5 215.8v35.4M763.7 213.8v39.4M775.9 215.6v35.9M788.1 219.8v27.4M800.3 224.7v17.6M812.5 228.6v9.8M824.7 230.3v6.3M836.9 226.3v14.4M849.1 222.4v22.1M861.2 219.5v27.9M873.4 218.1v30.7M885.6 218.6v29.9M897.8 220.9v25.1M910.0 225.3v16.4M922.2 222.1v22.7M934.4 214.5v38.1M946.6 208.2v50.5M958.8 205.3v56.4M971.0 206.9v53.1M983.2 212.8v41.4M995.4 221.1v24.7M1007.6 225.0v16.9M1019.7 222.4v22.2M1031.9 224.0v19.0" fill="none" stroke="#589ccc" stroke-width="2.8"/>
+<path d="M24.1 218.9v29.2M36.3 215.3v36.4M48.4 215.0v36.9M60.6 218.1v30.8M72.8 223.6v19.8M85.0 224.3v18.4M97.2 218.6v29.8M109.4 214.4v38.1M121.6 212.4v42.3M133.8 212.7v41.6M146.0 215.6v35.8M158.2 220.8v25.4M170.4 225.9v15.2M182.6 219.6v27.8M194.8 215.6v35.8M206.9 215.2v36.6M219.1 218.5v30.0M231.3 224.1v18.8M243.5 226.7v13.6M255.7 227.7v11.7M267.9 222.2v22.6M280.1 213.0v41.0M292.3 205.0v56.9M304.5 201.1v64.8M316.7 202.8v61.4M328.9 209.6v47.8M341.1 219.4v28.2M353.2 221.9v23.3M365.4 217.5v32.0M377.6 217.3v32.4M389.8 220.3v26.3M402.0 225.0v17.1M414.2 224.8v17.5M426.4 225.8v15.3M438.6 228.3v10.5M450.8 222.9v21.1M463.0 218.4v30.3M475.2 215.5v36.0M487.4 214.8v37.4M499.6 216.4v34.2M511.7 220.0v26.9M523.9 225.4v16.1M536.1 221.1v24.8M548.3 214.1v38.7M560.5 209.2v48.7M572.7 207.7v51.5M584.9 210.5v46.0M597.1 216.7v33.6M609.3 224.4v18.3M621.5 226.9v13.2M633.7 226.4v14.2M645.9 222.8v21.4M658.0 215.9v35.1M670.2 211.4v44.2M682.4 211.4v44.2M694.6 216.4v34.3M706.8 222.7v21.5M719.0 213.4v40.2M731.2 207.1v52.7M743.4 205.7v55.6M755.6 209.0v49.0M767.8 215.4v36.2M780.0 222.6v21.7M792.2 228.8v9.4M804.4 228.4v10.1M816.5 226.3v14.3M828.7 222.9v21.2M840.9 220.9v25.1M853.1 220.9v25.3M865.3 222.7v21.6M877.5 226.1v14.8M889.7 226.0v15.0M901.9 220.0v27.1M914.1 214.2v38.6M926.3 210.0v47.1M938.5 208.7v49.5M950.7 211.4v44.3M962.8 217.6v31.8M975.0 224.1v18.8M987.2 216.9v33.1M999.4 213.3v40.5M1011.6 214.2v38.6M1023.8 219.2v28.6" fill="none" stroke="#a1c8d2" stroke-width="2.8"/>
+<path d="M28.1 220.6v25.7M40.3 223.5v20.0M52.5 226.0v15.0M64.7 219.7v27.5M76.9 214.9v37.1M89.1 212.6v41.9M101.3 212.9v41.3M113.5 215.6v35.8M125.7 220.3v26.5M137.9 226.2v14.5M150.0 221.0v25.1M162.2 215.1v36.8M174.4 211.6v43.8M186.6 211.5v43.9M198.8 215.0v36.9M211.0 221.1v24.9M223.2 227.5v12.0M235.4 229.3v8.5M247.6 224.5v18.0M259.8 217.1v32.8M272.0 210.5v46.0M284.2 207.3v52.3M296.4 209.3v48.5M308.5 216.1v34.8M320.7 221.3v24.4M332.9 212.7v41.6M345.1 208.0v51.1M357.3 208.3v50.5M369.5 212.8v41.3M381.7 219.6v27.7M393.9 226.2v14.5M406.1 230.7v5.7M418.3 226.8v13.3M430.5 221.9v23.3M442.7 217.9v31.1M454.8 216.3v34.5M467.0 217.2v32.6M479.2 220.4v26.2M491.4 225.2v16.5M503.6 224.2v18.6M515.8 218.0v30.9M528.0 212.8v41.5M540.2 209.6v47.7M552.4 209.7v47.7M564.6 213.3v40.3M576.8 220.0v27.1M589.0 224.6v17.9M601.2 219.2v28.6M613.3 217.6v31.9M625.5 220.1v26.9M637.7 225.5v16.0M649.9 221.8v23.4M662.1 221.4v24.2M674.3 225.3v16.4M686.5 217.5v32.1M698.7 208.2v50.6M710.9 202.3v62.5M723.1 201.5v63.9M735.3 206.1v54.8M747.5 214.3v38.5M759.6 223.3v20.3M771.8 224.5v18.1M784.0 222.2v22.6M796.2 222.7v21.6M808.4 224.9v17.2M820.6 224.1v18.8M832.8 224.4v18.3M845.0 226.6v13.7M857.2 228.3v10.3M869.4 223.7v19.6M881.6 219.3v28.4M893.8 215.8v35.4M906.0 214.0v38.9M918.1 214.7v37.5M930.3 218.4v30.2M942.5 224.7v17.6M954.7 217.9v31.3M966.9 210.6v45.9M979.1 206.7v53.5M991.3 207.7v51.6M1003.5 213.1v40.9M1015.7 220.8v25.5M1027.9 228.1v10.9" fill="none" stroke="#b698c9" stroke-width="2.8"/>
+<rect x="352" y="179" width="336" height="100" fill="#ff9b5720" rx="0" stroke="none"/>
+<path d="M520 179v100" stroke="#fff0df"/>
+<rect x="495" y="179" width="50" height="16" fill="#d59d74" rx="2" stroke="none"/>
+<text x="502" y="191" class="strong small">49.1</text>
+<text x="24" y="309" class="" style="font-size:21px">⏸</text>
+<rect x="62" y="287" width="62" height="28" fill="#282d35" rx="4" stroke="none"/>
+<text x="72" y="306" class="" style="font-size:12px">CUE</text>
+<rect x="138" y="287" width="64" height="28" fill="#282d35" rx="4" stroke="none"/>
+<text x="148" y="306" class="" style="font-size:12px">− 8</text>
+<rect x="208" y="287" width="64" height="28" fill="#282d35" rx="4" stroke="none"/>
+<text x="218" y="306" class="" style="font-size:12px">8 +</text>
+<text x="286" y="306" class="muted small">Beat jump</text>
+<rect x="374" y="287" width="92" height="28" fill="#282d35" rx="4" stroke="none"/>
+<text x="384" y="306" class="" style="font-size:12px">Quantize</text>
+<text x="386" y="327" class="orange small">ON · 1 beat</text>
+<rect x="483" y="287" width="55" height="28" fill="#282d35" rx="4" stroke="none"/>
+<text x="493" y="306" class="" style="font-size:12px">−</text>
+<rect x="544" y="287" width="55" height="28" fill="#282d35" rx="4" stroke="none"/>
+<text x="554" y="306" class="" style="font-size:12px">+</text>
+<text x="613" y="306" class="muted small">Zoom</text>
+<rect x="685" y="287" width="74" height="28" fill="#282d35" rx="4" stroke="none"/>
+<text x="695" y="306" class="" style="font-size:12px">Loop</text>
+<rect x="765" y="287" width="62" height="28" fill="#282d35" rx="4" stroke="none"/>
+<text x="775" y="306" class="" style="font-size:12px">4 beats</text>
+<text x="869" y="306" class="muted">RGB ▾</text>
+<text x="967" y="306" class="orange">Follow</text>
+<rect x="1052" y="179" width="372" height="149" fill="#20252c" rx="4" stroke="none"/>
+<text x="1066" y="201" class="strong orange">Hot cues</text>
+<text x="1167" y="201" class="muted">Memory</text>
+<text x="1261" y="201" class="muted">Grid</text>
+<path d="M1065 210H1412" stroke="#343941"/>
+<rect x="1066" y="220" width="76" height="41" fill="#303640" rx="3" stroke="#a5d890"/>
+<text x="1074" y="237" class="strong">A</text>
+<text x="1074" y="253" class="muted small">00:00</text>
+<rect x="1152" y="220" width="76" height="41" fill="#303640" rx="3" stroke="#efb465"/>
+<text x="1160" y="237" class="strong">B</text>
+<text x="1160" y="253" class="muted small">01:32</text>
+<rect x="1238" y="220" width="76" height="41" fill="#303640" rx="3" stroke="#74cbd1"/>
+<text x="1246" y="237" class="strong">C</text>
+<text x="1246" y="253" class="muted small">03:20</text>
+<rect x="1324" y="220" width="76" height="41" fill="#303640" rx="3" stroke="#ba9de3"/>
+<text x="1332" y="237" class="strong">D</text>
+<text x="1332" y="253" class="muted small">04:48</text>
+<rect x="1066" y="270" width="76" height="41" fill="#252a32" rx="3" stroke="#454b55"/>
+<text x="1074" y="287" class="muted">E</text>
+<text x="1074" y="303" class="muted small">Empty</text>
+<rect x="1152" y="270" width="76" height="41" fill="#252a32" rx="3" stroke="#454b55"/>
+<text x="1160" y="287" class="muted">F</text>
+<text x="1160" y="303" class="muted small">Empty</text>
+<rect x="1238" y="270" width="76" height="41" fill="#252a32" rx="3" stroke="#454b55"/>
+<text x="1246" y="287" class="muted">G</text>
+<text x="1246" y="303" class="muted small">Empty</text>
+<rect x="1324" y="270" width="76" height="41" fill="#252a32" rx="3" stroke="#454b55"/>
+<text x="1332" y="287" class="muted">H</text>
+<text x="1332" y="303" class="muted small">Empty</text>
+<path d="M0 344H1440" stroke="#343941"/>
+<rect x="0" y="345" width="220" height="529" fill="#1c2026" rx="0" stroke="none"/>
+<rect x="1160" y="345" width="280" height="529" fill="#1c2026" rx="0" stroke="none"/>
+<text x="18" y="371" class="muted small">LIBRARY</text>
+<rect x="152" y="353" width="51" height="28" fill="#282d35" rx="4" stroke="none"/>
+<text x="162" y="372" class="" style="font-size:12px">+</text>
+<rect x="8" y="387" width="204" height="30" fill="#333944" rx="4" stroke="none"/>
+<rect x="8" y="387" width="3" height="30" fill="#ff873b" rx="0" stroke="none"/>
+<text x="24" y="407" class="strong">Collection</text>
+<text x="167" y="407" class="muted small">12,480</text>
+<text x="24" y="440" class="">Recently added</text>
+<text x="24" y="470" class="">Missing files</text>
+<text x="183" y="470" class="orange small">7</text>
+<text x="18" y="512" class="muted small">PLAYLISTS</text>
+<text x="24" y="542" class="">▾  Weekend sessions</text>
+<text x="43" y="572" class="">Warm-up</text>
+<text x="43" y="602" class="">Peak time</text>
+<text x="43" y="632" class="">After hours</text>
+<text x="24" y="667" class="">▸  Smart playlists</text>
+<text x="18" y="710" class="muted small">HISTORY</text>
+<text x="24" y="740" class="">Friday · 16 October</text>
+<text x="18" y="784" class="muted small">DEVICES</text>
+<text x="24" y="814" class="">USB · VYNULL_01</text>
+<text x="24" y="844" class="orange">Export to device…</text>
+<path d="M219 345v529" stroke="#343941"/>
+<path d="M1159 345v529" stroke="#343941"/>
+<text x="238" y="371" class="strong" style="font-size:16px">Collection</text>
+<text x="351" y="371" class="muted small">12,480 tracks</text>
+<rect x="685" y="353" width="314" height="28" fill="#11151a" rx="4" stroke="#3c434e"/>
+<text x="699" y="372" class="muted" style="font-size:12px">Search collection…</text>
+<text x="946" y="372" class="muted small">Ctrl F</text>
+<rect x="1010" y="353" width="132" height="28" fill="#282d35" rx="4" stroke="none"/>
+<text x="1020" y="372" class="" style="font-size:12px">Import music</text>
+<rect x="236" y="393" width="91" height="28" fill="#282d35" rx="4" stroke="none"/>
+<text x="246" y="412" class="" style="font-size:12px">All genres ▾</text>
+<rect x="335" y="393" width="101" height="28" fill="#282d35" rx="4" stroke="none"/>
+<text x="345" y="412" class="" style="font-size:12px">BPM  ▾</text>
+<rect x="444" y="393" width="85" height="28" fill="#282d35" rx="4" stroke="none"/>
+<text x="454" y="412" class="" style="font-size:12px">Key  ▾</text>
+<rect x="537" y="393" width="95" height="28" fill="#282d35" rx="4" stroke="none"/>
+<text x="547" y="412" class="" style="font-size:12px">Rating ▾</text>
+<rect x="640" y="393" width="95" height="28" fill="#282d35" rx="4" stroke="none"/>
+<text x="650" y="412" class="" style="font-size:12px">My tags ▾</text>
+<text x="990" y="412" class="muted" style="font-size:12px">Columns ▾</text>
+<rect x="220" y="433" width="940" height="29" fill="#292e36" rx="0" stroke="none"/>
+<text x="237" y="452" class="muted small">#</text>
+<text x="268" y="452" class="muted small">Title</text>
+<text x="529" y="452" class="muted small">Artist</text>
+<text x="715" y="452" class="muted small">BPM</text>
+<text x="789" y="452" class="muted small">Key</text>
+<text x="850" y="452" class="muted small">Time</text>
+<text x="924" y="452" class="muted small">Rating</text>
+<text x="1044" y="452" class="muted small">Added</text>
+<rect x="220" y="462" width="940" height="26" fill="#3a342e" rx="0" stroke="none"/>
+<rect x="220" y="462" width="3" height="26" fill="#ff873b" rx="0" stroke="none"/>
+<text x="237" y="480" class="muted small">1</text>
+<rect x="268" y="467" width="16" height="16" fill="#425c69" rx="2" stroke="none"/>
+<text x="293" y="480" class="strong" style="font-size:12px">Night Current</text>
+<text x="529" y="480" class="muted" style="font-size:12px">Aster Vale</text>
+<text x="715" y="480" class="number" style="font-size:11px">126.00</text>
+<text x="789" y="480" class="number" style="font-size:11px">8A</text>
+<text x="850" y="480" class="number" style="font-size:11px">5:51</text>
+<text x="924" y="480" class="orange" style="font-size:12px">★★★★</text>
+<text x="1044" y="480" class="muted small">Oct 16</text>
+<rect x="220" y="488" width="940" height="26" fill="#191d23" rx="0" stroke="none"/>
+<text x="237" y="506" class="muted small">2</text>
+<rect x="268" y="493" width="16" height="16" fill="#534761" rx="2" stroke="none"/>
+<text x="293" y="506" class="" style="font-size:12px">Between Stations</text>
+<text x="529" y="506" class="muted" style="font-size:12px">Mira North</text>
+<text x="715" y="506" class="number" style="font-size:11px">125.00</text>
+<text x="789" y="506" class="number" style="font-size:11px">9A</text>
+<text x="850" y="506" class="number" style="font-size:11px">6:14</text>
+<text x="924" y="506" class="orange" style="font-size:12px">★★★</text>
+<text x="1044" y="506" class="muted small">Oct 16</text>
+<rect x="220" y="514" width="940" height="26" fill="#171b20" rx="0" stroke="none"/>
+<text x="237" y="532" class="muted small">3</text>
+<rect x="268" y="519" width="16" height="16" fill="#486359" rx="2" stroke="none"/>
+<text x="293" y="532" class="" style="font-size:12px">Soft Focus</text>
+<text x="529" y="532" class="muted" style="font-size:12px">Lumen Field</text>
+<text x="715" y="532" class="number" style="font-size:11px">124.00</text>
+<text x="789" y="532" class="number" style="font-size:11px">8A</text>
+<text x="850" y="532" class="number" style="font-size:11px">7:02</text>
+<text x="924" y="532" class="orange" style="font-size:12px">★★★★★</text>
+<text x="1044" y="532" class="muted small">Oct 16</text>
+<rect x="220" y="540" width="940" height="26" fill="#191d23" rx="0" stroke="none"/>
+<text x="237" y="558" class="muted small">4</text>
+<rect x="268" y="545" width="16" height="16" fill="#665348" rx="2" stroke="none"/>
+<text x="293" y="558" class="" style="font-size:12px">Parallel Lines</text>
+<text x="529" y="558" class="muted" style="font-size:12px">North Arcade</text>
+<text x="715" y="558" class="number" style="font-size:11px">126.00</text>
+<text x="789" y="558" class="number" style="font-size:11px">8B</text>
+<text x="850" y="558" class="number" style="font-size:11px">5:48</text>
+<text x="924" y="558" class="orange" style="font-size:12px">★★★★</text>
+<text x="1044" y="558" class="muted small">Oct 15</text>
+<rect x="220" y="566" width="940" height="26" fill="#171b20" rx="0" stroke="none"/>
+<text x="237" y="584" class="muted small">5</text>
+<rect x="268" y="571" width="16" height="16" fill="#425c69" rx="2" stroke="none"/>
+<text x="293" y="584" class="" style="font-size:12px">Afterimage</text>
+<text x="529" y="584" class="muted" style="font-size:12px">Aster Vale</text>
+<text x="715" y="584" class="number" style="font-size:11px">127.00</text>
+<text x="789" y="584" class="number" style="font-size:11px">7A</text>
+<text x="850" y="584" class="number" style="font-size:11px">6:32</text>
+<text x="924" y="584" class="orange" style="font-size:12px">★★★★</text>
+<text x="1044" y="584" class="muted small">Oct 15</text>
+<rect x="220" y="592" width="940" height="26" fill="#191d23" rx="0" stroke="none"/>
+<text x="237" y="610" class="muted small">6</text>
+<rect x="268" y="597" width="16" height="16" fill="#534761" rx="2" stroke="none"/>
+<text x="293" y="610" class="" style="font-size:12px">Glass House</text>
+<text x="529" y="610" class="muted" style="font-size:12px">Low Season</text>
+<text x="715" y="610" class="number" style="font-size:11px">125.00</text>
+<text x="789" y="610" class="number" style="font-size:11px">9A</text>
+<text x="850" y="610" class="number" style="font-size:11px">6:08</text>
+<text x="924" y="610" class="orange" style="font-size:12px">★★★</text>
+<text x="1044" y="610" class="muted small">Oct 15</text>
+<rect x="220" y="618" width="940" height="26" fill="#171b20" rx="0" stroke="none"/>
+<text x="237" y="636" class="muted small">7</text>
+<rect x="268" y="623" width="16" height="16" fill="#486359" rx="2" stroke="none"/>
+<text x="293" y="636" class="" style="font-size:12px">Blue Hour</text>
+<text x="529" y="636" class="muted" style="font-size:12px">Mira North</text>
+<text x="715" y="636" class="number" style="font-size:11px">122.00</text>
+<text x="789" y="636" class="number" style="font-size:11px">8A</text>
+<text x="850" y="636" class="number" style="font-size:11px">7:12</text>
+<text x="924" y="636" class="orange" style="font-size:12px">★★★★★</text>
+<text x="1044" y="636" class="muted small">Oct 14</text>
+<rect x="220" y="644" width="940" height="26" fill="#191d23" rx="0" stroke="none"/>
+<text x="237" y="662" class="muted small">8</text>
+<rect x="268" y="649" width="16" height="16" fill="#665348" rx="2" stroke="none"/>
+<text x="293" y="662" class="" style="font-size:12px">Signal Bloom</text>
+<text x="529" y="662" class="muted" style="font-size:12px">Kite Assembly</text>
+<text x="715" y="662" class="number" style="font-size:11px">128.00</text>
+<text x="789" y="662" class="number" style="font-size:11px">10A</text>
+<text x="850" y="662" class="number" style="font-size:11px">5:44</text>
+<text x="924" y="662" class="orange" style="font-size:12px">★★★★</text>
+<text x="1044" y="662" class="muted small">Oct 14</text>
+<rect x="220" y="670" width="940" height="26" fill="#171b20" rx="0" stroke="none"/>
+<text x="237" y="688" class="muted small">9</text>
+<rect x="268" y="675" width="16" height="16" fill="#425c69" rx="2" stroke="none"/>
+<text x="293" y="688" class="" style="font-size:12px">Untitled Movement</text>
+<text x="529" y="688" class="muted" style="font-size:12px">Subtle Forms</text>
+<text x="715" y="688" class="number" style="font-size:11px">126.00</text>
+<text x="789" y="688" class="number" style="font-size:11px">7A</text>
+<text x="850" y="688" class="number" style="font-size:11px">6:41</text>
+<text x="924" y="688" class="orange" style="font-size:12px">★★★</text>
+<text x="1044" y="688" class="muted small">Oct 14</text>
+<rect x="220" y="696" width="940" height="26" fill="#191d23" rx="0" stroke="none"/>
+<text x="237" y="714" class="muted small">10</text>
+<rect x="268" y="701" width="16" height="16" fill="#534761" rx="2" stroke="none"/>
+<text x="293" y="714" class="" style="font-size:12px">Long Way Home</text>
+<text x="529" y="714" class="muted" style="font-size:12px">North Arcade</text>
+<text x="715" y="714" class="number" style="font-size:11px">124.00</text>
+<text x="789" y="714" class="number" style="font-size:11px">8B</text>
+<text x="850" y="714" class="number" style="font-size:11px">6:28</text>
+<text x="924" y="714" class="orange" style="font-size:12px">★★★★</text>
+<text x="1044" y="714" class="muted small">Oct 13</text>
+<rect x="220" y="722" width="940" height="26" fill="#171b20" rx="0" stroke="none"/>
+<text x="237" y="740" class="muted small">11</text>
+<rect x="268" y="727" width="16" height="16" fill="#486359" rx="2" stroke="none"/>
+<text x="293" y="740" class="" style="font-size:12px">Contour</text>
+<text x="529" y="740" class="muted" style="font-size:12px">Lumen Field</text>
+<text x="715" y="740" class="number" style="font-size:11px">125.00</text>
+<text x="789" y="740" class="number" style="font-size:11px">9A</text>
+<text x="850" y="740" class="number" style="font-size:11px">5:59</text>
+<text x="924" y="740" class="orange" style="font-size:12px">★★★★</text>
+<text x="1044" y="740" class="muted small">Oct 13</text>
+<rect x="220" y="748" width="940" height="26" fill="#191d23" rx="0" stroke="none"/>
+<text x="237" y="766" class="muted small">12</text>
+<rect x="268" y="753" width="16" height="16" fill="#665348" rx="2" stroke="none"/>
+<text x="293" y="766" class="" style="font-size:12px">Night Windows</text>
+<text x="529" y="766" class="muted" style="font-size:12px">Low Season</text>
+<text x="715" y="766" class="number" style="font-size:11px">123.00</text>
+<text x="789" y="766" class="number" style="font-size:11px">8A</text>
+<text x="850" y="766" class="number" style="font-size:11px">7:24</text>
+<text x="924" y="766" class="orange" style="font-size:12px">★★★★★</text>
+<text x="1044" y="766" class="muted small">Oct 12</text>
+<rect x="220" y="774" width="940" height="26" fill="#171b20" rx="0" stroke="none"/>
+<text x="237" y="792" class="muted small">13</text>
+<rect x="268" y="779" width="16" height="16" fill="#425c69" rx="2" stroke="none"/>
+<text x="293" y="792" class="" style="font-size:12px">Static Garden</text>
+<text x="529" y="792" class="muted" style="font-size:12px">Kite Assembly</text>
+<text x="715" y="792" class="number" style="font-size:11px">127.00</text>
+<text x="789" y="792" class="number" style="font-size:11px">10A</text>
+<text x="850" y="792" class="number" style="font-size:11px">6:10</text>
+<text x="924" y="792" class="orange" style="font-size:12px">★★★</text>
+<text x="1044" y="792" class="muted small">Oct 12</text>
+<rect x="220" y="800" width="940" height="26" fill="#191d23" rx="0" stroke="none"/>
+<text x="237" y="818" class="muted small">14</text>
+<rect x="268" y="805" width="16" height="16" fill="#534761" rx="2" stroke="none"/>
+<text x="293" y="818" class="" style="font-size:12px">Nocturne Study</text>
+<text x="529" y="818" class="muted" style="font-size:12px">Subtle Forms</text>
+<text x="715" y="818" class="number" style="font-size:11px">124.00</text>
+<text x="789" y="818" class="number" style="font-size:11px">7A</text>
+<text x="850" y="818" class="number" style="font-size:11px">8:02</text>
+<text x="924" y="818" class="orange" style="font-size:12px">★★★★</text>
+<text x="1044" y="818" class="muted small">Oct 12</text>
+<rect x="220" y="826" width="940" height="26" fill="#171b20" rx="0" stroke="none"/>
+<text x="237" y="844" class="muted small">15</text>
+<rect x="268" y="831" width="16" height="16" fill="#486359" rx="2" stroke="none"/>
+<text x="293" y="844" class="" style="font-size:12px">Last Light</text>
+<text x="529" y="844" class="muted" style="font-size:12px">Aster Vale</text>
+<text x="715" y="844" class="number" style="font-size:11px">122.00</text>
+<text x="789" y="844" class="number" style="font-size:11px">8A</text>
+<text x="850" y="844" class="number" style="font-size:11px">6:45</text>
+<text x="924" y="844" class="orange" style="font-size:12px">★★★★★</text>
+<text x="1044" y="844" class="muted small">Oct 11</text>
+<rect x="1151" y="467" width="4" height="88" fill="#616875" rx="2" stroke="none"/>
+<text x="1178" y="371" class="muted small">SELECTED TRACK</text>
+<text x="1178" y="406" class="strong orange">Info</text>
+<text x="1234" y="406" class="muted">Tags</text>
+<text x="1295" y="406" class="muted">Related</text>
+<path d="M1178 419H1420" stroke="#343941"/>
+<rect x="1178" y="435" width="76" height="76" fill="#36434e" rx="4" stroke="none"/>
+<circle cx="1216" cy="473" r="28" fill="none" stroke="#9bc7d1" stroke-width="2"/><circle cx="1216" cy="473" r="7" fill="#9bc7d1"/><text x="1178" y="541" class="strong" style="font-size:18px">Night Current</text>
+<text x="1178" y="565" class="muted">Aster Vale</text>
+<text x="1178" y="598" class="muted small">Album</text>
+<text x="1178" y="616" class="" style="font-size:12px">After Hours EP</text>
+<text x="1178" y="641" class="muted small">Genre</text>
+<text x="1178" y="659" class="" style="font-size:12px">Deep House</text>
+<text x="1178" y="684" class="muted small">Label</text>
+<text x="1178" y="702" class="" style="font-size:12px">Tidal Studies</text>
+<text x="1178" y="727" class="muted small">File</text>
+<text x="1178" y="745" class="" style="font-size:12px">FLAC · 44.1 kHz · 24 bit</text>
+<text x="1178" y="770" class="muted small">Analysis</text>
+<text x="1178" y="788" class="" style="font-size:12px">Ready · grid locked</text>
+<rect x="1178" y="823" width="243" height="28" fill="#282d35" rx="4" stroke="none"/>
+<text x="1188" y="842" class="" style="font-size:12px">Edit track information</text>
+<rect x="0" y="874" width="1440" height="26" fill="#262b33" rx="0" stroke="none"/>
+<text x="16" y="892" class="muted small">12,480 tracks · 1 selected · 5:51</text>
+<text x="580" y="892" class="muted small">All changes saved</text>
+<text x="1110" y="892" class="muted small">Preparation workspace · concept</text>
+</svg>
+

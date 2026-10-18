@@ -36,7 +36,8 @@ type menuItem struct {
 	sortAlbum  string
 	sortBPM    uint32 // BPM * 100
 	sortKey    string
-	keyID      uint32 // djmdContent.KeyID — extended-row arg 12
+	keyID      uint32      // djmdContent.KeyID — extended-row arg 12
+	sv         *sortValues // the fields the deck's sorts read (sortmenu.go)
 
 	// Track-row wire-flag inputs (see render.go's flag assembly).
 	contextTrackType uint32 // packed context track type — arg 7 high byte (TT<<24) on hierarchy track leaves
@@ -139,6 +140,8 @@ func (h *Handler) pdbTrackToStdItem(t *pdb.Track) *menuItem {
 		// row has no FileTypeID/sample-rate, so those use the string fallback.
 		autoLoadHotCue: true,
 		newKeyID:       newKeyID(t.Key),
+		sortKey:        t.Key,
+		sv:             pdbSortValues(t),
 	}
 	h.applyTrackDetailFromPDB(m, t)
 	return m
@@ -164,6 +167,7 @@ func (h *Handler) trackToStdItem(t *library.Track) *menuItem {
 		fileTypeID:     t.FileTypeID,
 		sampleRate:     t.SampleRate,
 		newKeyID:       newKeyID(t.Key),
+		sv:             libSortValues(t),
 	}
 	// keyID feeds the extended-row key argument; leave it 0 for keyless
 	// tracks rather than hashing an empty string.

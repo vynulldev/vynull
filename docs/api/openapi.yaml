@@ -562,11 +562,11 @@ paths:
     get:
       tags: [Settings & Menu]
       summary: CDJ root-menu configuration.
-      responses: { "200": { description: OK, content: { application/json: { schema: { type: object, properties: { items: { type: array, items: { $ref: "#/components/schemas/MenuItem" } }, track_detail: { type: string }, track_detail_fields: { type: array, items: { $ref: "#/components/schemas/TrackDetailField" } } } } } } }, "503": { description: No menu store. } }
+      responses: { "200": { description: OK, content: { application/json: { schema: { type: object, properties: { items: { type: array, items: { $ref: "#/components/schemas/MenuItem" } }, track_detail: { type: string }, track_detail_fields: { type: array, items: { $ref: "#/components/schemas/TrackDetailField" } }, sorts: { type: array, items: { $ref: "#/components/schemas/SortItem" } } } } } } }, "503": { description: No menu store. } }
     put:
       tags: [Settings & Menu]
-      summary: Update menu items and/or the track-detail column.
-      requestBody: { required: true, content: { application/json: { schema: { type: object, properties: { items: { type: array, items: { $ref: "#/components/schemas/MenuItem" } }, track_detail: { type: string } } } } } }
+      summary: Update menu items, the track-detail column, and/or the deck's SORT menu.
+      requestBody: { required: true, content: { application/json: { schema: { type: object, properties: { items: { type: array, items: { $ref: "#/components/schemas/MenuItem" } }, track_detail: { type: string }, sorts: { type: array, items: { $ref: "#/components/schemas/SortItem" } } } } } } }
       responses: { "200": { description: OK, content: { application/json: { schema: { $ref: "#/components/schemas/AckOK" } } } }, "400": { description: Invalid items/detail. } }
 
   /api/menu-items/reset:
@@ -920,6 +920,13 @@ components:
         operator: { type: string }
         value: {}
 
+    SortItem:
+      type: object
+      description: "One entry of the deck's SORT menu, in menu order. IDs are rekordbox's sort IDs (0 DEFAULT, 1 ALPHABET, 2 ARTIST, 3 ALBUM, 4 BPM, 5 RATING, 6 GENRE, 7 COMMENTS, 8 TIME, 9 REMIXER, 10 LABEL, 11 ORIGINAL ARTIST, 12 KEY, 13 BITRATE, 15 COLOR, 16 DJ PLAY COUNT, 17 DATE ADDED)."
+      properties:
+        id: { type: integer }
+        label: { type: string, description: The label the deck shows (read-only). }
+        visible: { type: boolean }
     MenuItem:
       type: object
       properties:
