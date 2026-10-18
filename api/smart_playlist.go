@@ -10,6 +10,7 @@ import (
 	"time"
 	"unicode"
 
+	"github.com/vynulldev/vynull/analysis"
 	"github.com/vynulldev/vynull/library"
 )
 
@@ -226,16 +227,67 @@ func keyMatch(op string, value any, trackKey string) bool {
 		return false
 	}
 	switch op {
-	case "is", "eq", "=", "is_not", "ne", "!=":
-		// Equality compares the key's name like any other text.
-		return stringMatch(op, value, trackKey)
+	case "is", "eq", "=":
+		return sameKey(target, trackKey)
+	case "is_not", "ne", "!=":
+		return !sameKey(target, trackKey)
 	case "compatible":
-		return camelotCompatible(trackKey, target)
-	case "contains", "not_contains", "starts_with", "ends_with":
-		// Text operators compare the key's name, as rekordbox does.
-		return stringMatch(op, value, trackKey)
+		return camelotCompatible(camelotName(trackKey), camelotName(target))
+	case "contains", "starts_with", "ends_with":
+		// Text operators compare the key's name, as rekordbox does, in
+		// either notation: an import stores keys as Camelot, but the rule
+		// may be written against rekordbox's classic names.
+		for _, name := range keyNames(trackKey) {
+			if stringMatch(op, value, name) {
+				return true
+			}
+		}
+		return false
+	case "not_contains":
+		for _, name := range keyNames(trackKey) {
+			if !stringMatch(op, value, name) {
+				return false
+			}
+		}
+		return true
 	}
 	return false
+}
+
+// sameKey reports whether a key rule's value names the track's key. It
+// compares the names as text, as rekordbox does, and also as keys in either
+// notation, since an import stores keys as Camelot ("8A") while rekordbox
+// rules carry the names rekordbox showed ("Am").
+func sameKey(rule, trackKey string) bool {
+	if stringMatch("is", rule, trackKey) {
+		return true
+	}
+	a, _ := analysis.KeyNamesFrom(rule)
+	b, _ := analysis.KeyNamesFrom(trackKey)
+	return a != "" && a == b && rule == strings.TrimSpace(rule)
+}
+
+// camelotName is a key's Camelot name when it names a key in either
+// notation ("Am" is 8A), else the text unchanged.
+func camelotName(key string) string {
+	if cam, _ := analysis.KeyNamesFrom(key); cam != "" {
+		return cam
+	}
+	return key
+}
+
+// keyNames is a track key's name in each notation it has: the stored name
+// and, for a recognised key, its Camelot and classic names.
+func keyNames(key string) []string {
+	names := []string{key}
+	if cam, std := analysis.KeyNamesFrom(key); cam != "" {
+		for _, n := range []string{cam, std} {
+			if n != key {
+				names = append(names, n)
+			}
+		}
+	}
+	return names
 }
 
 // foldText prepares text for comparison the way rekordbox's smart playlists

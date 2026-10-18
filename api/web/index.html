@@ -11140,13 +11140,17 @@ const SMART_OPS = {
   number: [['eq','equals'], ['ne','is not'], ['lt','<'], ['lte','≤'], ['gt','>'], ['gte','≥'], ['between','between']],
   string: [['is','equals'], ['is_not','is not'], ['contains','contains'], ['not_contains','doesn’t contain'],
            ['starts_with','starts with'], ['ends_with','ends with'], ['is_empty','is empty'], ['not_empty','not empty']],
-  key:    [['is','equals'], ['is_not','is not'], ['compatible','is compatible with']],
+  // rekordbox's key operators, plus Vynull's harmonic-mixing match.
+  key:    [['is','equals'], ['is_not','is not'], ['contains','contains'], ['not_contains','doesn’t contain'],
+           ['starts_with','starts with'], ['ends_with','ends with'], ['compatible','is compatible with']],
   tag:    [['has','has tag'], ['not_has','doesn’t have tag'], ['has_any','has any tag'], ['none','has no tags']],
   date:   [['in_last_days','in the last (days)'], ['not_in_last_days','not in the last (days)'],
            ['in_last_months','in the last (months)'], ['not_in_last_months','not in the last (months)'],
            ['on','is'], ['not_on','is not'], ['before','before'], ['after','after'], ['between','between']],
   color:  [['eq','is'], ['ne','is not']],
 };
+// Key operators that test the key's name as text, so take a typed value.
+const SMART_KEY_TEXT_OPS = ['contains', 'not_contains', 'starts_with', 'ends_with'];
 // Date operators whose value is a count of days or months, not a date.
 const SMART_DATE_COUNT_OPS = ['in_last_days', 'not_in_last_days', 'in_last_months', 'not_in_last_months'];
 // Camelot key list for key field dropdowns.
@@ -11311,10 +11315,23 @@ function renderSmartValueInput(c, meta) {
     }
     return `<input type="number" data-sm-val value="${v}" style="width:100px">`;
   }
+  if (meta.type === 'key' && SMART_KEY_TEXT_OPS.includes(op)) {
+    return `<input type="text" data-sm-val value="${escape(c.value || '')}" style="min-width:100px">`;
+  }
   if (meta.type === 'key') {
-    return `<select data-sm-val>${SMART_KEYS.map(k =>
-      `<option value="${k}" ${k === c.value ? 'selected' : ''}>${k}</option>`
-    ).join('')}</select>`;
+    // An imported rekordbox rule may name its key in classic notation
+    // ("Am"); keep that value as its own option so opening the editor never
+    // swaps the rule's key for the first one listed.
+    const v = c.value == null ? '' : String(c.value);
+    // Each key is stored in Camelot and labelled in both notations, led by
+    // the user's key display setting ("8A · Am" or "Am · 8A").
+    const opts = SMART_KEYS.map(k =>
+      `<option value="${k}" ${k === v ? 'selected' : ''}>${escape(keyBoth(k))}</option>`);
+    if (v && !SMART_KEYS.includes(v)) {
+      const p = KEY_PAIRS[v.trim().toUpperCase()];
+      opts.unshift(`<option value="${escape(v)}" selected>${escape(v)}${p ? ' · ' + p[0] : ''}</option>`);
+    }
+    return `<select data-sm-val>${opts.join('')}</select>`;
   }
   if (meta.type === 'tag') {
     const tags = (allTagsCache || []);
@@ -11601,10 +11618,24 @@ function smartMatchLeaf(c, t) {
     return false;
   }
   if (meta.type === 'key') {
-    const trackKey = (t.key || '').toUpperCase();
-    const target = (v || '').toString().toUpperCase();
+    // Compare keys in either notation, as the server does.
+    const cam = x => { const k = String(x || '').toUpperCase(); return (KEY_PAIRS[k] || [k])[0]; };
+    const trackKey = cam(t.key);
+    const target = cam(v);
     if (op === 'is') return trackKey === target;
     if (op === 'is_not') return trackKey !== target;
+    if (SMART_KEY_TEXT_OPS.includes(op)) {
+      // The key's name in each notation, as the server tests it.
+      const raw = String(t.key || '');
+      const p = KEY_PAIRS[raw.trim().toUpperCase()];
+      const names = (p ? [raw, p[0], p[1]] : [raw]).map(n => n.toLowerCase());
+      const q = String(v || '').toLowerCase();
+      const hit = f => names.some(f);
+      if (op === 'contains') return hit(n => n.includes(q));
+      if (op === 'not_contains') return raw !== '' && !hit(n => n.includes(q));
+      if (op === 'starts_with') return hit(n => n.startsWith(q));
+      if (op === 'ends_with') return hit(n => n.endsWith(q));
+    }
     // compatible — quick approximation; server does the authoritative check
     return trackKey === target;
   }
