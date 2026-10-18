@@ -96,3 +96,21 @@ func TestMissingFileIsNotQueuedForAnalysis(t *testing.T) {
 		t.Errorf("track not queued once its file is back")
 	}
 }
+
+// On-demand analysis (the track drawer's waveform and grid requests) skips a
+// missing file instead of running ffmpeg for it each time.
+func TestMissingFileIsNotAnalyzedOnDemand(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "gone.mp3")
+	lib := library.New()
+	lib.AddTrack(&library.Track{ID: 1, Title: "Gone", FilePath: path})
+	store := analysis.NewStore()
+	ran := 0
+	store.Importer = func(uint32, string) *analysis.Result { ran++; return nil }
+	srv := &Server{Library: lib, Analysis: store}
+	if r := srv.getOrAnalyze(1); r != nil || ran != 0 {
+		t.Errorf("getOrAnalyze = %v after %d analysis attempt(s), want nil and none", r, ran)
+	}
+	if !lib.Track(1).FileMissing {
+		t.Errorf("track not flagged as missing")
+	}
+}

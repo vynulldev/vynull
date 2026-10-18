@@ -2292,6 +2292,11 @@ func (s *Server) getOrAnalyze(trackID uint32) *analysis.Result {
 		return r // disk cache was valid after SetPath
 	}
 
+	// A missing file can't be analyzed; don't run ffmpeg for it on every
+	// drawer or waveform request (cached analysis above is still served).
+	if s.audioMissing(trackID, filePath) {
+		return nil
+	}
 	log.Printf("api: on-demand analysis for track %d: %s", trackID, filePath)
 	var r *analysis.Result
 	var err error
