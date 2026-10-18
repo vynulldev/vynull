@@ -298,6 +298,8 @@ func (h *Handler) Handle(msg *proto.DBMessage) []*proto.DBMessage {
 		return h.handleGetTracks(msg)
 	case 0x1400: // SORT menu for a list (location 5)
 		return h.handleSortMenu(msg)
+	case 0x3b03: // play state of a track (CMD_GET_PLAYSTATE)
+		return h.handleGetPlayState(msg)
 	case proto.DBMsgGetArtists:
 		return h.handleGetArtists(msg)
 	case proto.DBMsgGetAlbums:
