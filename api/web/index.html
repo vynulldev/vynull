@@ -7563,6 +7563,10 @@ async function saveMenuItems() {
 // {sorts}; the deck reads it the next time its sort button is pressed.
 let sortItemsCache = [];
 const sortSelected = { active: new Set(), inactive: new Set() };
+// Double-click moves a sort across, as in the root-menu editor. Detected by
+// hand (see menuLastClick): the single-click re-render replaces the row
+// between the two clicks, so the native dblclick never fires.
+let sortLastClick = { id: null, t: 0 };
 
 function renderSortItems() {
   const host = document.getElementById('cdj-sort-config');
@@ -7574,7 +7578,7 @@ function renderSortItems() {
     return `<div class="menu-row${sel}" data-side="${side}" data-id="${s.id}">${escape(s.label || String(s.id))}</div>`;
   }).join('');
   host.innerHTML = `
-    <div class="hint">The sorts the deck's sort button offers in a track list. Move sorts between Hidden and Shown with → / ← · order with Up/Down. DEFAULT keeps the track-list detail column above; every other sort shows its own field. A rekordbox import with settings brings in your library's sort menu.</div>
+    <div class="hint">The sorts the deck's sort button offers in a track list. Move sorts between Hidden and Shown with → / ← or a double-click · order with Up/Down. DEFAULT keeps the track-list detail column above; every other sort shows its own field. A rekordbox import with settings brings in your library's sort menu.</div>
     <div class="menu-twolist">
       <div class="col">
         <div class="col-head">HIDDEN SORTS</div>
@@ -7604,6 +7608,16 @@ function wireSortItems(host) {
     row.onclick = (e) => {
       const side = row.getAttribute('data-side');
       const id = Number(row.getAttribute('data-id'));
+      const now = Date.now();
+      const dbl = sortLastClick.id === id && (now - sortLastClick.t) < 400;
+      sortLastClick = dbl ? { id: null, t: 0 } : { id, t: now };
+      if (dbl) {
+        sortSelected.active.clear();
+        sortSelected.inactive.clear();
+        sortSelected[side].add(id);
+        host.querySelector(side === 'inactive' ? '#sort-show' : '#sort-hide').click();
+        return;
+      }
       const set = sortSelected[side];
       if (!(e.metaKey || e.ctrlKey)) {
         sortSelected[side === 'active' ? 'inactive' : 'active'].clear();
