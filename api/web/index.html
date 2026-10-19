@@ -4030,16 +4030,17 @@ function redrawAllWaveforms() {
     const durMs = (p && p.duration_ms) || 0;
     const draw = d => { drawWaveformPWV5(canvas, d, durMs); drawCueMarkersCanvas(canvas, cues, durMs); };
     const c = getDetailWaveCached(tid);
-    if (c) draw(c); else ensureDetailWave(tid).then(d => d && draw(d));
+    if (c) draw(c); else whenDetailWave(tid, draw);
   });
   // Repoint the library-row thumbnail <img>s at the newly-keyed PNG in place
   // instead of rebuilding the whole table (which flashes every row). The KEY
   // column, which depends on key notation, is re-rendered separately by the
   // poll only when key_display actually changes.
   updateThumbnailSrcs();
-  if (selectedTrackID) {
-    ensureDetailWave(selectedTrackID).then(d => {
-      if (d && selectedTrackID) { detailWave.wave = d; redrawDetailWaveform(); }
+  const shown = selectedTrackID;
+  if (shown) {
+    whenDetailWave(shown, d => {
+      if (selectedTrackID === shown) { detailWave.wave = d; redrawDetailWaveform(); }
     });
   }
 }
@@ -4423,20 +4424,25 @@ function keyBoth(raw) {
 //                   Used for the small library-row thumbnail — vivid colours
 //                   regardless of track amplitude.
 const waveformCache = new Map();        // `${type}:${trackID}` -> data
-const inflightWaveforms = new Set();    // same key
+// The fetch in progress for a key: a second request for the same data waits on
+// it instead of getting nothing.
+const inflightWaveforms = new Map();    // same key -> promise of the data
 
-async function ensureWaveform(trackID, type) {
+function ensureWaveform(trackID, type) {
   const key = `${type}:${trackID}`;
-  if (waveformCache.has(key)) return waveformCache.get(key);
-  if (inflightWaveforms.has(key)) return null;
-  inflightWaveforms.add(key);
-  try {
-    const data = await fetchJSON(`/api/analysis/waveform/${trackID}?type=${type}`);
-    if (data && data.entries) waveformCache.set(key, data);
-    return data;
-  } finally {
-    inflightWaveforms.delete(key);
+  if (waveformCache.has(key)) return Promise.resolve(waveformCache.get(key));
+  if (!inflightWaveforms.has(key)) {
+    inflightWaveforms.set(key, (async () => {
+      try {
+        const data = await fetchJSON(`/api/analysis/waveform/${trackID}?type=${type}`);
+        if (data && data.entries) waveformCache.set(key, data);
+        return data;
+      } finally {
+        inflightWaveforms.delete(key);
+      }
+    })());
   }
+  return inflightWaveforms.get(key);
 }
 
 // rekordbox's 3-band bass envelope is smooth, but ours arrives ~5× jaggier
@@ -4463,31 +4469,51 @@ function smooth3Band(entries) {
   }
 }
 
+// Tracks the server has no 3-band data for (it answered with no entries): they
+// draw the spectral wave in 3band mode.
+const no3Band = new Set();
+
 // ensureDetailWave fetches the detail waveform in the representation the
 // current colour mode needs: 3band pulls {bass,mid,high} entries (style=3band),
 // blue/rgb share the spectral {r,g,b,h} data. 3band is cached separately so
-// flipping colour modes doesn't refetch the other. When a track has no 3-band
-// data the server returns 0 entries; callers fall back to the spectral wave.
-async function ensureDetailWave(trackID) {
-  if (detailWaveStyle() !== '3band') return ensureWaveform(trackID, 'detail');
+// flipping colour modes doesn't refetch the other. A track with no 3-band data
+// gets the spectral wave instead.
+function ensureDetailWave(trackID) {
+  if (detailWaveStyle() !== '3band' || no3Band.has(trackID)) return ensureWaveform(trackID, 'detail');
   const key = 'detail3band:' + trackID;
-  if (waveformCache.has(key)) return waveformCache.get(key);
-  if (inflightWaveforms.has(key)) return null;
-  inflightWaveforms.add(key);
-  try {
-    const data = await fetchJSON(`/api/analysis/waveform/${trackID}?type=detail&style=3band`);
-    if (data && data.entries && data.entries.length) { smooth3Band(data.entries); waveformCache.set(key, data); return data; }
-    // No 3-band data for this track — fall back to spectral so it still draws.
-    return await ensureWaveform(trackID, 'detail');
-  } finally {
-    inflightWaveforms.delete(key);
+  if (waveformCache.has(key)) return Promise.resolve(waveformCache.get(key));
+  if (!inflightWaveforms.has(key)) {
+    inflightWaveforms.set(key, (async () => {
+      try {
+        const data = await fetchJSON(`/api/analysis/waveform/${trackID}?type=detail&style=3band`);
+        if (data && data.entries && data.entries.length) { smooth3Band(data.entries); waveformCache.set(key, data); return data; }
+        // No 3-band data (or the fetch failed, which is retried next time):
+        // fall back to spectral so the track still draws.
+        if (data) no3Band.add(trackID);
+        return await ensureWaveform(trackID, 'detail');
+      } finally {
+        inflightWaveforms.delete(key);
+      }
+    })());
   }
+  return inflightWaveforms.get(key);
 }
+// getDetailWaveCached returns the cached detail waveform for the current colour
+// mode, or undefined when it hasn't been fetched. In 3band mode the spectral
+// wave stands in only for a track known to have no 3-band data: anywhere else,
+// returning it would hide that the 3-band data still needs fetching.
 function getDetailWaveCached(trackID) {
-  if (detailWaveStyle() === '3band') {
-    return waveformCache.get('detail3band:' + trackID) || waveformCache.get('detail:' + trackID);
+  if (detailWaveStyle() === '3band' && !no3Band.has(trackID)) {
+    return waveformCache.get('detail3band:' + trackID);
   }
   return waveformCache.get('detail:' + trackID);
+}
+// whenDetailWave calls draw with the track's detail waveform once it is loaded,
+// unless the colour mode changed meanwhile: that change asked for the new mode's
+// data, and drawing this response would show the old mode.
+function whenDetailWave(trackID, draw) {
+  const style = detailWaveStyle();
+  ensureDetailWave(trackID).then(d => { if (d && detailWaveStyle() === style) draw(d); });
 }
 
 // Draws a PWV5 detail waveform (~150 entries/sec, {r,g,b,h} ints where r/g/b
@@ -5808,7 +5834,7 @@ function renderPlayers(players) {
     };
     const cached = getDetailWaveCached(tid);
     if (cached) drawAll(cached);
-    else ensureDetailWave(tid).then(d => d && drawAll(d));
+    else whenDetailWave(tid, drawAll);
   });
   // External tracks: waveform + cues from the source player's ANLZ over NFS.
   // The endpoint 404s until the download lands, so a miss just retries next poll.
@@ -8368,7 +8394,8 @@ async function openDetail(trackID) {
   document.body.classList.add('drawer-open');
 
   // Fetch everything in parallel.
-  const [track, cues, trackTags, _allTags, wave, phrases, analysis] = await Promise.all([
+  const waveStyle = detailWaveStyle();
+  const [track, cues, trackTags, _allTags, loadedWave, phrases, analysis] = await Promise.all([
     fetchJSON('/api/tracks/' + trackID),
     fetchJSON('/api/tracks/' + trackID + '/cues'),
     fetchJSON('/api/tracks/' + trackID + '/tags'),
@@ -8378,6 +8405,9 @@ async function openDetail(trackID) {
     fetchJSON('/api/analysis/' + trackID),
   ]);
   if (selectedTrackID !== trackID) return; // user closed / switched while loading
+  // If the colour mode changed while loading, drop the old mode's wave:
+  // renderDetail then fetches the current one.
+  const wave = detailWaveStyle() === waveStyle ? loadedWave : null;
   drawerTrackTags = Array.isArray(trackTags) ? trackTags : [];
   renderDetail(track, cues || [], wave, phrases || [], analysis || null);
 }
@@ -8688,10 +8718,10 @@ function renderDetail(t, cues, wave, phrases, analysis) {
   const ov = document.getElementById('detail-overview');
   if (ov) {
     if (wave) setDetailWaveform(t, wave, cues, beats);
-    else ensureDetailWave(t.id).then(d => {
+    else whenDetailWave(t.id, d => {
       // Drawer may have been closed/switched while the wave fetch was
       // in flight — only apply if we're still showing this track.
-      if (d && selectedTrackID === t.id) setDetailWaveform(t, d, cues, beats);
+      if (selectedTrackID === t.id) setDetailWaveform(t, d, cues, beats);
     });
     // Click or drag anywhere on the overview to scrub the zoom pane.
     // Window-level move + up are bound only for the duration of the
