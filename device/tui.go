@@ -4,6 +4,7 @@ package device
 
 import (
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -486,7 +487,8 @@ func (m tuiModel) renderLibrary() string {
 	if len(tracks) == 0 {
 		return dimStyle.Render("\n  Library is empty. Add tracks via POST /api/tracks/add or --music-dir.")
 	}
-	// Sort by ID for stable display.
+	// Sort a copy by ID for stable display: the library's slice is shared.
+	tracks = slices.Clone(tracks)
 	sort.Slice(tracks, func(i, j int) bool { return tracks[i].ID < tracks[j].ID })
 
 	rows := m.viewportRows() - 3 // header + 2 padding
