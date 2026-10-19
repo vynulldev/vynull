@@ -5723,16 +5723,14 @@ function renderPlayers(players) {
       const newMode = `deck:${autoSwitchedTo}`;
       if (libraryFilters.compat.mode !== newMode) {
         libraryFilters.compat.mode = newMode;
-        renderFilterBar();
-        refreshLibraryView();
+        keepLibraryPlace(() => { renderFilterBar(); refreshLibraryView(); });
         lastCompatRefKey = JSON.stringify(resolveCompatReference());
         return;
       }
     }
 
     if (rosterChanged && document.getElementById('lib-fb-compat-mode')) {
-      renderFilterBar();
-      refreshLibraryView();
+      keepLibraryPlace(() => { renderFilterBar(); refreshLibraryView(); });
       lastCompatRefKey = JSON.stringify(resolveCompatReference());
     } else if (libraryFilters.compat.mode.startsWith('deck:')) {
       const ref = resolveCompatReference();
@@ -5740,7 +5738,7 @@ function renderPlayers(players) {
       if (refKey !== lastCompatRefKey) {
         lastCompatRefKey = refKey;
         updateCompatReferenceText();
-        refreshLibraryView();
+        keepLibraryPlace(refreshLibraryView);
       }
     }
   }
@@ -10648,6 +10646,63 @@ function updateCompatReferenceText() {
     : '';
 }
 
+// keepLibraryPlace runs render, a re-render of the library the user didn't ask
+// for (the poll saw the tracks change, a deck changed the compatibility
+// filter), without moving them. The table is rebuilt from scratch, in scroll
+// mode with its scrolling wrap, which starts again at the top. So note the
+// first row in view and where it sits on screen, then scroll it back to the
+// same spot. If that track is no longer listed, the wrap's old offsets stand.
+function keepLibraryPlace(render) {
+  const el = document.getElementById('library-content');
+  const place = el && libraryPlace(el);
+  render();
+  if (place) restoreLibraryPlace(el, place);
+}
+
+// libraryPlace finds the first row (or card) in view: the first whose bottom
+// is below the sticky column header (its cells are what stick, not the thead).
+// Rows are in document order, so a binary search reads only a few positions.
+function libraryPlace(el) {
+  const rows = el.querySelectorAll('[data-track-row], [data-track-card]');
+  if (!rows.length) return null;
+  const head = el.querySelector('table.lib thead th');
+  const top = head ? head.getBoundingClientRect().bottom : 0;
+  let lo = 0, hi = rows.length - 1;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if (rows[mid].getBoundingClientRect().bottom <= top) lo = mid + 1; else hi = mid;
+  }
+  const wrap = el.querySelector('.lib-table-wrap');
+  return {
+    id: rows[lo].getAttribute('data-track-row') || rows[lo].getAttribute('data-track-card'),
+    y: rows[lo].getBoundingClientRect().top,
+    wrapTop: wrap ? wrap.scrollTop : 0,
+    wrapLeft: wrap ? wrap.scrollLeft : 0,
+  };
+}
+
+function restoreLibraryPlace(el, place) {
+  const wrap = el.querySelector('.lib-table-wrap');
+  if (wrap) {
+    wrap.scrollTop = place.wrapTop;
+    wrap.scrollLeft = place.wrapLeft;
+  }
+  const row = el.querySelector(`[data-track-row="${place.id}"], [data-track-card="${place.id}"]`);
+  if (!row) return;
+  const dy = row.getBoundingClientRect().top - place.y;
+  if (dy) scrollParent(row).scrollTop += dy;
+}
+
+// scrollParent returns the element that scrolls node into view: the nearest
+// ancestor that overflows and scrolls (the table wrap in scroll mode), else the
+// page.
+function scrollParent(node) {
+  for (let n = node.parentElement; n; n = n.parentElement) {
+    if (/auto|scroll/.test(getComputedStyle(n).overflowY) && n.scrollHeight > n.clientHeight) return n;
+  }
+  return document.scrollingElement || document.documentElement;
+}
+
 // refreshLibraryView is the orchestrator: it picks the tracks to show
 // based on selectedSource, updates the toolbar (source label +
 // playlist actions), and delegates to renderLibrary for the actual
@@ -13009,12 +13064,12 @@ async function refresh() {
       if (key !== lastTracksKey || cuesChanged) {
         allTracks = tracks;
         lastTracksKey = key;
-        refreshLibraryView();
+        keepLibraryPlace(refreshLibraryView);
       }
     }
   } else if (cuesChanged) {
     // Track list unchanged but cue markers did — re-render existing rows.
-    refreshLibraryView();
+    keepLibraryPlace(refreshLibraryView);
   }
   if (settings && settings.full) renderSettings(settings.full);
   // Repaint when any display-affecting DEVSETTING changes: waveform colour
@@ -13028,7 +13083,7 @@ async function refresh() {
     lastKeyDisplay = keyDisplayMode();
     renderWaveColorButton();
     redrawAllWaveforms();
-    if (keyChanged && typeof refreshLibraryView === 'function') refreshLibraryView();
+    if (keyChanged && typeof refreshLibraryView === 'function') keepLibraryPlace(refreshLibraryView);
   }
 }
 // Theme switcher: reflect the early-applied theme into the select, persist on change.
