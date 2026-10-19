@@ -99,8 +99,3 @@ func PutDeviceName(buf []byte, name string) {
 func PutU16BE(buf []byte, offset int, v uint16) {
 	binary.BigEndian.PutUint16(buf[offset:], v)
 }
-
-// U16BE reads a big-endian uint16 at the given offset.
-func U16BE(buf []byte, offset int) uint16 {
-	return binary.BigEndian.Uint16(buf[offset:])
-}

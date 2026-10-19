@@ -12,7 +12,8 @@
 // Engine) makes a second protocol or library format an additive adapter rather
 // than a fork.
 //
-// Status: proposed foundation for the modular-backends refactor (see
-// docs/design/modular-backends.md). This package defines the target model;
-// concrete packages migrate onto it in later steps, so nothing imports it yet.
+// Status: draft (see docs/design/modular-backends.md). Package analysis
+// projects its results into core.Analysis (Result.Core), which only tests
+// exercise so far, and nothing implements Backend, Source or Exporter yet, so
+// these contracts are not final.
 package core

@@ -1054,6 +1054,10 @@ func (h *Handler) handleGetTracksByOriginalArtist(msg *proto.DBMessage) []*proto
 	return []*proto.DBMessage{h.successWithCount(msg)}
 }
 
+// matchingFallbackLimit caps the computed MATCHING list for tracks without
+// rekordbox recommendations: the best-scoring suggestions, not the library.
+const matchingFallbackLimit = 50
+
 // handleGetMatching serves the MATCHING browse (0x1017). A track with
 // rekordbox recommendations (djmdRecommendLike, both directions) gets exactly
 // those, as rekordbox serves them (link-spec conformance case
@@ -1062,10 +1066,6 @@ func (h *Handler) handleGetTracksByOriginalArtist(msg *proto.DBMessage) []*proto
 // (package related) instead, up to matchingFallbackLimit, best match first.
 // A scalar leaf (no context type in arg 7); album-style track number in arg 9;
 // rekordbox's pairs are title-sorted.
-// matchingFallbackLimit caps the computed MATCHING list for tracks without
-// rekordbox recommendations: the best-scoring suggestions, not the library.
-const matchingFallbackLimit = 50
-
 func (h *Handler) handleGetMatching(msg *proto.DBMessage) []*proto.DBMessage {
 	if len(msg.Args) < 3 {
 		h.pendingItems = nil

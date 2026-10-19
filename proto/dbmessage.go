@@ -237,82 +237,6 @@ func MarshalDBMessage(msg *DBMessage) []byte {
 	return buf
 }
 
-// MarshalDBMessageRaw serializes WITHOUT inline type tags (raw format).
-// Layout: [magic 4] [txid 4] [type 2] [argcount 1] [tags 12] [raw args]
-func MarshalDBMessageRaw(msg *DBMessage) []byte {
-	size := 4 + 4 + 2 + 1 + 12
-	for _, arg := range msg.Args {
-		switch arg.Tag {
-		case ArgInt8:
-			size++
-		case ArgInt16:
-			size += 2
-		case ArgInt32:
-			size += 4
-		case ArgBinary:
-			size += 4 + len(arg.Bytes)
-		case ArgString:
-			size += 4 + (len(utf16.Encode([]rune(arg.Str)))+1)*2
-		case ArgStringWrapped:
-			extra := 0
-			if len(arg.Str) > 0 {
-				extra = 2 // fffa + fffb
-			}
-			size += 4 + (len(utf16.Encode([]rune(arg.Str)))+1+extra)*2
-		}
-	}
-
-	buf := make([]byte, size)
-	copy(buf[0:4], DBMagic[:])
-	binary.BigEndian.PutUint32(buf[4:8], msg.TxID)
-	binary.BigEndian.PutUint16(buf[8:10], msg.Type)
-	buf[10] = byte(len(msg.Args))
-
-	for i, arg := range msg.Args {
-		if i < 12 {
-			switch arg.Tag {
-			case ArgInt32:
-				buf[11+i] = 0x06
-			case ArgInt16:
-				buf[11+i] = 0x05
-			case ArgInt8:
-				buf[11+i] = 0x04
-			case ArgString:
-				buf[11+i] = 0x02
-			case ArgBinary:
-				buf[11+i] = 0x03
-			}
-		}
-	}
-
-	pos := 23
-	for _, arg := range msg.Args {
-		switch arg.Tag {
-		case ArgInt8:
-			buf[pos] = arg.Int8
-			pos++
-		case ArgInt16:
-			binary.BigEndian.PutUint16(buf[pos:], arg.Int16)
-			pos += 2
-		case ArgInt32:
-			binary.BigEndian.PutUint32(buf[pos:], arg.Int32)
-			pos += 4
-		case ArgBinary:
-			binary.BigEndian.PutUint32(buf[pos:], uint32(len(arg.Bytes)))
-			pos += 4
-			copy(buf[pos:], arg.Bytes)
-			pos += len(arg.Bytes)
-		case ArgString:
-			encoded := encodeUTF16BE(arg.Str)
-			binary.BigEndian.PutUint32(buf[pos:], uint32(len(encoded)/2))
-			pos += 4
-			copy(buf[pos:], encoded)
-			pos += len(encoded)
-		}
-	}
-	return buf[:pos]
-}
-
 func appendNumber1(buf []byte, v byte) []byte {
 	return append(buf, 0x0f, v)
 }
@@ -361,14 +285,6 @@ func appendStringWrapped(buf []byte, s string) []byte {
 
 func ArgI32(v uint32) DBArg {
 	return DBArg{Tag: ArgInt32, Int32: v}
-}
-
-func ArgI16(v uint16) DBArg {
-	return DBArg{Tag: ArgInt16, Int16: v}
-}
-
-func ArgI8(v uint8) DBArg {
-	return DBArg{Tag: ArgInt8, Int8: v}
 }
 
 func ArgStr(s string) DBArg {

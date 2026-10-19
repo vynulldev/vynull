@@ -168,12 +168,6 @@ func TempoRange() (min, max float64) {
 	return tempoMinBPM, tempoMaxBPM
 }
 
-// tempoRangeSet reports whether a usable explicit tempo range is configured.
-func tempoRangeSet() bool {
-	min, max := TempoRange()
-	return min > 0 && max > min
-}
-
 // tempoWindow returns the inclusive BPM range a candidate must fall within to
 // be accepted — the configured range when set, else the default dance window.
 func tempoWindow() (lo, hi float64) {
@@ -1611,24 +1605,6 @@ func FFmpegTrimsStart(path string) bool {
 	}
 	trimCache.Store(path, trims)
 	return trims
-}
-
-// DetectBPM is a convenience wrapper that returns just the BPM.
-func DetectBPM(samples []float32, sampleRate int) float64 {
-	return DetectBeats(samples, sampleRate).BPM
-}
-
-// DetectDownbeat is a convenience wrapper that returns just the downbeat position.
-func DetectDownbeat(samples []float32, sampleRate int, bpm float64) float64 {
-	result := DetectBeats(samples, sampleRate)
-	if result.Downbeat > 0 {
-		return result.Downbeat
-	}
-	// Fallback: use the first beat.
-	if len(result.Beats) > 0 {
-		return result.Beats[0]
-	}
-	return 0
 }
 
 // lowPass applies a simple single-pole IIR low-pass filter.

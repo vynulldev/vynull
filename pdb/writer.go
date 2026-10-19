@@ -1075,10 +1075,6 @@ func padTo4(row []byte) []byte {
 	return row
 }
 
-// fileTypeFromPath returns the rekordbox FileType enum value for the
-// given audio file path. Falls back to Unknown for unrecognized
-// extensions rather than guessing a default — a wrong file_type
-// could trip the CDJ when it tries to load the audio.
 // hash28 maps a track ID to a 28-bit value distributed across the
 // full 0..2^28 space, matching the shape of unknown_id_1 values
 // in exports. Those values look like
@@ -1100,6 +1096,10 @@ func hash28(id uint32) uint32 {
 	return h & 0x0FFFFFFF
 }
 
+// fileTypeFromPath returns the rekordbox FileType enum value for the
+// given audio file path. Falls back to Unknown for unrecognized
+// extensions rather than guessing a default — a wrong file_type
+// could trip the CDJ when it tries to load the audio.
 func fileTypeFromPath(path string) uint16 {
 	ext := ""
 	for i := len(path) - 1; i >= 0; i-- {

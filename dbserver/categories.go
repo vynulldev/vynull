@@ -217,11 +217,6 @@ func (h *Handler) tracksForBPMBucket(targetBPM100 uint32, pctRange int) []*libra
 	return tracks
 }
 
-// countTracksForBPMRange counts tracks within a BPM +/- percentage range.
-func (h *Handler) countTracksForBPMRange(targetBPM100 uint32, pctRange int) int {
-	return len(h.tracksForBPMBucket(targetBPM100, pctRange))
-}
-
 func (h *Handler) handleGetYearsForDecade(msg *proto.DBMessage) []*proto.DBMessage {
 	// 0x1108: returns [ALL] + individual years within a decade.
 	if len(msg.Args) < 3 {
