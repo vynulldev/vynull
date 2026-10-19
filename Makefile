@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-.PHONY: build test check run run-cdj generate e2e clean
+.PHONY: build test check bench run run-cdj generate e2e clean
 
 build:
 	go build -o vynull .
@@ -15,6 +15,11 @@ check:
 	@fmt=$$(gofmt -l .); if [ -n "$$fmt" ]; then echo "gofmt needed:"; echo "$$fmt"; exit 1; fi
 	go test ./...
 	$(MAKE) e2e
+
+# Benchmarks on a synthetic 20k-track library (internal/benchlib). Compare
+# two runs with benchstat; COUNT=10 gives it enough samples.
+bench:
+	go test -run '^$$' -bench . -benchmem -count $(or $(COUNT),1) ./library ./dbserver ./api
 
 # rekordbox mode (the default) — no privileged ports needed
 run: build
