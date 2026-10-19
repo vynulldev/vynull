@@ -180,6 +180,7 @@ paths:
       requestBody: { content: { application/json: { schema: { type: object, properties: { track_ids: { type: array, items: { type: integer, format: int64 } } } } } } }
       responses:
         "200": { description: OK, content: { application/json: { schema: { type: object, properties: { status: {type: string}, updated: {type: integer} } } } } }
+        "400": { description: The body isn't valid JSON (an empty body reimports every track). }
 
   /api/tracks/{id}:
     parameters: [ { name: id, in: path, required: true, schema: { type: integer, format: int64 } } ]
