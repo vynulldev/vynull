@@ -235,16 +235,15 @@ func main() {
 		// Subset selection: --export-playlist NAME restricts to one
 		// playlist's tracks and writes a single-entry playlist tree.
 		if cfg.ExportPlaylist != "" {
-			ps := api.NewPlaylistStore(cfg.DataDir)
+			// The same stores serving uses, so the playlist (and a smart
+			// playlist's tag rules) resolve as they do on the decks.
+			ps := api.NewPlaylistStore(filepath.Join(cfg.DataDir, "playlists"))
 			pl := findPlaylistByName(ps, cfg.ExportPlaylist)
 			if pl == nil {
-				log.Fatalf("export: playlist %q not found in %s/playlists.json", cfg.ExportPlaylist, cfg.DataDir)
+				log.Fatalf("export: playlist %q not found in %s", cfg.ExportPlaylist, filepath.Join(cfg.DataDir, "playlists", "playlists.json"))
 			}
-			// SmartRules need the library + tag lookup; the tag store
-			// isn't wired in --generate mode, so smart-playlist filtering
-			// here ignores tag predicates. Worst case is a slightly
-			// over-selective subset — exporting still works.
-			trackIDs := ps.TracksFor(pl.ID, lib, nil)
+			tags := api.NewTagStore(filepath.Join(cfg.DataDir, "tags"))
+			trackIDs := ps.TracksFor(pl.ID, lib, tags)
 			if len(trackIDs) == 0 {
 				log.Fatalf("export: playlist %q (id %d) has no tracks", pl.Name, pl.ID)
 			}
