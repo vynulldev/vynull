@@ -420,6 +420,54 @@ func (l *Library) IncrementPlayCount(trackID uint32) int {
 	return count
 }
 
+// SetRating sets a track's star rating (0-5, higher clamped to 5) and saves
+// the library, which owns ratings. Reports whether the track exists.
+func (l *Library) SetRating(trackID uint32, rating uint8) bool {
+	return l.SetRatings(map[uint32]uint8{trackID: rating}) == 1
+}
+
+// SetRatings sets several tracks' ratings (clamped to 5) and saves once.
+// Returns how many tracks it changed.
+func (l *Library) SetRatings(ratings map[uint32]uint8) int {
+	n := 0
+	l.mu.Lock()
+	for id, r := range ratings {
+		if t := l.byID[id]; t != nil {
+			t.Rating = min(r, 5)
+			n++
+		}
+	}
+	l.mu.Unlock()
+	if n > 0 {
+		l.Save()
+	}
+	return n
+}
+
+// SetColor sets a track's colour (1-8, 0 for none) and saves the library,
+// which owns track colours. Reports whether the track exists.
+func (l *Library) SetColor(trackID uint32, colorID uint8) bool {
+	return l.SetColors([]ColorImport{{TrackID: trackID, ColorID: colorID}}) == 1
+}
+
+// SetColors sets several tracks' colours and saves once. Colours above 8
+// are ignored. Returns how many tracks it changed.
+func (l *Library) SetColors(colors []ColorImport) int {
+	n := 0
+	l.mu.Lock()
+	for _, c := range colors {
+		if t := l.byID[c.TrackID]; t != nil && c.ColorID <= 8 {
+			t.ColorID = c.ColorID
+			n++
+		}
+	}
+	l.mu.Unlock()
+	if n > 0 {
+		l.Save()
+	}
+	return n
+}
+
 // AdoptArtwork stores artwork found for a track outside the usual artwork
 // pass (analysis extracts it too) and links it to the track, but only when the
 // track has no artwork and hasn't been checked for any, the same rule the

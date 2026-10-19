@@ -43,10 +43,6 @@ type TagStoreInterface interface {
 	DeleteTag(id uint32)
 	GetTagsForTrack(trackID uint32) []TagInfo
 	SetTagsForTrack(trackID uint32, tagIDs []uint32)
-	SetTrackColor(trackID uint32, colorID uint8)
-	GetTrackColor(trackID uint32) uint8
-	SetTrackRating(trackID uint32, rating uint8)
-	GetTrackRating(trackID uint32) uint8
 	RemoveAllTrackData(trackID uint32)
 	BeginBatch()
 	EndBatch()
@@ -54,20 +50,18 @@ type TagStoreInterface interface {
 
 // TagStore persists tags, categories, and track-tag assignments to JSON files.
 type TagStore struct {
-	mu          sync.RWMutex
-	dir         string
-	categories  []TagCategoryInfo
-	tags        []TagInfo
-	trackTags   map[uint32][]uint32 // trackID → tag IDs
-	trackColor  map[uint32]uint8    // trackID → color_id
-	trackRating map[uint32]uint8    // trackID → rating (1-5; 0 = unset)
-	nextCatID   uint32
-	nextTagID   uint32
-	batch       bool // when true, save* are deferred until EndBatch (bulk import)
+	mu         sync.RWMutex
+	dir        string
+	categories []TagCategoryInfo
+	tags       []TagInfo
+	trackTags  map[uint32][]uint32 // trackID → tag IDs
+	nextCatID  uint32
+	nextTagID  uint32
+	batch      bool // when true, save* are deferred until EndBatch (bulk import)
 }
 
 // BeginBatch suppresses per-mutation disk writes until EndBatch — used by the
-// importer, which would otherwise rewrite the whole tag/color JSON once per
+// importer, which would otherwise rewrite the whole tag JSON once per
 // assignment (O(n²) writes). EndBatch persists everything once.
 func (ts *TagStore) BeginBatch() {
 	ts.mu.Lock()
@@ -79,8 +73,6 @@ func (ts *TagStore) EndBatch() {
 	ts.mu.Lock()
 	ts.batch = false
 	ts.saveAll() // tags.json + track_tags.json
-	ts.saveColors()
-	ts.saveRatings()
 	ts.mu.Unlock()
 }
 
@@ -88,12 +80,10 @@ func (ts *TagStore) EndBatch() {
 func NewTagStore(dir string) *TagStore {
 	os.MkdirAll(dir, 0755)
 	ts := &TagStore{
-		dir:         dir,
-		trackTags:   make(map[uint32][]uint32),
-		trackColor:  make(map[uint32]uint8),
-		trackRating: make(map[uint32]uint8),
-		nextCatID:   1,
-		nextTagID:   1,
+		dir:       dir,
+		trackTags: make(map[uint32][]uint32),
+		nextCatID: 1,
+		nextTagID: 1,
 	}
 	ts.load()
 	return ts
@@ -295,71 +285,42 @@ func (ts *TagStore) SetTagsForTrack(trackID uint32, tagIDs []uint32) {
 	log.Printf("api: set %d tags for track %d", len(tagIDs), trackID)
 }
 
-func (ts *TagStore) SetTrackColor(trackID uint32, colorID uint8) {
-	ts.mu.Lock()
-	defer ts.mu.Unlock()
-	if colorID == 0 {
-		delete(ts.trackColor, trackID)
-	} else {
-		ts.trackColor[trackID] = colorID
+// Track colours and ratings used to be kept here too, in track_colors.json
+// and track_ratings.json, beside a second copy in the library; the library
+// now owns them. TakeLegacyColorsAndRatings hands any still on disk to the
+// caller to move into the library once.
+
+// TakeLegacyColorsAndRatings returns the track colours and ratings an older
+// version kept in this store, then renames their files with a .migrated
+// suffix so they are taken only once (and kept as a backup). Missing files
+// give empty maps.
+func (ts *TagStore) TakeLegacyColorsAndRatings() (colors, ratings map[uint32]uint8) {
+	read := func(name string) map[uint32]uint8 {
+		path := filepath.Join(ts.dir, name)
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return nil
+		}
+		m := map[uint32]uint8{}
+		if err := json.Unmarshal(data, &m); err != nil {
+			log.Printf("tags: %s: %v (left in place)", path, err)
+			return nil
+		}
+		if err := os.Rename(path, path+".migrated"); err != nil {
+			log.Printf("tags: %s: %v", path, err)
+		}
+		return m
 	}
-	ts.saveColors()
+	return read("track_colors.json"), read("track_ratings.json")
 }
 
-func (ts *TagStore) GetTrackColor(trackID uint32) uint8 {
-	ts.mu.RLock()
-	defer ts.mu.RUnlock()
-	return ts.trackColor[trackID]
-}
-
-func (ts *TagStore) SetTrackRating(trackID uint32, rating uint8) {
-	ts.mu.Lock()
-	defer ts.mu.Unlock()
-	if rating > 5 {
-		rating = 5
-	}
-	if rating == 0 {
-		delete(ts.trackRating, trackID)
-	} else {
-		ts.trackRating[trackID] = rating
-	}
-	ts.saveRatings()
-}
-
-func (ts *TagStore) GetTrackRating(trackID uint32) uint8 {
-	ts.mu.RLock()
-	defer ts.mu.RUnlock()
-	return ts.trackRating[trackID]
-}
-
-// RemoveAllTrackData wipes a track's color, rating, and tag-assignment
-// data and persists. Used when the track is being deleted from the
+// RemoveAllTrackData wipes a track's tag assignments and persists. Used when the track is being deleted from the
 // library so we don't leave dangling metadata behind.
 func (ts *TagStore) RemoveAllTrackData(trackID uint32) {
 	ts.mu.Lock()
 	defer ts.mu.Unlock()
-	hadColor := false
-	hadRating := false
-	hadTags := false
-	if _, ok := ts.trackColor[trackID]; ok {
-		delete(ts.trackColor, trackID)
-		hadColor = true
-	}
-	if _, ok := ts.trackRating[trackID]; ok {
-		delete(ts.trackRating, trackID)
-		hadRating = true
-	}
 	if _, ok := ts.trackTags[trackID]; ok {
 		delete(ts.trackTags, trackID)
-		hadTags = true
-	}
-	if hadColor {
-		ts.saveColors()
-	}
-	if hadRating {
-		ts.saveRatings()
-	}
-	if hadTags {
 		ts.saveTrackTags()
 	}
 }
@@ -394,22 +355,6 @@ func (ts *TagStore) saveTrackTags() {
 	}
 	b, _ := json.MarshalIndent(ts.trackTags, "", "  ")
 	fsutil.WriteFile(filepath.Join(ts.dir, "track_tags.json"), b, 0644)
-}
-
-func (ts *TagStore) saveColors() {
-	if ts.batch {
-		return
-	}
-	b, _ := json.MarshalIndent(ts.trackColor, "", "  ")
-	fsutil.WriteFile(filepath.Join(ts.dir, "track_colors.json"), b, 0644)
-}
-
-func (ts *TagStore) saveRatings() {
-	if ts.batch {
-		return
-	}
-	b, _ := json.MarshalIndent(ts.trackRating, "", "  ")
-	fsutil.WriteFile(filepath.Join(ts.dir, "track_ratings.json"), b, 0644)
 }
 
 func (ts *TagStore) load() {
@@ -450,20 +395,6 @@ func (ts *TagStore) load() {
 		ts.trackTags = make(map[uint32][]uint32)
 	}
 
-	if data, err := os.ReadFile(filepath.Join(ts.dir, "track_colors.json")); err == nil {
-		json.Unmarshal(data, &ts.trackColor)
-	}
-	if ts.trackColor == nil {
-		ts.trackColor = make(map[uint32]uint8)
-	}
-
-	if data, err := os.ReadFile(filepath.Join(ts.dir, "track_ratings.json")); err == nil {
-		json.Unmarshal(data, &ts.trackRating)
-	}
-	if ts.trackRating == nil {
-		ts.trackRating = make(map[uint32]uint8)
-	}
-
-	log.Printf("api: loaded %d categories, %d tags, %d track-tag assignments, %d track colors, %d track ratings",
-		len(ts.categories), len(ts.tags), len(ts.trackTags), len(ts.trackColor), len(ts.trackRating))
+	log.Printf("api: loaded %d categories, %d tags, %d track-tag assignments",
+		len(ts.categories), len(ts.tags), len(ts.trackTags))
 }

@@ -489,14 +489,11 @@ func main() {
 	playlistStore := api.NewPlaylistStore(filepath.Join(cfg.DataDir, "playlists"))
 	menuStore := api.NewMenuStore(filepath.Join(cfg.DataDir, "menu"))
 
-	// Apply persisted track colors and ratings from tag store to library tracks.
-	for _, t := range lib.Tracks() {
-		if c := tagStore.GetTrackColor(t.ID); c != 0 {
-			t.ColorID = c
-		}
-		if r := tagStore.GetTrackRating(t.ID); r != 0 {
-			t.Rating = r
-		}
+	// The library owns track colours and ratings. Older versions also kept
+	// web-set ones in the tag store; move any still there into the library
+	// once (the tag store renames its files afterwards).
+	if colors, ratings := tagStore.TakeLegacyColorsAndRatings(); len(colors)+len(ratings) > 0 {
+		moveLegacyColorsAndRatings(lib, colors, ratings)
 	}
 
 	var cdjSettings *device.CDJSettings
@@ -1022,6 +1019,18 @@ func (a menuSource) TrackDetail() string { return a.ms.TrackDetail() }
 
 // SortMenu serves the deck's SORT menu (dbserver.SortMenuSource).
 func (a menuSource) SortMenu() []dbserver.SortMenuEntry { return a.ms.SortMenu() }
+
+// moveLegacyColorsAndRatings applies colours and ratings an older version kept
+// in the tag store to the library, which now owns them, and saves it.
+func moveLegacyColorsAndRatings(lib *library.Library, colors, ratings map[uint32]uint8) {
+	var cs []library.ColorImport
+	for id, c := range colors {
+		cs = append(cs, library.ColorImport{TrackID: id, ColorID: c})
+	}
+	nc := lib.SetColors(cs)
+	nr := lib.SetRatings(ratings)
+	log.Printf("tags: moved %d track colour(s) and %d rating(s) into the library", nc, nr)
+}
 
 // appendToHistoryPlaylist upserts a "History · YYYY-MM-DD" playlist
 // inside a top-level "History" folder and appends trackID to it.
