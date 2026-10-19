@@ -92,6 +92,11 @@ func conformanceNow() time.Time {
 	return time.Now()
 }
 
+// linkHistoryDay is the day a Link history created during a run is named
+// after. rekordbox's history-lifecycle golden was recorded on this day with
+// the real clock ("LINK HISTORY 2026-09-30"), not at VYNULL_CONFORMANCE_NOW.
+var linkHistoryDay = time.Date(2026, 9, 30, 12, 0, 0, 0, time.Local)
+
 // confTags answers MyTag lookups for smart-playlist rules from the dump's
 // tag assignments. Rules name the tag, so only names are needed.
 type confTags map[uint32][]api.TagInfo
@@ -208,6 +213,7 @@ func main() {
 		Analysis:     analysisStore,
 		Menu:         confMenu{second: *secondColumn, sorts: sortMenuFrom(bundle.Sorts)},
 		Playlists:    confPlaylists{nodes: dump.Playlists, lib: lib, tags: tagsFromDump(dump.Tags), now: conformanceNow()},
+		Clock:        func() time.Time { return linkHistoryDay },
 		BindHost:     "127.0.0.1", // loopback only
 		Ready:        make(chan struct{}),
 		// LinkedFn left nil so the server accepts connections (no UNLINK gate).

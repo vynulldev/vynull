@@ -10,66 +10,10 @@ import (
 	"github.com/vynulldev/vynull/proto"
 )
 
-// playlist.go contains the playlist / folder / history menu handlers:
-// 0x1105 PLAYLIST drill, 0x2006 FOLDER (filesystem mirror), and 0x1016
-// HISTORY (auto-generated daily session folders), plus the
+// playlist.go contains the playlist and folder menu handlers: 0x1105
+// PLAYLIST drill and 0x2006 FOLDER (filesystem mirror), plus the
 // trackIDsToMenuItems shared converter.
 
-func (h *Handler) handleGetHistory(msg *proto.DBMessage) []*proto.DBMessage {
-	dlog.Debugf("dbserver: HISTORY list (0x1016)")
-	var items []*menuItem
-	if h.playlists != nil {
-		folderID := h.playlists.HistoryFolderID()
-		if folderID != 0 {
-			for _, c := range h.playlists.Children(folderID) {
-				items = append(items, &menuItem{
-					ID:       c.ID,
-					Label1:   c.Name,
-					ItemType: 0x0008, // playlist row
-				})
-			}
-		}
-	}
-	h.setPendingAll(msg, items)
-	return []*proto.DBMessage{{
-		TxID: msg.TxID, Type: proto.DBMsgSuccess,
-		Args: []proto.DBArg{proto.ArgI32(uint32(msg.Type)), proto.ArgI32(uint32(len(items)))},
-	}}
-}
-
-// handleGetHistoryTracks handles opcode 0x1116 — the deck drilling
-// into a specific history session (daily playlist). arg[2] is the
-// playlist ID we returned in handleGetHistory.
-func (h *Handler) handleGetHistoryTracks(msg *proto.DBMessage) []*proto.DBMessage {
-	playlistID := uint32(0)
-	if len(msg.Args) >= 3 {
-		playlistID = msg.Args[2].Int()
-	}
-	dlog.Debugf("dbserver: HISTORY drill (0x1116) playlist=%d", playlistID)
-
-	var items []*menuItem
-	if h.playlists != nil && playlistID != 0 {
-		trackIDs := h.playlists.Tracks(playlistID)
-		items = h.trackIDsToMenuItems(trackIDs)
-	}
-	h.setPendingAll(msg, items)
-	return []*proto.DBMessage{{
-		TxID: msg.TxID, Type: proto.DBMsgSuccess,
-		Args: []proto.DBArg{proto.ArgI32(uint32(msg.Type)), proto.ArgI32(uint32(len(items)))},
-	}}
-}
-
-// handleSearchSelect handles opcode 0x1200, the drill-in the deck
-// sends when the user picks a row from the SEARCH-result list. The
-// selected item's arg1 (a library track ID, in our case) arrives as
-// arg[2] of the request. We resolve it back to the actual track and
-// stash a 1-item pending list — the deck's follow-up 0x3000 render
-// then displays the track and lets the user press LOAD normally.
-//
-// Without this handler the request hits the unhandled-opcode fallback
-// (returns Success with 0 items), the deck has nothing to render, and
-// the LOAD eventually falls back to whatever track was last loaded —
-// which looked like "always loads track 1" from the user's POV.
 // storeHasUserPlaylists reports whether the local playlist store holds any
 // user-defined playlist or folder at root, ignoring the auto-managed
 // History folder (which exists on any server that has ever played a track).

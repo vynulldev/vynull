@@ -120,8 +120,8 @@ type PlaylistSource interface {
 	// HistoryFolderID returns the playlist-store ID of the
 	// auto-managed "History" folder (0 if it hasn't been created
 	// yet — typically before any track has crossed the play-count
-	// threshold). The HISTORY root-menu category lists this folder's
-	// children (one playlist per day).
+	// threshold), which doesn't count as a user playlist (see
+	// storeHasUserPlaylists).
 	HistoryFolderID() uint32
 }
 
@@ -137,7 +137,12 @@ type Server struct {
 	// MyTags serves the TRACK FILTER's MyTag lists and matching (nil: none).
 	MyTags MyTagSource
 	// filters holds every player's TRACK FILTER settings across sessions.
-	filters      trackFilters
+	filters trackFilters
+	// history is the Link history the decks keep (linkhistory.go).
+	history linkHistory
+	// Clock names a new Link history after its day (optional; nil uses
+	// time.Now). The conformance server pins it.
+	Clock        func() time.Time
 	Library      *library.Library
 	PDB          *pdb.Database
 	DeviceNumber uint8
@@ -145,12 +150,10 @@ type Server struct {
 	Analysis     *analysis.Store
 	Folders      *pdb.FolderLookup
 	Playlists    PlaylistSource // optional; if nil, PLAYLIST menu falls back to filesystem folders
-	// PlayMarks records tracks a deck has marked played or unplayed (optional).
-	PlayMarks PlayMarkSource
-	Menu      MenuSource // optional; if nil, root menu falls back to a built-in default list
-	Cues      *CueStore
-	Settings  *device.CDJSettings
-	ReplayDir string // if set, serve raw response packets from this directory
+	Menu         MenuSource     // optional; if nil, root menu falls back to a built-in default list
+	Cues         *CueStore
+	Settings     *device.CDJSettings
+	ReplayDir    string // if set, serve raw response packets from this directory
 
 	// OnPeerTeardown, if set, is invoked when a CDJ sends us a 0x0100
 	// Teardown message — main.go wires this to PeerTracker.RemoveByIP so
@@ -452,7 +455,8 @@ func (s *Server) handleSession(ctx context.Context, conn net.Conn) {
 		analysis:     s.Analysis,
 		folders:      s.Folders,
 		playlists:    s.Playlists,
-		playMarks:    s.PlayMarks,
+		history:      &s.history,
+		clock:        s.Clock,
 		menu:         s.Menu,
 		cues:         s.Cues,
 		settings:     s.Settings,

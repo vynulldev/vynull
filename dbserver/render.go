@@ -186,6 +186,9 @@ func (h *Handler) handleRenderMenu(msg *proto.DBMessage) []*proto.DBMessage {
 				if item.hasSongTag {
 					flags7 |= 0x1 // arg 7 bit 0: track carries at least one MyTag
 				}
+				if h.linkHistory().played(item.ID) {
+					flags7 |= linkPlayedFlag // arg 7 bit 8: played on the link
+				}
 				flags8 = item.ID // arg 8: djmdContent.ID, repeated (not the artwork ID)
 				if newCDJIncompatible(item.fileTypeID, item.FileType, item.sampleRate) {
 					flags10 |= 0x1 // arg 10 bit 0: not playable on new-CDJ decode path

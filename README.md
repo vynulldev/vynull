@@ -644,7 +644,8 @@ vynull/
     categories.go      Top-level category lists (artists/albums/BPM/key/…)
     drilldown.go       Multi-level drill + search (post-category)
     menuitem.go        menuItem type, sort dispatch, track→item conversion
-    playlist.go        Playlist / folder / history menu handlers
+    playlist.go        Playlist / folder menu handlers
+    linkhistory.go     Link history (HISTORY menu) and played state
     track.go           Track detail + analysis (info/waveform/beat grid/PVB2/cues)
     cuepoints.go       Cue point save/load/delete with wire format synthesis
   nfs/                 Minimal NFS v2 server (read-only)
