@@ -22,6 +22,28 @@ var supportedExtensions = map[string]string{
 	".aif":  "aiff",
 }
 
+// FileTypeForPath returns the library's codec string for an audio file's
+// extension ("mp3", "m4a", "flac", "wav", "aiff"; ".aif" is "aiff"), and
+// whether the extension is one Vynull can serve.
+func FileTypeForPath(path string) (string, bool) {
+	ft, ok := supportedExtensions[strings.ToLower(filepath.Ext(path))]
+	return ft, ok
+}
+
+// fileTypeOrExt is FileTypeForPath for imports, which keep an unsupported
+// file's own extension rather than dropping the track.
+func fileTypeOrExt(path string) string {
+	if ft, ok := FileTypeForPath(path); ok {
+		return ft
+	}
+	return strings.TrimPrefix(strings.ToLower(filepath.Ext(path)), ".")
+}
+
+func fileTypeOrEmpty(path string) string {
+	ft, _ := FileTypeForPath(path)
+	return ft
+}
+
 // Scan walks the given directory tree and returns a Library containing
 // all recognized music files with their metadata.
 func Scan(root string) (*Library, error) {
@@ -38,8 +60,7 @@ func Scan(root string) (*Library, error) {
 			return nil
 		}
 
-		ext := strings.ToLower(filepath.Ext(path))
-		fileType, ok := supportedExtensions[ext]
+		fileType, ok := FileTypeForPath(path)
 		if !ok {
 			return nil
 		}

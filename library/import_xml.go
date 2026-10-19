@@ -8,7 +8,6 @@ import (
 	"log"
 	"net/url"
 	"os"
-	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -298,11 +297,7 @@ func locationToPath(loc string) (string, error) {
 }
 
 func xmlTrackToLibrary(t *rbxmlTrack, path string) *Track {
-	ext := strings.ToLower(filepath.Ext(path))
-	ft := strings.TrimPrefix(ext, ".")
-	if ft == "aif" {
-		ft = "aiff"
-	}
+	ft := fileTypeOrExt(path)
 	bpm, _ := strconv.ParseFloat(t.AverageBpm, 64)
 	dateAdded, _ := time.Parse("2006-01-02", t.DateAdded)
 	if dateAdded.IsZero() {

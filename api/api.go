@@ -1837,22 +1837,11 @@ func (s *Server) addTrackByPath(path string, bulk bool) (uint32, error) {
 		FilePath: path,
 	}
 
-	// Detect file type
-	ext := strings.ToLower(filepath.Ext(path))
-	switch ext {
-	case ".mp3":
-		track.FileType = "mp3"
-	case ".m4a":
-		track.FileType = "m4a"
-	case ".flac":
-		track.FileType = "flac"
-	case ".wav":
-		track.FileType = "wav"
-	case ".aiff", ".aif":
-		track.FileType = "aiff"
-	default:
-		return 0, fmt.Errorf("unsupported file type: %s", ext)
+	ft, ok := library.FileTypeForPath(path)
+	if !ok {
+		return 0, fmt.Errorf("unsupported file type: %s", filepath.Ext(path))
 	}
+	track.FileType = ft
 
 	s.readTrackTags(track)
 
@@ -4318,6 +4307,11 @@ func (s *Server) handleTrackPath(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "path is required", http.StatusBadRequest)
 		return
 	}
+	newType, ok := library.FileTypeForPath(newPath)
+	if !ok {
+		http.Error(w, "unsupported file type: "+filepath.Ext(newPath), http.StatusBadRequest)
+		return
+	}
 	oldPath := t.FilePath
 	if newPath != oldPath {
 		// Move the cached analysis to the new path's slot so the existing
@@ -4333,9 +4327,7 @@ func (s *Server) handleTrackPath(w http.ResponseWriter, r *http.Request) {
 	if fi, err := os.Stat(newPath); err == nil && !fi.IsDir() {
 		miss = false
 		t.FileSize = fi.Size()
-		if ext := strings.ToLower(strings.TrimPrefix(filepath.Ext(newPath), ".")); ext != "" {
-			t.FileType = ext
-		}
+		t.FileType = newType
 	}
 	t.FileMissing = miss
 	s.Library.Save()

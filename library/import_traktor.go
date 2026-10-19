@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"log"
 	"os"
-	"path/filepath"
 	"regexp"
 	"strings"
 	"time"
@@ -243,11 +242,7 @@ func traktorLocationToPath(loc traktorLocation) string {
 }
 
 func traktorEntryToLibrary(t *traktorEntry, path string) *Track {
-	ext := strings.ToLower(filepath.Ext(path))
-	ft := strings.TrimPrefix(ext, ".")
-	if ft == "aif" {
-		ft = "aiff"
-	}
+	ft := fileTypeOrExt(path)
 	dateAdded, _ := time.Parse("2006/1/2", t.Info.ImportDate)
 	if dateAdded.IsZero() {
 		dateAdded = time.Now()
