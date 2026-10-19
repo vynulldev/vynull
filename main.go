@@ -514,7 +514,6 @@ func main() {
 		MyTags:       mytagSource{ts: tagStore},
 		Menu:         menuSource{ms: menuStore},
 		Cues:         cueStore,
-		Settings:     cdjSettings,
 		ReplayDir:    cfg.ReplayDir,
 	}
 	// Wired after dev is constructed below; uses a closure so we can
@@ -564,7 +563,6 @@ func main() {
 		monitor.AnalysisStatus = analysisStore.Status
 	}
 	monitor.ExportStatus = export.Status
-	monitor.APIAddr = fmt.Sprintf("127.0.0.1:%d", 9443)
 	// Every time the PlayerMonitor's 50%-played threshold fires (same
 	// trigger as the per-track PlayCount bump), append the track to a
 	// dated history playlist. The history folder + per-day playlist are
@@ -859,11 +857,6 @@ func findPlaylistByName(ps *api.PlaylistStore, name string) *api.PlaylistInfo {
 	return nil
 }
 
-// displayAddr returns a user-facing form of the API listen address.
-// "0.0.0.0:9443" or ":9443" are reachable but uninformative; if the
-// caller set --interface we use that interface's IP for the host part
-// so the URL we log/show in the TUI is actually clickable. Otherwise
-// the configured address is returned as-is.
 // runStatsLogger emits a once-per-minute snapshot of resource counters that
 // matter for the "CDJ stops loading tracks after a while" symptom. If a
 // counter grows monotonically over a long session (e.g. goroutines, active
@@ -963,9 +956,6 @@ func (a playlistSource) HistoryFolderID() uint32 {
 	return 0
 }
 
-// menuSource adapts api.MenuStore to dbserver.MenuSource. Only the
-// visible entries reach the CDJ; hidden ones stay in storage so the
-// user can flip them back on without losing their order.
 // mytagSource adapts the tag store to dbserver.MyTagSource for the TRACK
 // FILTER's MyTag condition: categories are the columns, in creation order (a
 // rekordbox import creates them in rekordbox's order), and a column lists
@@ -1004,6 +994,9 @@ func (a mytagSource) TrackMyTags(trackID uint32) []uint32 {
 	return a.ts.TrackTagIDs(trackID)
 }
 
+// menuSource adapts api.MenuStore to dbserver.MenuSource. Only the
+// visible entries reach the CDJ; hidden ones stay in storage so the
+// user can flip them back on without losing their order.
 type menuSource struct{ ms *api.MenuStore }
 
 func (a menuSource) RootMenu() []dbserver.RootMenuEntry {
@@ -1032,14 +1025,14 @@ func moveLegacyColorsAndRatings(lib *library.Library, colors, ratings map[uint32
 	log.Printf("tags: moved %d track colour(s) and %d rating(s) into the library", nc, nr)
 }
 
+const historyFolderName = "History"
+
 // appendToHistoryPlaylist upserts a "History · YYYY-MM-DD" playlist
 // inside a top-level "History" folder and appends trackID to it.
 // Consecutive duplicates are skipped — repeatedly cueing the same
 // track shouldn't add it five times. Errors are logged and swallowed
 // since this runs from a status-packet hot path; a missed history
 // entry isn't worth crashing analysis over.
-const historyFolderName = "History"
-
 func appendToHistoryPlaylist(ps *api.PlaylistStore, trackID uint32, when time.Time) {
 	if ps == nil {
 		return
@@ -1092,6 +1085,11 @@ func appendToHistoryPlaylist(ps *api.PlaylistStore, trackID uint32, when time.Ti
 	}
 }
 
+// displayAddr returns a user-facing form of the API listen address.
+// "0.0.0.0:9443" or ":9443" are reachable but uninformative; if the
+// caller set --interface we use that interface's IP for the host part
+// so the URL we log/show in the TUI is actually clickable. Otherwise
+// the configured address is returned as-is.
 func displayAddr(listen string) string {
 	if listen == "" {
 		return "127.0.0.1:9443"

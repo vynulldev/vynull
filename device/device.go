@@ -584,7 +584,6 @@ func (d *VirtualDevice) statusBroadcastLoop(ctx context.Context) {
 	}
 }
 
-// listenStatus reads packets from port 50002 and handles media queries.
 // listenBeats reads from port 50001 — primarily DJ-Link beat packets
 // (which we don't act on yet), but also the type-0x03 mixer channel
 // broadcasts that newer DJM mixers emit at ~3Hz. We merge the
@@ -700,6 +699,7 @@ func (d *VirtualDevice) recordMixerStatus(mx *proto.MixerStatus) (first bool) {
 	return !seen
 }
 
+// listenStatus reads packets from port 50002 and handles media queries.
 func (d *VirtualDevice) listenStatus(ctx context.Context) {
 	buf := make([]byte, 512)
 	for {

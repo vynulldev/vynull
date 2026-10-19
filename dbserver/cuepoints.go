@@ -386,10 +386,3 @@ func (cs *CueStore) loadAll() {
 		}
 	}
 }
-
-// MarshalCueResponse builds the cue point response for 0x2104.
-// Returns menu items for each cue point the CDJ can display.
-func MarshalCueResponse(cues []CuePoint) []byte {
-	// TODO: build PCOB/PCO2 format response
-	return nil
-}

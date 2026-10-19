@@ -255,7 +255,6 @@ func (h *Handler) handleRenderMenu(msg *proto.DBMessage) []*proto.DBMessage {
 	return responses
 }
 
-// dmstMenu extracts the menu byte from a DMST arg.
 // dmstTrackType returns the track-type byte of a request's context argument
 // (the low byte of device/menu/slot/type), or 0 when there is none.
 func dmstTrackType(msg *proto.DBMessage) uint8 {
@@ -277,6 +276,7 @@ const (
 // every request kind, while every other type gets a normal answer.
 func silentTrackType(tt uint8) bool { return tt == 0x03 || tt == 0x04 }
 
+// dmstMenu extracts the menu byte from a DMST arg.
 func dmstMenu(msg *proto.DBMessage) uint8 {
 	if len(msg.Args) > 0 {
 		return uint8((msg.Args[0].Int() >> 16) & 0xff)

@@ -19,7 +19,6 @@ import (
 	"time"
 
 	"github.com/vynulldev/vynull/analysis"
-	"github.com/vynulldev/vynull/device"
 	"github.com/vynulldev/vynull/internal/dlog"
 	"github.com/vynulldev/vynull/library"
 	"github.com/vynulldev/vynull/pdb"
@@ -152,7 +151,6 @@ type Server struct {
 	Playlists    PlaylistSource // optional; if nil, PLAYLIST menu falls back to filesystem folders
 	Menu         MenuSource     // optional; if nil, root menu falls back to a built-in default list
 	Cues         *CueStore
-	Settings     *device.CDJSettings
 	ReplayDir    string // if set, serve raw response packets from this directory
 
 	// OnPeerTeardown, if set, is invoked when a CDJ sends us a 0x0100
@@ -459,7 +457,6 @@ func (s *Server) handleSession(ctx context.Context, conn net.Conn) {
 		clock:        s.Clock,
 		menu:         s.Menu,
 		cues:         s.Cues,
-		settings:     s.Settings,
 		filters:      &s.filters,
 		mytags:       s.MyTags,
 	}
@@ -539,7 +536,6 @@ func (s *Server) handleSession(ctx context.Context, conn net.Conn) {
 	}
 }
 
-// readMessage reads a single dbserver message from the connection.
 // errBadFrame marks a request that violates the dbserver framing (bad magic,
 // too many arguments, an unknown field tag, an oversized field). rekordbox
 // answers such a request with a teardown (0x0100) and drops the session, and
@@ -556,6 +552,7 @@ const (
 	dbArgReadTimeout = 5 * time.Second
 )
 
+// readMessage reads a single dbserver message from the connection.
 func readMessage(conn net.Conn) (*proto.DBMessage, error) {
 	// Messages can be framed in two ways:
 	// 1. [0x11] [magic 4] [0x11] [header+body] — standard framing

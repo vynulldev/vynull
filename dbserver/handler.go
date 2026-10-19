@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/vynulldev/vynull/analysis"
-	"github.com/vynulldev/vynull/device"
 	"github.com/vynulldev/vynull/library"
 	"github.com/vynulldev/vynull/pdb"
 	"github.com/vynulldev/vynull/proto"
@@ -42,7 +41,6 @@ type Handler struct {
 	clock        func() time.Time // names a new Link history (nil: time.Now)
 	menu         MenuSource
 	cues         *CueStore
-	settings     *device.CDJSettings
 
 	// Pending items keyed by transaction ID.
 	// The CDJ sends a query (which sets pending items), then a render
@@ -490,8 +488,7 @@ func (h *Handler) Handle(msg *proto.DBMessage) []*proto.DBMessage {
 }
 
 func (h *Handler) handleSetup(msg *proto.DBMessage) []*proto.DBMessage {
-	// Diagnostic: dump the exact setup a real CDJ sends us, to compare against
-	// what package dbclient sends when querying another player's dbserver.
+	// Diagnostic: dump the exact setup a real CDJ sends us.
 	args := ""
 	for i, a := range msg.Args {
 		args += fmt.Sprintf(" arg[%d]=tag0x%02x/%d", i, a.Tag, a.Int())

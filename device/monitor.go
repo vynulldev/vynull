@@ -10,9 +10,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
-	"sort"
 	"strconv"
-	"strings"
 	"sync"
 	"time"
 
@@ -100,8 +98,8 @@ type PlayerMonitor struct {
 	SelfDevice func() uint8
 
 	// ExternalMeta, when set, returns metadata for a track loaded from another
-	// player/source (fetched from that player's dbserver), or ok=false while
-	// it's still unknown (the fetch is asynchronous). Wired to a dbclient
+	// player/source (read from that player's export.pdb over NFS), or ok=false
+	// while it's still unknown (the fetch is asynchronous). Wired to a mediadb
 	// fetcher in main; nil leaves external tracks showing just their source.
 	ExternalMeta func(player, slot uint8, trackID uint32) (title, artist, key string, ok bool)
 
@@ -111,7 +109,6 @@ type PlayerMonitor struct {
 	// export, or "" when no export is happening. When non-empty the
 	// TUI shows it in place of AnalysisStatus.
 	ExportStatus func() string
-	APIAddr      string // e.g., "127.0.0.1:9443"
 
 	// Track history.
 	histMu  sync.RWMutex
@@ -576,156 +573,4 @@ func (m *PlayerMonitor) Update(status *proto.CDJStatus) {
 	if shouldIncrement && m.OnPlayed != nil {
 		m.OnPlayed(incrementTrackID, dev)
 	}
-}
-
-// Render returns the current display string.
-func (m *PlayerMonitor) Render() string {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-
-	var b strings.Builder
-
-	b.WriteString("\033[1m  VYNULL · DJ LINK MONITOR\033[0m")
-	if m.APIAddr != "" {
-		b.WriteString(fmt.Sprintf("  \033[90mAPI: http://%s\033[0m", m.APIAddr))
-	}
-	b.WriteString("\n")
-	b.WriteString(strings.Repeat("─", 72) + "\n")
-
-	var nums []uint8
-	for num := range m.players {
-		nums = append(nums, num)
-	}
-	sort.Slice(nums, func(i, j int) bool { return nums[i] < nums[j] })
-
-	now := time.Now()
-	var masterBPM float64
-
-	for _, num := range nums {
-		p := m.players[num]
-		if now.Sub(p.LastSeen) > 5*time.Second {
-			continue
-		}
-
-		s := p.Status
-		if s.IsMaster && s.BPM > 0 {
-			masterBPM = float64(s.BPM) / 100.0
-		}
-
-		masterTag := "  "
-		if s.IsMaster {
-			masterTag = "M "
-		}
-
-		stateColor := "\033[90m"
-		switch {
-		case s.IsPlaying:
-			stateColor = "\033[32m"
-		case s.PlayState == 0x06 || s.PlayState == 0x05:
-			stateColor = "\033[33m"
-		}
-
-		b.WriteString(fmt.Sprintf("\n  \033[1m%s[%d] %s\033[0m\n", masterTag, s.DeviceNumber, s.Name))
-
-		state := s.PlayStateString()
-		b.WriteString(fmt.Sprintf("    %s● %s\033[0m", stateColor, state))
-		if s.IsSync {
-			b.WriteString("  \033[36mSYNC\033[0m")
-		}
-		if s.IsOnAir {
-			b.WriteString("  \033[31mON-AIR\033[0m")
-		}
-		b.WriteString("\n")
-
-		if s.TrackID > 0 {
-			title := p.TrackName
-			if title == "" {
-				title = fmt.Sprintf("Track #%d", s.TrackID)
-			}
-			b.WriteString(fmt.Sprintf("    \033[1m%s\033[0m\n", title))
-			if p.Artist != "" {
-				b.WriteString(fmt.Sprintf("    %s\n", p.Artist))
-			}
-
-			bpm := float64(s.BPM) / 100.0
-			pitch := float64(s.Pitch-0x100000) / float64(0x100000) * 100.0
-			line := fmt.Sprintf("    BPM: %.1f", bpm)
-			if pitch < -0.05 || pitch > 0.05 {
-				line += fmt.Sprintf(" (%+.1f%%)", pitch)
-			}
-			if p.Key != "" {
-				line += fmt.Sprintf("  Key: %s", p.Key)
-			}
-			if s.BeatInBar >= 1 && s.BeatInBar <= 4 {
-				beats := [4]string{"·", "·", "·", "·"}
-				beats[s.BeatInBar-1] = "●"
-				line += fmt.Sprintf("  Beat: %s", strings.Join(beats[:], " "))
-			}
-			b.WriteString(line + "\n")
-		}
-	}
-
-	if masterBPM > 0 {
-		b.WriteString(fmt.Sprintf("\n  %s\n", strings.Repeat("─", 40)))
-		b.WriteString(fmt.Sprintf("  Master Tempo: \033[1m%.1f BPM\033[0m\n", masterBPM))
-	}
-
-	// Track history.
-	m.histMu.RLock()
-	if len(m.history) > 0 {
-		b.WriteString(fmt.Sprintf("\n  %s\n", strings.Repeat("─", 72)))
-		b.WriteString("  \033[1mTRACK HISTORY\033[0m\n\n")
-
-		// Show last 10 entries, newest first.
-		start := 0
-		if len(m.history) > 10 {
-			start = len(m.history) - 10
-		}
-		for i := len(m.history) - 1; i >= start; i-- {
-			h := m.history[i]
-			duration := ""
-			if !h.EndedAt.IsZero() {
-				dur := h.EndedAt.Sub(h.StartedAt)
-				duration = fmt.Sprintf(" (%d:%02d)", int(dur.Minutes()), int(dur.Seconds())%60)
-			} else {
-				dur := now.Sub(h.StartedAt)
-				duration = fmt.Sprintf(" \033[32m▶ %d:%02d\033[0m", int(dur.Minutes()), int(dur.Seconds())%60)
-			}
-
-			title := h.Title
-			if title == "" {
-				title = fmt.Sprintf("Track #%d", h.TrackID)
-			}
-
-			extra := ""
-			if h.BPM > 0 {
-				extra += fmt.Sprintf(" %.0f", h.BPM)
-			}
-			if h.Key != "" {
-				extra += fmt.Sprintf(" %s", h.Key)
-			}
-
-			b.WriteString(fmt.Sprintf("  \033[90m%s\033[0m [%d] %s — %s%s%s\n",
-				h.StartedAt.Format("15:04:05"),
-				h.DeviceNumber,
-				title,
-				h.Artist,
-				extra,
-				duration))
-		}
-	}
-	m.histMu.RUnlock()
-
-	// Library/analysis status.
-	if m.AnalysisStatus != nil {
-		status := m.AnalysisStatus()
-		if status != "" {
-			b.WriteString(fmt.Sprintf("\n  %s\n", strings.Repeat("─", 72)))
-			b.WriteString(fmt.Sprintf("  \033[1mLIBRARY\033[0m  %s\n", status))
-		}
-	}
-
-	b.WriteString(fmt.Sprintf("\n  \033[90m%s\033[0m\n", now.Format("15:04:05")))
-
-	return b.String()
 }

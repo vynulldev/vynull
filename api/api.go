@@ -287,7 +287,6 @@ type AnalysisStatus struct {
 	Cached   int    `json:"cached"`   // loaded from disk cache
 }
 
-// Start begins serving the HTTP API. Blocks until context is cancelled.
 // Handler builds the mux with every API endpoint registered. Extracted
 // from Start so tests can wrap it in httptest.NewServer without binding
 // real ports or starting any of the device / NFS / dbserver listeners.
@@ -424,6 +423,7 @@ func corsMiddleware(next http.Handler) http.Handler {
 	})
 }
 
+// Start begins serving the HTTP API. Blocks until context is cancelled.
 func (s *Server) Start(ctx context.Context) error {
 	s.started = time.Now()
 	s.installLogTail()
@@ -781,10 +781,6 @@ var trackColorNames = map[uint8]string{
 	5: "Green", 6: "Aqua", 7: "Blue", 8: "Purple",
 }
 
-// libTrackToInfo converts a library.Track to the API TrackInfo shape,
-// including tag names when a tag store is configured. Centralised so
-// every endpoint that returns tracks (list, single, playlist tracks)
-// uses the same field set and date format.
 // libTrackListInfo is the payload for the full-collection list. It drops the
 // fields only ever shown in the track-detail drawer (which refetches the full
 // single track via /api/tracks/{id}) — chiefly file_size, which is set on
@@ -799,6 +795,10 @@ func (s *Server) libTrackListInfo(t *library.Track) TrackInfo {
 	return info
 }
 
+// libTrackToInfo converts a library.Track to the API TrackInfo shape,
+// including tag names when a tag store is configured. Centralised so
+// every endpoint that returns tracks (list, single, playlist tracks)
+// uses the same field set and date format.
 func (s *Server) libTrackToInfo(t *library.Track) TrackInfo {
 	info := TrackInfo{
 		ID:             t.ID,
@@ -1017,10 +1017,6 @@ func (s *Server) handleLoadTrack(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// handleExportPreview returns a summary of what the export will contain
-// for a given source (?source=all|playlist:N|smart:N). The web UI uses
-// this to warn the user before exporting — e.g. "3 tracks will be
-// re-encoded due to decode errors that would freeze the deck".
 func isHex64(s string) bool {
 	if len(s) != 64 {
 		return false
@@ -1529,11 +1525,6 @@ func (s *Server) applyImportBundle(w http.ResponseWriter, bundle *library.Import
 	writeJSON(w, result)
 }
 
-// handleRemapPaths rewrites every track whose FilePath starts with
-// req.From so the prefix becomes req.To. Renames the on-disk analysis
-// cache (keyed by hash(file_path)) so the user doesn't have to
-// re-analyze after the move. Other per-track caches (artwork, cues,
-// waveform-png) are keyed by track ID or art ID and survive untouched.
 // refreshMissingFlags re-checks every track's FilePath on disk and updates its
 // FileMissing flag. Stats run in parallel — a serial pass over a large or
 // network-backed library is a latency cliff. Returns the count still missing.
@@ -1579,6 +1570,11 @@ func (s *Server) refreshMissingFlags() int {
 	return missing
 }
 
+// handleRemapPaths rewrites every track whose FilePath starts with
+// req.From so the prefix becomes req.To. Renames the on-disk analysis
+// cache (keyed by hash(file_path)) so the user doesn't have to
+// re-analyze after the move. Other per-track caches (artwork, cues,
+// waveform-png) are keyed by track ID or art ID and survive untouched.
 func (s *Server) handleRemapPaths(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "POST required", http.StatusMethodNotAllowed)
@@ -1626,6 +1622,10 @@ func parseSelectionIDs(csv string) ([]uint32, error) {
 	return ids, nil
 }
 
+// handleExportPreview returns a summary of what the export will contain
+// for a given source (?source=all|playlist:N|smart:N). The web UI uses
+// this to warn the user before exporting — e.g. "3 tracks will be
+// re-encoded due to decode errors that would freeze the deck".
 func (s *Server) handleExportPreview(w http.ResponseWriter, r *http.Request) {
 	src := r.URL.Query().Get("source")
 	if src == "" {
@@ -1905,7 +1905,6 @@ func (s *Server) addTrackByPath(path string, bulk bool) (uint32, error) {
 	return id, nil
 }
 
-// queueAnalysis sends a track to the analysis worker pool.
 // readTrackTags reads metadata tags from a track's audio file into the Track struct.
 func (s *Server) readTrackTags(track *library.Track) {
 	f, err := os.Open(track.FilePath)
@@ -2017,6 +2016,7 @@ func (s *Server) handleReimportTracks(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// queueAnalysis sends a track to the analysis worker pool.
 func (s *Server) queueAnalysis(trackID uint32, filePath string) {
 	s.analyzeOnce.Do(func() {
 		s.analyzeCh = make(chan analyzeJob, 1000)
@@ -2639,10 +2639,6 @@ func (s *Server) handleWaveform(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// handleWaveformPNG returns a pre-rendered waveform image, disk-cached
-// across server restarts. The browser also gets a long Cache-Control +
-// ETag so client reloads come from local browser cache too.
-//
 // GET /api/artwork/{trackID} — returns the cached album art (JPEG)
 // for trackID. 404 when the track has no art. Used by the library
 // table's optional ART column.
@@ -2826,11 +2822,6 @@ func (s *Server) handleExtAnalysis(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// GET /api/analysis/waveform-png/{trackID}?type=detail|color_preview&w=280&h=56
-//
-// Default type=detail (PWV5) since that's what the web UI uses for thumbnails.
-// Width/height are clamped to sane bounds; the cache key includes them so
-// requests at different sizes coexist.
 // artworkLookup wraps the library's artwork cache so the export
 // package can resolve JPEG bytes without depending on the library
 // type directly. nil when the library has no cache.
@@ -2980,6 +2971,15 @@ func (s *Server) handleExport(w http.ResponseWriter, r *http.Request) {
 	}{true, sourceLabel, req.Destination, len(opts.Tracks)})
 }
 
+// handleWaveformPNG returns a pre-rendered waveform image, disk-cached
+// across server restarts. The browser also gets a long Cache-Control +
+// ETag so client reloads come from local browser cache too.
+//
+// GET /api/analysis/waveform-png/{trackID}?type=detail|color_preview&w=280&h=56
+//
+// Default type=detail (PWV5) since that's what the web UI uses for thumbnails.
+// Width/height are clamped to sane bounds; the cache key includes them so
+// requests at different sizes coexist.
 func (s *Server) handleWaveformPNG(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Access-Control-Allow-Origin", "*")
 

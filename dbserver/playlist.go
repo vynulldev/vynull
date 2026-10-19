@@ -155,12 +155,6 @@ func (h *Handler) handleGetPlaylist(msg *proto.DBMessage) []*proto.DBMessage {
 	return []*proto.DBMessage{h.successWithCount(msg)}
 }
 
-// trackIDsToMenuItems turns an ordered list of track IDs into menu
-// items, looking up metadata from whichever source is available — PDB
-// preferred (gives the full pdb.Track fields), library as the fallback
-// (library mode has no PDB). Without the library fallback, every
-// user-playlist on a library-mode server rendered as EMPTY on the CDJ
-// even when the store had the right track IDs.
 // applyPlaylistTrackScope stamps the playlist-track-leaf wire conventions on
 // a playlist's track rows: a 1-based position in argument 9 (in playlist
 // order) and, for a regular playlist, the packed context track type in
@@ -180,6 +174,12 @@ func (h *Handler) applyPlaylistTrackScope(items []*menuItem, order uint32, smart
 	}
 }
 
+// trackIDsToMenuItems turns an ordered list of track IDs into menu
+// items, looking up metadata from whichever source is available — PDB
+// preferred (gives the full pdb.Track fields), library as the fallback
+// (library mode has no PDB). Without the library fallback, every
+// user-playlist on a library-mode server rendered as EMPTY on the CDJ
+// even when the store had the right track IDs.
 func (h *Handler) trackIDsToMenuItems(trackIDs []uint32) []*menuItem {
 	items := make([]*menuItem, 0, len(trackIDs))
 	for _, tid := range trackIDs {

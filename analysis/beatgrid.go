@@ -6,7 +6,7 @@ import "encoding/binary"
 
 // GenerateBeatGrid creates a beat grid blob for the 0x2204 (0x4602) response.
 // Format: 20-byte preamble + 16-byte LE entries.
-// downbeatMs is the time offset of the first beat (from DetectDownbeat).
+// downbeatMs is the time offset of the first beat in milliseconds.
 func GenerateBeatGrid(bpm, durationMs, downbeatMs float64) []byte {
 	if bpm <= 0 || durationMs <= 0 {
 		return nil
