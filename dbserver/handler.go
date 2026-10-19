@@ -38,7 +38,8 @@ type Handler struct {
 	analysis     *analysis.Store
 	folders      *pdb.FolderLookup
 	playlists    PlaylistSource
-	playMarks    PlayMarkSource
+	history      *linkHistory     // the Link history, shared by the server's sessions
+	clock        func() time.Time // names a new Link history (nil: time.Now)
 	menu         MenuSource
 	cues         *CueStore
 	settings     *device.CDJSettings
@@ -256,8 +257,13 @@ func (h *Handler) Handle(msg *proto.DBMessage) []*proto.DBMessage {
 		return h.handleGetTracksByTime(msg)
 	case 0x1111: // tracks for a BITRATE bucket (drill from 0x1011 list)
 		return h.handleGetTracksByBitrate(msg)
-	case 0x1012: // overloaded: NXS2 drill level 2 OR SEARCH category setup
-		return h.handleNXS2DrillOrSearchSetup(msg)
+	case 0x1012: // overloaded: HISTORY [ctx, sort] OR NXS2 drill level 2 (4 args)
+		if len(msg.Args) <= 2 {
+			return h.handleGetLinkHistory(msg)
+		}
+		return h.handleNXS2DrillDown(msg)
+	case 0x1112: // a Link history's tracks
+		return h.handleGetLinkHistoryTracks(msg)
 	case 0x1013: // overloaded: FILENAME list (2 args) OR NXS2 drill level 3 (5 args all I32) OR SEARCH query (5 args, arg[3]=string)
 		if len(msg.Args) <= 2 {
 			return h.handleGetFilename(msg)
@@ -292,16 +298,18 @@ func (h *Handler) Handle(msg *proto.DBMessage) []*proto.DBMessage {
 		return h.handleGetAlbumsForOriginalArtist(msg)
 	case 0x1502: // tracks for original artist + album (original-artist drill-down level 2)
 		return h.handleGetTracksByOriginalArtist(msg)
-	case 0x3001: // insert into Link history: mark played (CMD_INSERT_HISTORY); no reply
-		return h.handleMarkPlayed(msg)
+	case 0x3001: // add a track to the Link history (CMD_INSERT_HISTORY); no reply
+		return h.handleInsertHistory(msg)
+	case 0x3101: // delete the Link history (CMD_DEL_HISTORY); no reply
+		return h.handleDeleteHistory(msg)
 	case proto.DBMsgGetTracks:
 		return h.handleGetTracks(msg)
 	case 0x1400: // SORT menu for a list (location 5)
 		return h.handleSortMenu(msg)
 	case 0x3b03: // play state of a track (CMD_GET_PLAYSTATE)
 		return h.handleGetPlayState(msg)
-	case 0x3401: // mark a track unplayed (CMD_DEL_HISTORY_TRACK)
-		return h.handleMarkUnplayed(msg)
+	case 0x3401: // remove a track from the Link history (CMD_DEL_HISTORY_TRACK)
+		return h.handleDeleteHistoryTrack(msg)
 	case proto.DBMsgGetArtists:
 		return h.handleGetArtists(msg)
 	case proto.DBMsgGetAlbums:
@@ -328,10 +336,6 @@ func (h *Handler) Handle(msg *proto.DBMessage) []*proto.DBMessage {
 		return h.handleGetBPMRanges(msg)
 	case 0x1014: // key list
 		return h.handleGetKeys(msg)
-	case 0x1016: // HISTORY list (sessions = daily playlists in "History" folder)
-		return h.handleGetHistory(msg)
-	case 0x1116: // HISTORY drill-in: tracks in a session
-		return h.handleGetHistoryTracks(msg)
 	case 0x100d: // COLOR list — the 8 named track colours + "no colour"
 		return h.handleGetColors(msg)
 	case 0x110d: // COLOR drill-in: tracks of a given colour

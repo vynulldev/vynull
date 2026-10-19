@@ -94,26 +94,6 @@ func (h *Handler) handleNXS2DrillDown(msg *proto.DBMessage) []*proto.DBMessage {
 	}}
 }
 
-// handleNXS2DrillOrSearchSetup dispatches opcode 0x1012, which is
-// overloaded: it can be a real drill-down level 2 (albums for label +
-// artist) or the SEARCH category's setup signal (sent when the user
-// taps into SEARCH on the deck before typing). SEARCH setup has only
-// 2 args; drill level 2 has 4. The setup response is identical in
-// shape but the log line difference helps debugging which path fired.
-func (h *Handler) handleNXS2DrillOrSearchSetup(msg *proto.DBMessage) []*proto.DBMessage {
-	if len(msg.Args) <= 2 {
-		dlog.Debugf("dbserver: SEARCH category setup (0x1012 with %d args)", len(msg.Args))
-		// Echo the request type and a 0-item count. The deck takes this
-		// as the cue to open its on-screen keyboard; the first keystroke
-		// then arrives as a 0x1300 query.
-		return []*proto.DBMessage{{
-			TxID: msg.TxID, Type: proto.DBMsgSuccess,
-			Args: []proto.DBArg{proto.ArgI32(uint32(msg.Type)), proto.ArgI32(0)},
-		}}
-	}
-	return h.handleNXS2DrillDown(msg)
-}
-
 // handleSearch handles the SEARCH category's on-deck text-input flow.
 // The CDJ sends 0x1300 once per keystroke with the current query
 // string in arg[3]; we respond with the match count, then the CDJ
@@ -335,15 +315,17 @@ func decodeASCIIArg(v uint32) string {
 	return string(b[:])
 }
 
-// handleGetHistory handles opcode 0x1016 — the deck navigating into
-// the HISTORY root-menu category. We surface our auto-managed History
-// folder's children (one playlist per day, e.g. "History · 2026-05-21")
-// as the list. Selecting one sends 0x1116 with the playlist ID.
+// handleSearchSelect handles opcode 0x1200, the drill-in the deck
+// sends when the user picks a row from the SEARCH-result list. The
+// selected item's arg1 (a library track ID, in our case) arrives as
+// arg[2] of the request. We resolve it back to the actual track and
+// stash a 1-item pending list — the deck's follow-up 0x3000 render
+// then displays the track and lets the user press LOAD normally.
 //
-// Note: the 0x1016 opcode assignment is a best guess from the 0x10NN
-// convention (HISTORY's category ID is 22 = 0x16). If the deck sends
-// something different the user will see "unhandled type 0x...." in
-// the log and we'll know what to rename this case to.
+// Without this handler the request hits the unhandled-opcode fallback
+// (returns Success with 0 items), the deck has nothing to render, and
+// the LOAD eventually falls back to whatever track was last loaded —
+// which looked like "always loads track 1" from the user's POV.
 func (h *Handler) handleSearchSelect(msg *proto.DBMessage) []*proto.DBMessage {
 	id := uint32(0)
 	if len(msg.Args) >= 3 {
