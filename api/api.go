@@ -2026,15 +2026,10 @@ func (s *Server) analysisWorker() {
 	}
 }
 
-// applyAnalysisToTrack fills a library row's analysis-derived fields (BPM,
-// duration, key, bitrate, artwork) from a result. Fields are filled when
-// empty — user edits are never clobbered — and the library is saved only
-// when something actually changed, so callers can invoke it on every
-// analysis retrieval and it noops once the row is settled. BPM is the one
-// field that also UPDATES on re-analysis (unless user-overridden): the beat
-// grid served to decks always comes from the analysis result, so the row
-// must follow it or the UI would display one tempo and the deck play
-// another.
+// applyAnalysisToTrack writes a result back to its library track through
+// Library.ApplyAnalysis (BPM, duration, key and bitrate, saving only on a
+// change, so callers can invoke it on every analysis retrieval) and adopts
+// its artwork.
 //
 // This is the single writeback point for every api route that lands an
 // analysis result: the worker queue, the on-demand path, and a disk-cache
@@ -2047,40 +2042,7 @@ func (s *Server) applyAnalysisToTrack(trackID uint32, r *analysis.Result) {
 	if s.Library == nil || r == nil {
 		return
 	}
-	t := s.Library.Track(trackID)
-	if t == nil {
-		return
-	}
-	changed := false
-	if t.BPM == 0 && r.BPM > 0 {
-		t.BPM = r.BPM
-		changed = true
-	} else if t.DetectedBPM == 0 && r.BPM > 0 && t.BPM != r.BPM {
-		// Re-analysis produced a different tempo (e.g. a cacheVersion bump
-		// like the v27 integer-snap upgrade): adopt it unless the user
-		// overrode BPM (DetectedBPM != 0 marks an override snapshot). The
-		// played beat grid always comes from the analysis result, so
-		// leaving the row at the old value would display one BPM and play
-		// another.
-		t.BPM = r.BPM
-		changed = true
-	}
-	if t.Duration == 0 && r.Duration > 0 {
-		t.Duration = library.DurationSec(time.Duration(r.Duration) * time.Second)
-		changed = true
-	}
-	if t.Key == "" && r.KeyCamelot != "" {
-		t.Key = r.KeyCamelot
-		changed = true
-	}
-	// Estimate bitrate from file size and duration.
-	if t.Bitrate == 0 && t.FileSize > 0 && t.Duration > 0 {
-		t.Bitrate = int(t.FileSize * 8 / int64(t.Duration.Seconds()) / 1000)
-		changed = true
-	}
-	if changed {
-		s.Library.Save()
-	}
+	s.Library.ApplyAnalysis(trackID, library.AnalysisFacts{BPM: r.BPM, Duration: int(r.Duration), KeyCamelot: r.KeyCamelot})
 	if r.Artwork != nil {
 		s.Library.AdoptArtwork(trackID, "image/jpeg", r.Artwork)
 	}

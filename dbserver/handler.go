@@ -172,19 +172,9 @@ func (h *Handler) storeAnalysisResult(trackID uint32, r *analysis.Result) {
 		}
 	}
 
-	// Update track metadata from analysis — library tracks
+	// Library tracks: the library's write-back, the same one the API uses.
 	if h.lib != nil {
-		if t := h.lib.Track(trackID); t != nil {
-			if t.BPM == 0 && r.BPM > 0 {
-				t.BPM = r.BPM
-			}
-			if t.Duration == 0 && r.Duration > 0 {
-				t.Duration = library.DurationSec(time.Duration(r.Duration) * time.Second)
-			}
-			if t.Key == "" && r.KeyCamelot != "" {
-				t.Key = r.KeyCamelot
-			}
-		}
+		h.lib.ApplyAnalysis(trackID, library.AnalysisFacts{BPM: r.BPM, Duration: int(r.Duration), KeyCamelot: r.KeyCamelot})
 	}
 
 	// The store already holds the result (TryImport and AnalyzeInBackground
