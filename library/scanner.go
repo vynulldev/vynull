@@ -5,11 +5,8 @@ package library
 import (
 	"io/fs"
 	"log"
-	"os"
 	"path/filepath"
 	"strings"
-
-	"github.com/dhowden/tag"
 )
 
 // supportedExtensions maps file extensions to their type name.
@@ -77,8 +74,13 @@ func Scan(root string) (*Library, error) {
 			track.FileSize = info.Size()
 		}
 
-		if err := readTags(track, artwork); err != nil {
+		if ft, err := ReadFileTags(path); err != nil {
 			log.Printf("scan: tags for %s: %v", path, err)
+		} else {
+			ft.ApplyTo(track)
+			if len(ft.Picture) > 0 {
+				track.ArtID = artwork.Add(ft.PictureMIME, ft.Picture)
+			}
 		}
 
 		// Fall back to filename as title.
@@ -96,31 +98,4 @@ func Scan(root string) (*Library, error) {
 	lib := NewLibrary(tracks, artwork)
 	log.Printf("scanned %d tracks (%d unique artworks)", len(tracks), len(artwork.byHash))
 	return lib, nil
-}
-
-func readTags(track *Track, artwork *ArtworkCache) error {
-	f, err := os.Open(track.FilePath)
-	if err != nil {
-		return err
-	}
-	defer f.Close()
-
-	m, err := tag.ReadFrom(f)
-	if err != nil {
-		return err
-	}
-
-	track.Title = m.Title()
-	track.Artist = m.Artist()
-	track.Album = m.Album()
-	track.Genre = m.Genre()
-	track.Year = m.Year()
-	trackNum, _ := m.Track()
-	track.TrackNum = trackNum
-
-	if pic := m.Picture(); pic != nil && len(pic.Data) > 0 {
-		track.ArtID = artwork.Add(pic.MIMEType, pic.Data)
-	}
-
-	return nil
 }

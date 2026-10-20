@@ -29,7 +29,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/dhowden/tag"
 	"github.com/vynulldev/vynull/analysis"
 	"github.com/vynulldev/vynull/device"
 	"github.com/vynulldev/vynull/export"
@@ -1842,9 +1841,14 @@ func (s *Server) addTrackByPath(path string, bulk bool) (uint32, error) {
 	}
 	track.FileType = ft
 
-	s.readTrackTags(track)
+	if tags, err := library.ReadFileTags(path); err == nil {
+		tags.ApplyTo(track)
+		if len(tags.Picture) > 0 {
+			track.ArtID = s.Library.Artwork.Add(tags.PictureMIME, tags.Picture)
+		}
+	}
 
-	// Fallback title
+	// Fallback title (for a file whose tags can't be read)
 	if track.Title == "" {
 		track.Title = strings.TrimSuffix(filepath.Base(path), filepath.Ext(path))
 	}
@@ -1906,71 +1910,6 @@ func (s *Server) addTrackByPath(path string, bulk bool) (uint32, error) {
 	return id, nil
 }
 
-// readTrackTags reads metadata tags from a track's audio file into the Track struct.
-func (s *Server) readTrackTags(track *library.Track) {
-	f, err := os.Open(track.FilePath)
-	if err != nil {
-		return
-	}
-	defer f.Close()
-
-	m, err := tag.ReadFrom(f)
-	if err != nil {
-		return
-	}
-
-	track.Title = m.Title()
-	track.Artist = m.Artist()
-	track.Album = m.Album()
-	track.Genre = m.Genre()
-	track.Year = m.Year()
-	track.Comment = m.Comment()
-	trackNum, _ := m.Track()
-	track.TrackNum = trackNum
-	discNum, _ := m.Disc()
-	track.DiscNum = discNum
-
-	raw := m.Raw()
-	if v, ok := raw["label"]; ok {
-		track.Label = fmt.Sprintf("%v", v)
-	} else if v, ok := raw["LABEL"]; ok {
-		track.Label = fmt.Sprintf("%v", v)
-	} else if v, ok := raw["publisher"]; ok {
-		track.Label = fmt.Sprintf("%v", v)
-	} else if v, ok := raw["TPUB"]; ok {
-		track.Label = fmt.Sprintf("%v", v)
-	} else if v, ok := raw["ORGANIZATION"]; ok {
-		track.Label = fmt.Sprintf("%v", v)
-	} else if v, ok := raw["organization"]; ok {
-		track.Label = fmt.Sprintf("%v", v)
-	}
-	if v, ok := raw["remixer"]; ok {
-		track.Remixer = fmt.Sprintf("%v", v)
-	} else if v, ok := raw["TPE4"]; ok {
-		track.Remixer = fmt.Sprintf("%v", v)
-	} else if v, ok := raw["MIXARTIST"]; ok {
-		track.Remixer = fmt.Sprintf("%v", v)
-	}
-	if v, ok := raw["original artist"]; ok {
-		track.OriginalArtist = fmt.Sprintf("%v", v)
-	} else if v, ok := raw["TOPE"]; ok {
-		track.OriginalArtist = fmt.Sprintf("%v", v)
-	}
-	if v, ok := raw["mix"]; ok {
-		track.MixName = fmt.Sprintf("%v", v)
-	} else if v, ok := raw["TSST"]; ok {
-		track.MixName = fmt.Sprintf("%v", v)
-	}
-
-	if pic := m.Picture(); pic != nil && len(pic.Data) > 0 {
-		track.ArtID = s.Library.Artwork.Add(pic.MIMEType, pic.Data)
-	}
-
-	if track.Title == "" {
-		track.Title = strings.TrimSuffix(filepath.Base(track.FilePath), filepath.Ext(track.FilePath))
-	}
-}
-
 // handleReimportTracks re-reads metadata tags from disk for tracks in the library.
 // POST /api/tracks/reimport — reimport all tracks
 // POST /api/tracks/reimport {"track_ids": [1, 2, 3]} — reimport specific tracks
@@ -2004,11 +1943,28 @@ func (s *Server) handleReimportTracks(w http.ResponseWriter, r *http.Request) {
 		if len(want) > 0 && !want[t.ID] {
 			continue
 		}
-		s.readTrackTags(t)
 		updated++
+		// Read the file outside the library's lock. A file that can't be read
+		// leaves its track as it is.
+		tags, err := library.ReadFileTags(t.FilePath)
+		if err != nil {
+			continue
+		}
+		var artID uint32
+		if len(tags.Picture) > 0 {
+			artID = s.Library.Artwork.Add(tags.PictureMIME, tags.Picture)
+		}
+		s.Library.UpdateBulk(t.ID, func(tr *library.Track) error {
+			tags.ApplyTo(tr)
+			if artID != 0 {
+				tr.ArtID = artID
+			}
+			return nil
+		})
 	}
 
-	s.Library.Save()
+	// One save for the batch, with the artist, album and genre lists rebuilt.
+	s.Library.FinalizeBulk()
 	log.Printf("api: reimported tags for %d tracks", updated)
 
 	writeJSON(w, map[string]interface{}{
