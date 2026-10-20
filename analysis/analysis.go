@@ -357,7 +357,23 @@ func (s *Store) LoadStale(trackID uint32) *Result {
 // loadFromDisk), it is re-applied here: a cacheVersion bump refreshes the
 // waveforms but must never revert a grid the user fixed by hand.
 func (s *Store) Set(trackID uint32, r *Result) {
+	s.set(trackID, r, false)
+}
+
+// SetIfAbsent stores r only if the track has no result yet, and reports
+// whether it did. Analysis that fills in a missing result uses it: a result
+// stored while that analysis ran (an import storing rekordbox's own, which it
+// may also lock) is kept instead of being overwritten.
+func (s *Store) SetIfAbsent(trackID uint32, r *Result) bool {
+	return s.set(trackID, r, true)
+}
+
+func (s *Store) set(trackID uint32, r *Result, onlyIfAbsent bool) bool {
 	s.mu.Lock()
+	if onlyIfAbsent && s.results[trackID] != nil {
+		s.mu.Unlock()
+		return false
+	}
 	filePath := s.pathMap[trackID]
 	if c, ok := s.gridCarry[filePath]; ok && r != nil && !r.GridEdited {
 		r.Beats = c.beats
@@ -376,6 +392,7 @@ func (s *Store) Set(trackID uint32, r *Result) {
 	if s.cacheDir != "" && filePath != "" {
 		s.saveToDisk(filePath, r)
 	}
+	return true
 }
 
 // Remove drops the in-memory result and path mapping for a track, for use
@@ -492,7 +509,7 @@ func (s *Store) AnalyzeInBackground(trackID uint32, filePath string, onDone func
 
 		if s.Importer != nil {
 			if r := s.Importer(trackID, filePath); r != nil {
-				s.Set(trackID, r)
+				r = s.keepCurrent(trackID, r)
 				if onDone != nil {
 					onDone(r)
 				}
@@ -513,7 +530,7 @@ func (s *Store) AnalyzeInBackground(trackID uint32, filePath string, onDone func
 			log.Printf("lazy-analysis: track %d failed: %v", trackID, err)
 			return
 		}
-		s.Set(trackID, r)
+		r = s.keepCurrent(trackID, r)
 		if onDone != nil {
 			onDone(r)
 		}
@@ -522,8 +539,9 @@ func (s *Store) AnalyzeInBackground(trackID uint32, filePath string, onDone func
 	}()
 }
 
-// TryImport runs the Importer synchronously, storing and returning its
-// Result, or nil when no Importer is set or it has nothing for this track.
+// TryImport runs the Importer synchronously and returns the track's Result:
+// the import's, stored, or one stored meanwhile (see keepCurrent). It returns
+// nil when no Importer is set or it has nothing for this track.
 // Unlike full analysis, an import is a fast file parse, so callers on a
 // request path (e.g. the dbserver answering a deck's load sequence) can
 // afford to run it inline instead of racing an async import — a deck
@@ -536,8 +554,24 @@ func (s *Store) TryImport(trackID uint32, filePath string) *Result {
 	if r == nil {
 		return nil
 	}
-	s.Set(trackID, r)
-	return r
+	return s.keepCurrent(trackID, r)
+}
+
+// keepCurrent stores r, a result filling in a missing one, unless the track
+// gained a result while r was being made; it returns whichever the track now
+// has.
+func (s *Store) keepCurrent(trackID uint32, r *Result) *Result {
+	if s.SetIfAbsent(trackID, r) {
+		return r
+	}
+	s.mu.RLock()
+	cur := s.results[trackID]
+	s.mu.RUnlock()
+	if cur == nil { // removed meanwhile
+		return r
+	}
+	log.Printf("analysis: track %d gained an analysis while this one ran; keeping it", trackID)
+	return cur
 }
 
 // SetPath associates a track ID with a file path for cache key generation.

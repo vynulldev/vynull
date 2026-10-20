@@ -187,8 +187,8 @@ func (h *Handler) storeAnalysisResult(trackID uint32, r *analysis.Result) {
 		}
 	}
 
-	// Cache result and artwork
-	h.analysis.Set(trackID, r)
+	// The store already holds the result (TryImport and AnalyzeInBackground
+	// store it, keeping one that arrived meanwhile); adopt its artwork.
 	if r.Artwork != nil && h.lib != nil {
 		h.lib.AdoptArtwork(trackID, "image/jpeg", r.Artwork)
 	}

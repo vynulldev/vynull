@@ -2004,7 +2004,16 @@ func (s *Server) analysisWorker() {
 			log.Printf("api: analysis failed for track %d: %v", job.trackID, err)
 			continue
 		}
-		s.Analysis.Set(job.trackID, r)
+		// The track may have gained an analysis while this one ran: an import
+		// storing (and locking) rekordbox's. Keep that one, not ours.
+		if !s.Analysis.SetIfAbsent(job.trackID, r) {
+			s.Analysis.ClearStatus()
+			if cur := s.Analysis.Get(job.trackID); cur != nil {
+				s.applyAnalysisToTrack(job.trackID, cur)
+			}
+			log.Printf("api: discarded analysis of track %d: it gained one while this one ran", job.trackID)
+			continue
+		}
 		s.applyAnalysisToTrack(job.trackID, r)
 
 		// Update device track count.
@@ -2180,7 +2189,12 @@ func (s *Server) getOrAnalyze(trackID uint32) *analysis.Result {
 		log.Printf("api: on-demand analysis failed for track %d: %v", trackID, err)
 		return nil
 	}
-	s.Analysis.Set(trackID, r)
+	if !s.Analysis.SetIfAbsent(trackID, r) {
+		// It gained one while this ran (an import); serve that instead.
+		if cur := s.Analysis.Get(trackID); cur != nil {
+			r = cur
+		}
+	}
 	s.applyAnalysisToTrack(trackID, r)
 	log.Printf("api: analyzed track %d: BPM=%.1f key=%s path=%s", trackID, r.BPM, r.KeyCamelot, filePath)
 	return r
