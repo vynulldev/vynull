@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"log"
 	"os"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -29,13 +30,21 @@ func HashID(entityType, name string) uint32 {
 }
 
 // Library holds all tracks and provides lookup indices.
+//
+// The track slice and the per-artist, album and genre slices are never
+// modified in place once handed out: removing a track builds new slices. So a
+// slice returned by Tracks or TracksBy* stays a consistent snapshot while the
+// library changes. Callers must not modify those slices themselves.
 type Library struct {
 	Artwork *ArtworkCache
 
 	mu       sync.RWMutex
-	tracks   []*Track // all tracks, ordered by ID
+	tracks   []*Track // all tracks, in the order they were added
 	nextID   uint32   // next sequential track ID
 	byID     map[uint32]*Track
+	order    map[uint32]uint64   // track ID -> when it was added; index lists keep this order
+	seq      uint64              // next order value
+	byPath   map[string][]*Track // the tracks with each file path (usually one)
 	byArtist map[string][]*Track
 	byAlbum  map[string][]*Track
 	byGenre  map[string][]*Track
@@ -181,6 +190,8 @@ func NewLibrary(tracks []*Track, artwork *ArtworkCache) *Library {
 		tracks:   tracks,
 		nextID:   1,
 		byID:     make(map[uint32]*Track, len(tracks)),
+		order:    make(map[uint32]uint64, len(tracks)),
+		byPath:   make(map[string][]*Track, len(tracks)),
 		byArtist: make(map[string][]*Track),
 		byAlbum:  make(map[string][]*Track),
 		byGenre:  make(map[string][]*Track),
@@ -192,6 +203,9 @@ func NewLibrary(tracks []*Track, artwork *ArtworkCache) *Library {
 
 	for _, t := range tracks {
 		lib.byID[t.ID] = t
+		lib.order[t.ID] = lib.seq
+		lib.seq++
+		lib.byPath[t.FilePath] = append(lib.byPath[t.FilePath], t)
 		if t.ID >= lib.nextID {
 			lib.nextID = t.ID + 1
 		}
@@ -227,11 +241,13 @@ func (l *Library) Track(id uint32) *Track {
 	return l.byID[id]
 }
 
-// Tracks returns all tracks.
+// Tracks returns all tracks, in the order they were added. The slice is a
+// snapshot that later changes to the library don't disturb; don't modify it
+// (sort a copy instead).
 func (l *Library) Tracks() []*Track {
 	l.mu.RLock()
 	defer l.mu.RUnlock()
-	return l.tracks
+	return slices.Clip(l.tracks)
 }
 
 // TrackCount returns the total number of tracks.
@@ -262,25 +278,28 @@ func (l *Library) Genres() []string {
 	return l.genres
 }
 
-// TracksByArtist returns tracks for the given artist (case-insensitive).
+// TracksByArtist returns tracks for the given artist (case-insensitive), as
+// a snapshot like Tracks.
 func (l *Library) TracksByArtist(artist string) []*Track {
 	l.mu.RLock()
 	defer l.mu.RUnlock()
-	return l.byArtist[strings.ToLower(artist)]
+	return slices.Clip(l.byArtist[strings.ToLower(artist)])
 }
 
-// TracksByAlbum returns tracks for the given album (case-insensitive).
+// TracksByAlbum returns tracks for the given album (case-insensitive), as a
+// snapshot like Tracks.
 func (l *Library) TracksByAlbum(album string) []*Track {
 	l.mu.RLock()
 	defer l.mu.RUnlock()
-	return l.byAlbum[strings.ToLower(album)]
+	return slices.Clip(l.byAlbum[strings.ToLower(album)])
 }
 
-// TracksByGenre returns tracks for the given genre (case-insensitive).
+// TracksByGenre returns tracks for the given genre (case-insensitive), as a
+// snapshot like Tracks.
 func (l *Library) TracksByGenre(genre string) []*Track {
 	l.mu.RLock()
 	defer l.mu.RUnlock()
-	return l.byGenre[strings.ToLower(genre)]
+	return slices.Clip(l.byGenre[strings.ToLower(genre)])
 }
 
 // addTrackLocked indexes a track (assigning a sequential ID if unset) without
@@ -301,19 +320,12 @@ func (l *Library) addTrackLocked(t *Track) uint32 {
 
 	l.tracks = append(l.tracks, t)
 	l.byID[t.ID] = t
-
-	if t.Artist != "" {
-		key := strings.ToLower(t.Artist)
-		l.byArtist[key] = append(l.byArtist[key], t)
-	}
-	if t.Album != "" {
-		key := strings.ToLower(t.Album)
-		l.byAlbum[key] = append(l.byAlbum[key], t)
-	}
-	if t.Genre != "" {
-		key := strings.ToLower(t.Genre)
-		l.byGenre[key] = append(l.byGenre[key], t)
-	}
+	l.order[t.ID] = l.seq
+	l.seq++
+	l.indexLocked(l.byPath, t.FilePath, t)
+	l.indexNameLocked(l.byArtist, t.Artist, t)
+	l.indexNameLocked(l.byAlbum, t.Album, t)
+	l.indexNameLocked(l.byGenre, t.Genre, t)
 	return t.ID
 }
 
@@ -359,35 +371,14 @@ func (l *Library) RemoveTrack(id uint32) bool {
 		l.mu.Unlock()
 		return false
 	}
+	// New slices, not in-place deletes: callers may hold the old ones.
+	l.tracks = slices.DeleteFunc(slices.Clone(l.tracks), func(tr *Track) bool { return tr == t })
+	l.unindexLocked(l.byPath, t.FilePath, t)
+	l.unindexNameLocked(l.byArtist, t.Artist, t)
+	l.unindexNameLocked(l.byAlbum, t.Album, t)
+	l.unindexNameLocked(l.byGenre, t.Genre, t)
 	delete(l.byID, id)
-	for i, tr := range l.tracks {
-		if tr.ID == id {
-			l.tracks = append(l.tracks[:i], l.tracks[i+1:]...)
-			break
-		}
-	}
-	removeFromIndex := func(idx map[string][]*Track, key string) {
-		key = strings.ToLower(key)
-		list := idx[key]
-		for i, tr := range list {
-			if tr.ID == id {
-				idx[key] = append(list[:i], list[i+1:]...)
-				break
-			}
-		}
-		if len(idx[key]) == 0 {
-			delete(idx, key)
-		}
-	}
-	if t.Artist != "" {
-		removeFromIndex(l.byArtist, t.Artist)
-	}
-	if t.Album != "" {
-		removeFromIndex(l.byAlbum, t.Album)
-	}
-	if t.Genre != "" {
-		removeFromIndex(l.byGenre, t.Genre)
-	}
+	delete(l.order, id)
 	l.rebuildLists()
 	l.mu.Unlock()
 	l.Save()
@@ -584,14 +575,13 @@ func (l *Library) rebuildLists() {
 	l.genres = sortedKeys(genreSet)
 }
 
-// TrackByPath finds a track by its file path, or nil.
+// TrackByPath finds a track by its file path, or nil. If several tracks have
+// the path, it returns the one added first.
 func (l *Library) TrackByPath(path string) *Track {
 	l.mu.RLock()
 	defer l.mu.RUnlock()
-	for _, t := range l.tracks {
-		if t.FilePath == path {
-			return t
-		}
+	if ts := l.byPath[path]; len(ts) > 0 {
+		return ts[0]
 	}
 	return nil
 }
@@ -607,7 +597,9 @@ func (l *Library) RemapPaths(from, to string) (int, [][2]string) {
 	for _, t := range l.tracks {
 		if strings.HasPrefix(t.FilePath, from) {
 			old := t.FilePath
+			l.unindexLocked(l.byPath, old, t)
 			t.FilePath = to + strings.TrimPrefix(t.FilePath, from)
+			l.indexLocked(l.byPath, t.FilePath, t)
 			changes = append(changes, [2]string{old, t.FilePath})
 		}
 	}

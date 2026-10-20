@@ -677,6 +677,7 @@ vynull/
     scanner.go         Directory walk, tag reading
     track.go           Track struct (matches rekordbox PDB fields)
     index.go           In-memory indices, persistence, sequential IDs
+    update.go          Validated track edits that keep the indices in step
     artwork.go         Artwork cache
     thumbnail.go       JPEG thumbnail resizing (oversized CDJ artwork)
     decode_check.go    ffmpeg decode-health check (flags CDJ-freezing files)

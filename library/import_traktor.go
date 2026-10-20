@@ -161,7 +161,7 @@ func ImportTraktorNML(lib *Library, nmlPath string) (*ImportBundle, error) {
 		existing := lib.TrackByPath(path)
 		var id uint32
 		if existing != nil {
-			mergeTrack(existing, track)
+			lib.UpdateBulk(existing.ID, func(dst *Track) error { mergeTrack(dst, track); return nil })
 			id = existing.ID
 			res.TracksUpdated++
 		} else {
