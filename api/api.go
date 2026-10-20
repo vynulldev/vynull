@@ -11,6 +11,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"image"
 	"image/color"
@@ -4160,11 +4161,47 @@ func (s *Server) handleTrackTags(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// editError is a refused track edit and the HTTP status that answers it.
+type editError struct {
+	status int
+	msg    string
+}
+
+func (e *editError) Error() string { return e.msg }
+
+// updateTrack applies edit to the track through Library.Update, so the edit
+// is all or nothing and the library's indexes follow it. If the edit fails it
+// answers the request: 404 for a track that has gone, an editError's own
+// status for a refused edit. It returns the track as edited and whether the
+// edit was applied.
+func (s *Server) updateTrack(w http.ResponseWriter, trackID uint32, edit func(*library.Track) error) (library.Track, bool) {
+	var updated library.Track
+	err := s.Library.Update(trackID, func(t *library.Track) error {
+		if err := edit(t); err != nil {
+			return err
+		}
+		updated = *t
+		return nil
+	})
+	var refused *editError
+	switch {
+	case err == nil:
+		return updated, true
+	case errors.Is(err, library.ErrTrackNotFound):
+		http.Error(w, "track not found", http.StatusNotFound)
+	case errors.As(err, &refused):
+		http.Error(w, refused.msg, refused.status)
+	default:
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+	}
+	return library.Track{}, false
+}
+
 // PUT /api/tracks/{id}/metadata — update editable text metadata in the
 // library DB ONLY. Never touches the audio file. Body is a partial object;
-// omitted fields are left unchanged. Limited to non-indexed text fields
-// (label/remixer/original_artist/mix_name/comment) so the library's
-// artist/album/genre indexes don't need rebuilding.
+// omitted fields are left unchanged. A field that fails validation refuses
+// the whole edit, and artist, album and genre edits keep the library's
+// indexes in step.
 func (s *Server) handleTrackMetadata(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Access-Control-Allow-Origin", "*")
 	w.Header().Set("Access-Control-Allow-Methods", "PUT, POST, OPTIONS")
@@ -4185,8 +4222,7 @@ func (s *Server) handleTrackMetadata(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "track ID required", http.StatusBadRequest)
 		return
 	}
-	t := s.Library.Track(trackID)
-	if t == nil {
+	if s.Library.Track(trackID) == nil {
 		http.Error(w, "track not found", http.StatusNotFound)
 		return
 	}
@@ -4207,60 +4243,50 @@ func (s *Server) handleTrackMetadata(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid JSON: "+err.Error(), http.StatusBadRequest)
 		return
 	}
-	if req.Title != nil {
-		t.Title = strings.TrimSpace(*req.Title)
-	}
-	if req.Artist != nil {
-		t.Artist = strings.TrimSpace(*req.Artist)
-	}
-	if req.Album != nil {
-		t.Album = strings.TrimSpace(*req.Album)
-	}
-	if req.Genre != nil {
-		t.Genre = strings.TrimSpace(*req.Genre)
-	}
-	if req.Year != nil {
-		y := strings.TrimSpace(*req.Year)
-		if y == "" {
-			t.Year = 0
-		} else if n, err := strconv.Atoi(y); err == nil && n >= 0 {
-			t.Year = n
-		} else {
-			http.Error(w, "year must be a non-negative whole number (or blank)", http.StatusBadRequest)
-			return
+	updated, ok := s.updateTrack(w, trackID, func(t *library.Track) error {
+		text := func(field *string, v *string) {
+			if v != nil {
+				*field = strings.TrimSpace(*v)
+			}
 		}
-	}
-	if req.Key != nil {
-		k := strings.TrimSpace(*req.Key)
-		if k == "" {
-			t.Key = ""
-		} else if cam, _ := analysis.KeyNamesFrom(k); cam != "" {
-			t.Key = cam // store canonical Camelot, matching how imports normalize
-		} else {
-			http.Error(w, "unrecognized musical key (use Camelot like 8A or classic like Am)", http.StatusBadRequest)
-			return
+		text(&t.Title, req.Title)
+		text(&t.Artist, req.Artist)
+		text(&t.Album, req.Album)
+		text(&t.Genre, req.Genre)
+		if req.Year != nil {
+			y := strings.TrimSpace(*req.Year)
+			if y == "" {
+				t.Year = 0
+			} else if n, err := strconv.Atoi(y); err == nil && n >= 0 {
+				t.Year = n
+			} else {
+				return &editError{http.StatusBadRequest, "year must be a non-negative whole number (or blank)"}
+			}
 		}
+		if req.Key != nil {
+			k := strings.TrimSpace(*req.Key)
+			if k == "" {
+				t.Key = ""
+			} else if cam, _ := analysis.KeyNamesFrom(k); cam != "" {
+				t.Key = cam // store canonical Camelot, matching how imports normalize
+			} else {
+				return &editError{http.StatusBadRequest, "unrecognized musical key (use Camelot like 8A or classic like Am)"}
+			}
+		}
+		text(&t.Label, req.Label)
+		text(&t.Remixer, req.Remixer)
+		text(&t.OriginalArtist, req.OriginalArtist)
+		text(&t.MixName, req.MixName)
+		text(&t.Comment, req.Comment)
+		return nil
+	})
+	if !ok {
+		return
 	}
-	if req.Label != nil {
-		t.Label = strings.TrimSpace(*req.Label)
-	}
-	if req.Remixer != nil {
-		t.Remixer = strings.TrimSpace(*req.Remixer)
-	}
-	if req.OriginalArtist != nil {
-		t.OriginalArtist = strings.TrimSpace(*req.OriginalArtist)
-	}
-	if req.MixName != nil {
-		t.MixName = strings.TrimSpace(*req.MixName)
-	}
-	if req.Comment != nil {
-		t.Comment = strings.TrimSpace(*req.Comment)
-	}
-	s.Library.Save()
 	if s.Device != nil {
 		s.Device.BroadcastTrackRefresh(trackID)
 	}
-	writeJSON(w, t)
+	writeJSON(w, updated)
 }
 
 // PUT /api/tracks/{id}/path — point a track at a new file path {path: "..."}.
@@ -4288,8 +4314,7 @@ func (s *Server) handleTrackPath(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "track ID required", http.StatusBadRequest)
 		return
 	}
-	t := s.Library.Track(trackID)
-	if t == nil {
+	if s.Library.Track(trackID) == nil {
 		http.Error(w, "track not found", http.StatusNotFound)
 		return
 	}
@@ -4310,30 +4335,39 @@ func (s *Server) handleTrackPath(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "unsupported file type: "+filepath.Ext(newPath), http.StatusBadRequest)
 		return
 	}
-	oldPath := t.FilePath
-	if newPath != oldPath {
-		// Move the cached analysis to the new path's slot so the existing
-		// waveforms/beat grid follow the track instead of orphaning.
-		if s.Analysis != nil {
-			s.Analysis.RenameCachedPath(oldPath, newPath)
-			s.Analysis.SetPath(trackID, newPath)
-		}
-		t.FilePath = newPath
-	}
-	// Recheck presence and refresh size/type from the new file if it exists.
+	// Recheck presence, and size from the new file if it exists, before taking
+	// the library's lock.
+	var size int64
 	miss := true
 	if fi, err := os.Stat(newPath); err == nil && !fi.IsDir() {
-		miss = false
-		t.FileSize = fi.Size()
-		t.FileType = newType
+		miss, size = false, fi.Size()
 	}
-	t.FileMissing = miss
-	s.Library.Save()
+	var oldPath string
+	updated, ok := s.updateTrack(w, trackID, func(t *library.Track) error {
+		oldPath = t.FilePath
+		t.FilePath = newPath
+		if !miss {
+			t.FileSize = size
+			t.FileType = newType
+		}
+		t.FileMissing = miss
+		return nil
+	})
+	if !ok {
+		return
+	}
+	if newPath != oldPath && s.Analysis != nil {
+		// Move the cached analysis to the new path's slot so the existing
+		// waveforms/beat grid follow the track instead of orphaning. Until
+		// SetPath, lookups still use the old path, whose cache is still there.
+		s.Analysis.RenameCachedPath(oldPath, newPath)
+		s.Analysis.SetPath(trackID, newPath)
+	}
 	if s.Device != nil {
 		s.Device.BroadcastTrackRefresh(trackID)
 	}
 	log.Printf("track %d: path updated %q -> %q (missing=%v)", trackID, oldPath, newPath, miss)
-	writeJSON(w, s.libTrackToInfo(t))
+	writeJSON(w, s.libTrackToInfo(&updated))
 }
 
 // PUT /api/tracks/{id}/color — set track color {color_id: N}
@@ -4441,15 +4475,22 @@ func (s *Server) handleTrackBeats(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "invalid JSON: "+err.Error(), http.StatusBadRequest)
 			return
 		}
-		if req.Clear {
-			if t.DetectedBPM > 0 {
-				t.BPM = t.DetectedBPM
+		updated, ok := s.updateTrack(w, trackID, func(t *library.Track) error {
+			// Checked again under the lock: the track may have been locked
+			// since the check above.
+			if t.AnalysisLocked {
+				return &editError{http.StatusConflict, "track analysis is locked; unlock it to edit the beat grid"}
 			}
-			// Also clear DetectedBPM so the UI no longer reports the
-			// track as overridden (next BPM edit re-snapshots).
-			t.DetectedBPM = 0
-			t.BeatPhaseShift = 0
-		} else {
+			if req.Clear {
+				if t.DetectedBPM > 0 {
+					t.BPM = t.DetectedBPM
+				}
+				// Also clear DetectedBPM so the UI no longer reports the
+				// track as overridden (next BPM edit re-snapshots).
+				t.DetectedBPM = 0
+				t.BeatPhaseShift = 0
+				return nil
+			}
 			if req.BPM != nil && *req.BPM > 0 {
 				// Snapshot the detected BPM the first time we override,
 				// so a later "clear" can restore it.
@@ -4465,8 +4506,11 @@ func (s *Server) handleTrackBeats(w http.ResponseWriter, r *http.Request) {
 				}
 				t.BeatPhaseShift = v
 			}
+			return nil
+		})
+		if !ok {
+			return
 		}
-		s.Library.Save()
 		if s.Device != nil {
 			s.Device.BroadcastTrackRefresh(trackID)
 		}
@@ -4475,7 +4519,7 @@ func (s *Server) handleTrackBeats(w http.ResponseWriter, r *http.Request) {
 			BPM            float64 `json:"bpm"`
 			DetectedBPM    float64 `json:"detected_bpm"`
 			BeatPhaseShift int     `json:"beat_phase_shift"`
-		}{true, t.BPM, t.DetectedBPM, t.BeatPhaseShift})
+		}{true, updated.BPM, updated.DetectedBPM, updated.BeatPhaseShift})
 
 	default:
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -4530,8 +4574,9 @@ func (s *Server) handleTrackLock(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "invalid JSON: "+err.Error(), http.StatusBadRequest)
 			return
 		}
-		t.AnalysisLocked = req.Locked
-		s.Library.Save()
+		if _, ok := s.updateTrack(w, trackID, func(t *library.Track) error { t.AnalysisLocked = req.Locked; return nil }); !ok {
+			return
+		}
 		log.Printf("api: track %d analysis lock = %v", trackID, req.Locked)
 		writeJSON(w, map[string]bool{"OK": true})
 	default:

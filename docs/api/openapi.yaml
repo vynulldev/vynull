@@ -200,12 +200,12 @@ paths:
   # ------------------------------------------------------------ Track edits
   /api/tracks/{id}/metadata:
     parameters: [ { name: id, in: path, required: true, schema: { type: integer, format: int64 } } ]
-    put: { tags: [Track edits], summary: Edit metadata (all fields optional/omitted-unchanged)., requestBody: { required: true, content: { application/json: { schema: { $ref: "#/components/schemas/TrackMetadataPatch" } } } }, responses: { "200": { description: Updated track., content: { application/json: { schema: { $ref: "#/components/schemas/TrackInfo" } } } }, "400": { description: Bad year/key. }, "404": { description: No such track. } } }
+    put: { tags: [Track edits], summary: Edit metadata (all fields optional/omitted-unchanged)., requestBody: { required: true, content: { application/json: { schema: { $ref: "#/components/schemas/TrackMetadataPatch" } } } }, responses: { "200": { description: Updated track., content: { application/json: { schema: { $ref: "#/components/schemas/TrackInfo" } } } }, "400": { description: Bad year or key; nothing is changed. }, "404": { description: No such track. } } }
     post: { tags: [Track edits], summary: Same as PUT., requestBody: { required: true, content: { application/json: { schema: { $ref: "#/components/schemas/TrackMetadataPatch" } } } }, responses: { "200": { description: Updated track., content: { application/json: { schema: { $ref: "#/components/schemas/TrackInfo" } } } } } }
 
   /api/tracks/{id}/path:
     parameters: [ { name: id, in: path, required: true, schema: { type: integer, format: int64 } } ]
-    put: { tags: [Track edits], summary: Relink a moved file (library DB only)., requestBody: { required: true, content: { application/json: { schema: { type: object, required: [path], properties: { path: { type: string } } } } } }, responses: { "200": { description: Updated track., content: { application/json: { schema: { $ref: "#/components/schemas/TrackInfo" } } } }, "400": { description: Empty path. }, "404": { description: No such track. } } }
+    put: { tags: [Track edits], summary: Relink a moved file (library DB only)., requestBody: { required: true, content: { application/json: { schema: { type: object, required: [path], properties: { path: { type: string } } } } } }, responses: { "200": { description: Updated track., content: { application/json: { schema: { $ref: "#/components/schemas/TrackInfo" } } } }, "400": { description: Empty path, or a file type Vynull cannot serve; nothing is changed. }, "404": { description: No such track. } } }
 
   /api/tracks/{id}/color:
     parameters: [ { name: id, in: path, required: true, schema: { type: integer, format: int64 } } ]
