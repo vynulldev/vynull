@@ -13,8 +13,6 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
-
-	"github.com/vynulldev/vynull/internal/fsutil"
 )
 
 // HashID generates a stable rekordbox-style 32-bit ID from a type and name.
@@ -69,6 +67,9 @@ type Library struct {
 	hotCueBanks *hotCueBankSet
 
 	dbPath string // if set, persist track list to this JSON file
+
+	// writer saves the track list in the background (writer.go).
+	writer writer
 
 	// rev is a monotonic revision counter bumped whenever track data
 	// changes. Clients poll it (cheaply) and only refetch the full track
@@ -492,27 +493,6 @@ func (l *Library) SetArtwork(trackID, artID uint32) {
 	t.ArtChecked = true
 	if artID != 0 {
 		t.ArtID = artID
-	}
-}
-
-// Save persists the track list to disk.
-func (l *Library) Save() {
-	// Every Save() reflects a track-data change — bump the revision even
-	// when persistence is disabled (dbPath unset), so in-memory-only setups
-	// still notify pollers.
-	l.rev.Add(1)
-	if l.dbPath == "" {
-		return
-	}
-	l.mu.RLock()
-	data, err := json.MarshalIndent(l.tracks, "", "  ")
-	l.mu.RUnlock()
-	if err != nil {
-		log.Printf("library: save error: %v", err)
-		return
-	}
-	if err := fsutil.WriteFile(l.dbPath, data, 0644); err != nil {
-		log.Printf("library: write error: %v", err)
 	}
 }
 

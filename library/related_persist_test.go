@@ -21,6 +21,7 @@ func TestRelatedPersists(t *testing.T) {
 	lib.AddRelated(a, b) // duplicate
 	lib.Save()
 
+	lib.Flush()
 	re := New()
 	re.SetDBPath(path)
 	if got := re.Related(a); len(got) != 2 || got[0] != b || got[1] != c {
