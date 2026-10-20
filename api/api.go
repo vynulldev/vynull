@@ -1347,10 +1347,9 @@ func (s *Server) applyImportBundle(w http.ResponseWriter, bundle *library.Import
 			if incArtwork && a.ImagePath != "" && s.Library.Artwork != nil {
 				p := filepath.Join(shareRoot, filepath.FromSlash(a.ImagePath))
 				if data, e := os.ReadFile(p); e == nil && len(data) > 0 {
-					t.ArtID = s.Library.Artwork.Add("image/jpeg", data)
-					// Mark checked so the startup ffmpeg pass doesn't re-probe
-					// (and clobber) this curated rekordbox artwork.
-					t.ArtChecked = true
+					// SetArtwork also marks the track checked, so the lazy
+					// ffmpeg probe doesn't replace this curated rekordbox art.
+					s.Library.SetArtwork(a.TrackID, s.Library.Artwork.Add("image/jpeg", data))
 					artN++
 				}
 			}
@@ -1376,7 +1375,7 @@ func (s *Server) applyImportBundle(w http.ResponseWriter, bundle *library.Import
 					s.Analysis.Set(a.TrackID, res)
 					anlzN++
 					if inc.Lock && len(res.Beats) > 0 {
-						t.AnalysisLocked = true
+						s.Library.UpdateBulk(a.TrackID, func(tr *library.Track) error { tr.AnalysisLocked = true; return nil })
 						lockN++
 					}
 				}
@@ -1392,7 +1391,7 @@ func (s *Server) applyImportBundle(w http.ResponseWriter, bundle *library.Import
 			}
 		}
 		if artN > 0 || lockN > 0 {
-			s.Library.Save() // persist the new Track.ArtID references and locks
+			s.Library.FinalizeBulk() // persist the new Track.ArtID references and locks
 		}
 		result.ArtworkImported = artN
 		result.AnalysisImported = anlzN
@@ -1433,67 +1432,35 @@ func (s *Server) applyImportBundle(w http.ResponseWriter, bundle *library.Import
 	// whole library so re-imports re-evaluate previously-flagged tracks too.
 	if incTracks {
 		s.importPhase("Checking files…")
+		// Standardize key notation to Camelot. rekordbox's ScaleName is a mix
+		// of Camelot ("8A") and classic ("Am") depending on the track; our
+		// analyzed tracks store Camelot, so normalize imports to match —
+		// otherwise the KEY column shows both notations.
 		keyFixed := 0
-		var toStat []*library.Track
 		for _, t := range s.Library.Tracks() {
-			// Standardize key notation to Camelot. rekordbox's ScaleName is a
-			// mix of Camelot ("8A") and classic ("Am") depending on the track;
-			// our analyzed tracks store Camelot, so normalize imports to match
-			// — otherwise the KEY column shows both notations.
-			if t.Key != "" {
-				if cam, _ := analysis.KeyNamesFrom(t.Key); cam != "" && cam != t.Key {
-					t.Key = cam
-					keyFixed++
+			err := s.Library.UpdateBulk(t.ID, func(tr *library.Track) error {
+				cam, _ := analysis.KeyNamesFrom(tr.Key)
+				if tr.Key == "" || cam == "" || cam == tr.Key {
+					return errUnchanged
 				}
+				tr.Key = cam
+				return nil
+			})
+			if err == nil {
+				keyFixed++
 			}
-			if t.FilePath == "" {
-				t.FileMissing = true
-				continue
-			}
-			toStat = append(toStat, t)
 		}
-		// Check file presence in parallel — a serial os.Stat over a large or
-		// network-backed library is a latency cliff (one slow/absent mount
-		// stalls the whole import). Each worker writes a distinct track's flag.
-		statCh := make(chan *library.Track)
-		var statWG sync.WaitGroup
-		statWorkers := 16
-		if len(toStat) < statWorkers {
-			statWorkers = len(toStat)
+		if keyFixed > 0 {
+			s.Library.FinalizeBulk()
+			log.Printf("import: standardized %d track key(s) to Camelot notation", keyFixed)
 		}
-		for i := 0; i < statWorkers; i++ {
-			statWG.Add(1)
-			go func() {
-				defer statWG.Done()
-				for t := range statCh {
-					_, err := os.Stat(t.FilePath)
-					t.FileMissing = err != nil
-				}
-			}()
-		}
-		for _, t := range toStat {
-			statCh <- t
-		}
-		close(statCh)
-		statWG.Wait()
-		// Tally results (no syscalls).
-		var missing int
-		var sample []string
-		for _, t := range s.Library.Tracks() {
-			if t.FileMissing {
-				missing++
-				if len(sample) < 5 {
+		if missing := s.Library.RefreshMissing(); missing > 0 {
+			var sample []string
+			for _, t := range s.Library.Tracks() {
+				if t.FileMissing && len(sample) < 5 {
 					sample = append(sample, t.FilePath)
 				}
 			}
-		}
-		if missing > 0 || keyFixed > 0 {
-			s.Library.Save()
-		}
-		if keyFixed > 0 {
-			log.Printf("import: standardized %d track key(s) to Camelot notation", keyFixed)
-		}
-		if missing > 0 {
 			result.FilesMissing = missing
 			log.Printf("import: WARNING — %d track(s) reference files not present on this machine (unplayable). Examples: %v", missing, sample)
 		}
@@ -1525,51 +1492,6 @@ func (s *Server) applyImportBundle(w http.ResponseWriter, bundle *library.Import
 	writeJSON(w, result)
 }
 
-// refreshMissingFlags re-checks every track's FilePath on disk and updates its
-// FileMissing flag. Stats run in parallel — a serial pass over a large or
-// network-backed library is a latency cliff. Returns the count still missing.
-func (s *Server) refreshMissingFlags() int {
-	tracks := s.Library.Tracks()
-	var toStat []*library.Track
-	for _, t := range tracks {
-		if t.FilePath == "" {
-			t.FileMissing = true
-			continue
-		}
-		toStat = append(toStat, t)
-	}
-	if len(toStat) > 0 {
-		statCh := make(chan *library.Track)
-		var wg sync.WaitGroup
-		workers := 16
-		if len(toStat) < workers {
-			workers = len(toStat)
-		}
-		for i := 0; i < workers; i++ {
-			wg.Add(1)
-			go func() {
-				defer wg.Done()
-				for t := range statCh {
-					_, err := os.Stat(t.FilePath)
-					t.FileMissing = err != nil
-				}
-			}()
-		}
-		for _, t := range toStat {
-			statCh <- t
-		}
-		close(statCh)
-		wg.Wait()
-	}
-	missing := 0
-	for _, t := range tracks {
-		if t.FileMissing {
-			missing++
-		}
-	}
-	return missing
-}
-
 // handleRemapPaths rewrites every track whose FilePath starts with
 // req.From so the prefix becomes req.To. Renames the on-disk analysis
 // cache (keyed by hash(file_path)) so the user doesn't have to
@@ -1598,7 +1520,7 @@ func (s *Server) handleRemapPaths(w http.ResponseWriter, r *http.Request) {
 	}
 	// Rewritten paths may now resolve (or stop resolving) on disk — re-check the
 	// FileMissing flags so remapped tracks stop showing as missing.
-	missing := s.refreshMissingFlags()
+	missing := s.Library.RefreshMissing()
 	s.Library.Save()
 	log.Printf("remap-paths: rewrote %d tracks %q -> %q (%d still missing)", n, req.From, req.To, missing)
 	writeJSON(w, map[string]any{"changed": n, "missing": missing})
@@ -2046,12 +1968,8 @@ func (s *Server) audioMissing(trackID uint32, filePath string) bool {
 	if _, err := os.Stat(filePath); err == nil {
 		return false
 	}
-	if s.Library != nil {
-		if t := s.Library.Track(trackID); t != nil && !t.FileMissing {
-			t.FileMissing = true
-			s.Library.Save()
-			log.Printf("api: track %d's file is missing, not analyzing: %s", trackID, filePath)
-		}
+	if s.Library != nil && s.Library.SetFileMissing(trackID, true) {
+		log.Printf("api: track %d's file is missing, not analyzing: %s", trackID, filePath)
 	}
 	return true
 }
@@ -2086,7 +2004,16 @@ func (s *Server) analysisWorker() {
 			log.Printf("api: analysis failed for track %d: %v", job.trackID, err)
 			continue
 		}
-		s.Analysis.Set(job.trackID, r)
+		// The track may have gained an analysis while this one ran: an import
+		// storing (and locking) rekordbox's. Keep that one, not ours.
+		if !s.Analysis.SetIfAbsent(job.trackID, r) {
+			s.Analysis.ClearStatus()
+			if cur := s.Analysis.Get(job.trackID); cur != nil {
+				s.applyAnalysisToTrack(job.trackID, cur)
+			}
+			log.Printf("api: discarded analysis of track %d: it gained one while this one ran", job.trackID)
+			continue
+		}
 		s.applyAnalysisToTrack(job.trackID, r)
 
 		// Update device track count.
@@ -2262,7 +2189,12 @@ func (s *Server) getOrAnalyze(trackID uint32) *analysis.Result {
 		log.Printf("api: on-demand analysis failed for track %d: %v", trackID, err)
 		return nil
 	}
-	s.Analysis.Set(trackID, r)
+	if !s.Analysis.SetIfAbsent(trackID, r) {
+		// It gained one while this ran (an import); serve that instead.
+		if cur := s.Analysis.Get(trackID); cur != nil {
+			r = cur
+		}
+	}
 	s.applyAnalysisToTrack(trackID, r)
 	log.Printf("api: analyzed track %d: BPM=%.1f key=%s path=%s", trackID, r.BPM, r.KeyCamelot, filePath)
 	return r
@@ -4124,6 +4056,10 @@ type editError struct {
 }
 
 func (e *editError) Error() string { return e.msg }
+
+// errUnchanged ends a Library.Update whose edit turns out not to be needed:
+// the track is left as it is.
+var errUnchanged = errors.New("unchanged")
 
 // updateTrack applies edit to the track through Library.Update, so the edit
 // is all or nothing and the library's indexes follow it. If the edit fails it

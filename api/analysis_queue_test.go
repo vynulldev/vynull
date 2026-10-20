@@ -114,3 +114,33 @@ func TestMissingFileIsNotAnalyzedOnDemand(t *testing.T) {
 		t.Errorf("track not flagged as missing")
 	}
 }
+
+// An import can also land while an analysis is running, not only while it
+// waits: neither the queued nor the on-demand analysis may replace it when
+// it finishes.
+func TestRunningAnalysisKeepsImportedResult(t *testing.T) {
+	path := audioFile(t, t.TempDir(), "one.flac")
+	lib := library.New()
+	lib.AddTrack(&library.Track{ID: 1, Title: "Imported", FilePath: path})
+	store := analysis.NewStore()
+	store.Importer = func(id uint32, _ string) *analysis.Result {
+		store.Set(id, &analysis.Result{BPM: 128}) // rekordbox's, stored mid-run
+		return &analysis.Result{BPM: 99}
+	}
+	srv := &Server{Library: lib, Analysis: store}
+	srv.analyzeOnce.Do(func() { srv.analyzeCh = make(chan analyzeJob, 4) })
+	if !srv.tryQueueAnalysis(1, "") {
+		t.Fatal("track 1 was not queued")
+	}
+	close(srv.analyzeCh)
+	srv.analysisWorker()
+	if got := store.Get(1); got == nil || got.BPM != 128 {
+		t.Errorf("queued: imported analysis replaced, got %+v", got)
+	}
+
+	store.Remove(1)
+	store.SetPath(1, path)
+	if got := srv.getOrAnalyze(1); got == nil || got.BPM != 128 || store.Get(1).BPM != 128 {
+		t.Errorf("on demand: served %+v, stored %+v; want the imported analysis", got, store.Get(1))
+	}
+}
