@@ -6,9 +6,12 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
+	"github.com/vynulldev/vynull/internal/tagtest"
 	"github.com/vynulldev/vynull/library"
 )
 
@@ -40,5 +43,25 @@ func TestReimportTracksBody(t *testing.T) {
 		if code, updated := post(tc.body); code != tc.code || updated != tc.updated {
 			t.Errorf("body %q: status %d, updated %d; want %d, %d", tc.body, code, updated, tc.code, tc.updated)
 		}
+	}
+}
+
+// Reimporting a track whose file now carries a different artist files it
+// under that artist, so the deck's ARTIST browse finds it there.
+func TestReimportReindexes(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "a.mp3")
+	tagtest.WriteMP3(t, path, map[string]string{"TIT2": "Song", "TPE1": "New"})
+	lib := library.New()
+	lib.AddTrack(&library.Track{ID: 1, Title: "Song", Artist: "Old", FilePath: path})
+	s := &Server{Library: lib}
+	rec := httptest.NewRecorder()
+	s.handleReimportTracks(rec, httptest.NewRequest(http.MethodPost, "/api/tracks/reimport", strings.NewReader("")))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status %d", rec.Code)
+	}
+	if lib.Track(1).Artist != "New" || len(lib.TracksByArtist("Old")) != 0 || len(lib.TracksByArtist("New")) != 1 ||
+		!slices.Equal(lib.Artists(), []string{"New"}) {
+		t.Errorf("artist %q; Old %d, New %d, artists %v; want New filed under New",
+			lib.Track(1).Artist, len(lib.TracksByArtist("Old")), len(lib.TracksByArtist("New")), lib.Artists())
 	}
 }
