@@ -42,3 +42,27 @@ func BenchmarkTrackList(b *testing.B) {
 		})
 	}
 }
+
+// BenchmarkRenderPage measures a deck scrolling a list it has already
+// queried: one 8-row page of a 27-entry playlist list, which the deck asks
+// for at every step past the visible window.
+func BenchmarkRenderPage(b *testing.B) {
+	const ctx = 0x01010401 // player 1, main list, rekordbox slot
+	h := &Handler{}
+	var items []*menuItem
+	for id := uint32(1); id <= 27; id++ {
+		items = append(items, &menuItem{ID: id, Label1: "Playlist", ItemType: 0x0008})
+	}
+	h.setPendingAll(&proto.DBMessage{TxID: 1, Type: 0x1105,
+		Args: []proto.DBArg{proto.ArgI32(ctx), proto.ArgI32(0)}}, items)
+	render := &proto.DBMessage{TxID: 2, Type: proto.DBMsgRenderMenu,
+		Args: []proto.DBArg{proto.ArgI32(ctx), proto.ArgI32(5), proto.ArgI32(8),
+			proto.ArgI32(0), proto.ArgI32(27), proto.ArgI32(0)}}
+	if got := len(h.Handle(render)); got != 8+2 { // header, rows, footer
+		b.Fatalf("render returned %d messages, want 10", got)
+	}
+	b.ReportAllocs()
+	for b.Loop() {
+		h.Handle(render)
+	}
+}
