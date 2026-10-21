@@ -44,7 +44,7 @@ func (s *Server) handleTracksColor(w http.ResponseWriter, r *http.Request) {
 		colors[i] = library.ColorImport{TrackID: id, ColorID: req.ColorID}
 	}
 	n := s.Library.SetColors(colors)
-	log.Printf("api: colour %d on %d tracks", req.ColorID, n)
+	log.Printf("api: colour %s on %d tracks", colorLabel(req.ColorID), n)
 	s.refreshLoaded(req.TrackIDs, (*device.VirtualDevice).BroadcastTrackRefresh)
 	writeJSON(w, batchResult{n})
 }

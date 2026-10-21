@@ -132,3 +132,11 @@ func TestImportMasterCuesPerTrack(t *testing.T) {
 		t.Errorf("track 2 cues %+v, want hot cue 2", c)
 	}
 }
+
+func TestColorLabel(t *testing.T) {
+	for id, want := range map[uint8]string{0: "none (0)", 4: "Yellow (4)", 7: "Blue (7)", 9: "none (9)"} {
+		if got := colorLabel(id); got != want {
+			t.Errorf("colorLabel(%d) = %q, want %q", id, got, want)
+		}
+	}
+}

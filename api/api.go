@@ -744,6 +744,15 @@ var trackColorNames = map[uint8]string{
 	5: "Green", 6: "Aqua", 7: "Blue", 8: "Purple",
 }
 
+// colorLabel names a track colour for the log: "Yellow (4)", "none (0)".
+func colorLabel(id uint8) string {
+	name := trackColorNames[id]
+	if name == "" {
+		name = "none"
+	}
+	return fmt.Sprintf("%s (%d)", name, id)
+}
+
 // libTrackListInfo is the payload for the full-collection list. It drops the
 // fields only ever shown in the track-detail drawer (which refetches the full
 // single track via /api/tracks/{id}) — chiefly file_size, which is set on
@@ -4244,6 +4253,7 @@ func (s *Server) handleTrackColor(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		s.Library.SetColor(trackID, req.ColorID)
+		log.Printf("api: colour %s on track %d", colorLabel(req.ColorID), trackID)
 		if s.Device != nil {
 			s.Device.BroadcastTrackRefresh(trackID)
 		}
