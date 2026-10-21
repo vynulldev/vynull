@@ -3,17 +3,21 @@
 package dbserver
 
 import (
+	"bytes"
 	"encoding/binary"
 	"encoding/json"
+	"errors"
 	"fmt"
-	"github.com/vynulldev/vynull/internal/dlog"
-	"log"
+	"maps"
 	"os"
 	"path/filepath"
+	"slices"
 	"sync"
 
 	"github.com/vynulldev/vynull/analysis"
+	"github.com/vynulldev/vynull/internal/dlog"
 	"github.com/vynulldev/vynull/internal/fsutil"
+	"github.com/vynulldev/vynull/internal/saver"
 )
 
 // CuePoint represents a saved hot cue or loop.
@@ -26,12 +30,24 @@ type CuePoint struct {
 	ColorID uint32 `json:"color_id"` // color/flags
 }
 
-// CueStore persists cue points per track to disk.
+// CueStore persists cue points per track to disk: cues_<id>.json, plus
+// cue_<id>_<n>.bin for each cue the deck saved with its own blob.
+//
+// A track's cue slice and blob map are replaced on every change, never
+// edited in place, so readers and the background writer can hold them
+// without the lock.
 type CueStore struct {
 	mu       sync.RWMutex
 	dir      string
 	data     map[uint32][]CuePoint        // trackID → parsed cues
 	rawBlobs map[uint32]map[uint16][]byte // trackID → cueNumber → raw blob
+	dirty    map[uint32]bool              // tracks changed since the last write
+	saver    *saver.Saver                 // writes the dirty tracks in the background
+
+	// onDisk is the writer's record of the blob files each track has on
+	// disk, so a write skips unchanged blobs and removes stale ones. Only
+	// loadAll and write touch it, and never at the same time.
+	onDisk map[uint32]map[uint16][]byte
 }
 
 // NewCueStore creates a cue store that persists to the given directory.
@@ -41,8 +57,11 @@ func NewCueStore(dir string) *CueStore {
 		dir:      dir,
 		data:     make(map[uint32][]CuePoint),
 		rawBlobs: make(map[uint32]map[uint16][]byte),
+		dirty:    make(map[uint32]bool),
+		onDisk:   make(map[uint32]map[uint16][]byte),
 	}
 	cs.loadAll()
+	cs.saver = saver.New("cuestore", saver.Interval, cs.write)
 	return cs
 }
 
@@ -185,42 +204,37 @@ func cueColorFromBlob(blob []byte) uint32 {
 	return binary.LittleEndian.Uint32(blob[0x34:])
 }
 
-// SaveCue stores or updates a cue point for a track, including the raw blob.
+// SaveCue stores or updates a cue point for a track, including the raw blob
+// (nil for a cue that didn't come from a deck: it's synthesized on serving).
 func (cs *CueStore) SaveCue(trackID uint32, cue *CuePoint, rawBlob []byte) {
 	cs.mu.Lock()
 	defer cs.mu.Unlock()
 
-	cues := cs.data[trackID]
-
-	// Replace existing cue with same number, or append.
-	found := false
-	for i, c := range cues {
-		if c.Number == cue.Number {
-			cues[i] = *cue
-			found = true
-			break
-		}
-	}
-	if !found {
+	// Replace the cue with the same number, or append.
+	cues := slices.Clone(cs.data[trackID])
+	if i := slices.IndexFunc(cues, func(c CuePoint) bool { return c.Number == cue.Number }); i >= 0 {
+		cues[i] = *cue
+	} else {
 		cues = append(cues, *cue)
 	}
 	cs.data[trackID] = cues
 
-	// Store raw blob keyed by cue number.
-	if cs.rawBlobs[trackID] == nil {
-		cs.rawBlobs[trackID] = make(map[uint16][]byte)
+	blobs := maps.Clone(cs.rawBlobs[trackID])
+	if blobs == nil {
+		blobs = make(map[uint16][]byte)
 	}
-	cs.rawBlobs[trackID][cue.Number] = append([]byte(nil), rawBlob...)
+	blobs[cue.Number] = bytes.Clone(rawBlob)
+	cs.rawBlobs[trackID] = blobs
 
-	cs.saveToDisk(trackID)
-	cs.saveRawToDisk(trackID)
+	cs.changedLocked(trackID)
 }
 
-// GetCues returns all cue points for a track.
+// GetCues returns all cue points for a track. The slice is shared: read it,
+// don't edit it.
 func (cs *CueStore) GetCues(trackID uint32) []CuePoint {
 	cs.mu.RLock()
 	defer cs.mu.RUnlock()
-	return cs.data[trackID]
+	return slices.Clip(cs.data[trackID])
 }
 
 // AllCues returns a snapshot of cues for every track that has any. Used by
@@ -235,9 +249,7 @@ func (cs *CueStore) AllCues() map[uint32][]CuePoint {
 			continue
 		}
 		// Defensive copy so callers can't mutate our backing store.
-		cp := make([]CuePoint, len(cues))
-		copy(cp, cues)
-		out[id] = cp
+		out[id] = slices.Clone(cues)
 	}
 	return out
 }
@@ -272,65 +284,131 @@ func (cs *CueStore) DeleteCue(trackID uint32, cueNumber uint16) {
 	defer cs.mu.Unlock()
 
 	cues := cs.data[trackID]
-	for i, c := range cues {
-		if c.Number == cueNumber {
-			cs.data[trackID] = append(cues[:i], cues[i+1:]...)
-			delete(cs.rawBlobs[trackID], cueNumber)
-			cs.saveToDisk(trackID)
-			cs.saveRawToDisk(trackID)
-			return
-		}
+	i := slices.IndexFunc(cues, func(c CuePoint) bool { return c.Number == cueNumber })
+	if i < 0 {
+		return
 	}
+	if len(cues) == 1 {
+		delete(cs.data, trackID)
+		delete(cs.rawBlobs, trackID)
+	} else {
+		cs.data[trackID] = slices.Delete(slices.Clone(cues), i, i+1)
+		blobs := maps.Clone(cs.rawBlobs[trackID])
+		delete(blobs, cueNumber)
+		cs.rawBlobs[trackID] = blobs
+	}
+	cs.changedLocked(trackID)
 }
 
-// DeleteAllForTrack removes every cue (and raw blob) for trackID, both
-// in memory and on disk. Used when the track is being deleted from the
-// library so we don't leak per-track JSON + .bin files in cs.dir.
+// DeleteAllForTrack removes every cue (and raw blob) for trackID; the
+// background writer removes its files. Used when the track is being deleted
+// from the library so we don't leak per-track JSON + .bin files in cs.dir.
 func (cs *CueStore) DeleteAllForTrack(trackID uint32) {
 	cs.mu.Lock()
 	defer cs.mu.Unlock()
 	if _, ok := cs.data[trackID]; !ok && cs.rawBlobs[trackID] == nil {
 		return
 	}
-	// Disk: cues_<id>.json + cue_<id>_<n>.bin
-	jsonPath := filepath.Join(cs.dir, fmt.Sprintf("cues_%d.json", trackID))
-	if err := os.Remove(jsonPath); err != nil && !os.IsNotExist(err) {
-		log.Printf("cuestore: remove %s: %v", jsonPath, err)
-	}
-	for num := range cs.rawBlobs[trackID] {
-		binPath := filepath.Join(cs.dir, fmt.Sprintf("cue_%d_%d.bin", trackID, num))
-		if err := os.Remove(binPath); err != nil && !os.IsNotExist(err) {
-			log.Printf("cuestore: remove %s: %v", binPath, err)
-		}
-	}
 	delete(cs.data, trackID)
 	delete(cs.rawBlobs, trackID)
+	cs.changedLocked(trackID)
 }
 
-func (cs *CueStore) saveRawToDisk(trackID uint32) {
-	blobs := cs.rawBlobs[trackID]
-	if len(blobs) == 0 {
-		return
+// changedLocked records a change to a track's cues for the background
+// writer. Callers hold cs.mu.
+func (cs *CueStore) changedLocked(trackID uint32) {
+	cs.dirty[trackID] = true
+	cs.saver.Mark()
+}
+
+// Flush writes the changed tracks' cue files now.
+func (cs *CueStore) Flush() error {
+	return cs.saver.Flush()
+}
+
+// Close stops the background writer and writes any unsaved changes, on
+// shutdown.
+func (cs *CueStore) Close() error {
+	return cs.saver.Close()
+}
+
+// write brings the files of every track changed since the last write in
+// line with its cues, from the state taken under the lock. A track whose
+// files fail to write stays dirty for the next write.
+func (cs *CueStore) write() error {
+	type trackCues struct {
+		cues  []CuePoint
+		blobs map[uint16][]byte
 	}
-	// Save each raw blob as a separate binary file.
-	for num, raw := range blobs {
-		path := filepath.Join(cs.dir, fmt.Sprintf("cue_%d_%d.bin", trackID, num))
-		if err := fsutil.WriteFile(path, raw, 0644); err != nil {
-			log.Printf("cuestore: write raw error: %v", err)
+	cs.mu.Lock()
+	snap := make(map[uint32]trackCues, len(cs.dirty))
+	for id := range cs.dirty {
+		snap[id] = trackCues{cs.data[id], cs.rawBlobs[id]}
+	}
+	clear(cs.dirty)
+	cs.mu.Unlock()
+
+	var errs []error
+	for id, tc := range snap {
+		if err := cs.writeTrack(id, tc.cues, tc.blobs); err != nil {
+			errs = append(errs, err)
+			cs.mu.Lock()
+			cs.dirty[id] = true
+			cs.mu.Unlock()
 		}
 	}
+	return errors.Join(errs...)
 }
 
-func (cs *CueStore) saveToDisk(trackID uint32) {
-	path := filepath.Join(cs.dir, fmt.Sprintf("cues_%d.json", trackID))
-	data, err := json.MarshalIndent(cs.data[trackID], "", "  ")
-	if err != nil {
-		log.Printf("cuestore: marshal error: %v", err)
-		return
+// writeTrack writes one track's cues_<id>.json and the deck blobs that
+// changed, and removes the files of cues that are gone. No cues: no files.
+func (cs *CueStore) writeTrack(trackID uint32, cues []CuePoint, blobs map[uint16][]byte) error {
+	jsonPath := filepath.Join(cs.dir, fmt.Sprintf("cues_%d.json", trackID))
+	if len(cues) == 0 {
+		if err := os.Remove(jsonPath); err != nil && !os.IsNotExist(err) {
+			return err
+		}
+	} else {
+		data, err := json.Marshal(cues)
+		if err != nil {
+			return err
+		}
+		if err := fsutil.WriteFile(jsonPath, data, 0644); err != nil {
+			return err
+		}
 	}
-	if err := fsutil.WriteFile(path, data, 0644); err != nil {
-		log.Printf("cuestore: write error: %v", err)
+
+	onDisk := cs.onDisk[trackID]
+	if onDisk == nil {
+		onDisk = make(map[uint16][]byte)
+		cs.onDisk[trackID] = onDisk
 	}
+	for num, raw := range blobs {
+		if len(raw) == 0 || bytes.Equal(onDisk[num], raw) {
+			continue
+		}
+		if err := fsutil.WriteFile(cs.blobPath(trackID, num), raw, 0644); err != nil {
+			return err
+		}
+		onDisk[num] = raw
+	}
+	for num := range onDisk {
+		if len(blobs[num]) > 0 {
+			continue
+		}
+		if err := os.Remove(cs.blobPath(trackID, num)); err != nil && !os.IsNotExist(err) {
+			return err
+		}
+		delete(onDisk, num)
+	}
+	if len(onDisk) == 0 {
+		delete(cs.onDisk, trackID)
+	}
+	return nil
+}
+
+func (cs *CueStore) blobPath(trackID uint32, num uint16) string {
+	return filepath.Join(cs.dir, fmt.Sprintf("cue_%d_%d.bin", trackID, num))
 }
 
 func (cs *CueStore) loadAll() {
@@ -365,10 +443,25 @@ func (cs *CueStore) loadAll() {
 			if err != nil {
 				continue
 			}
-			if cs.rawBlobs[bTrackID] == nil {
-				cs.rawBlobs[bTrackID] = make(map[uint16][]byte)
+			if cs.onDisk[bTrackID] == nil {
+				cs.onDisk[bTrackID] = make(map[uint16][]byte)
 			}
-			cs.rawBlobs[bTrackID][bCueNum] = data
+			cs.onDisk[bTrackID][bCueNum] = data
+		}
+	}
+
+	// Pair each track's blobs with its cues. A blob without a cue is left
+	// over from a deleted cue (older versions kept the file); it stays in
+	// onDisk only, so the track's next write removes it.
+	for trackID, files := range cs.onDisk {
+		for num, raw := range files {
+			if !slices.ContainsFunc(cs.data[trackID], func(c CuePoint) bool { return c.Number == num }) {
+				continue
+			}
+			if cs.rawBlobs[trackID] == nil {
+				cs.rawBlobs[trackID] = make(map[uint16][]byte)
+			}
+			cs.rawBlobs[trackID][num] = raw
 		}
 	}
 

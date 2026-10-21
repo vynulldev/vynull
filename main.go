@@ -333,6 +333,7 @@ func main() {
 		return lib.TrackCount()
 	}
 	cueStore := dbserver.NewCueStore(filepath.Join(cfg.DataDir, "cues"))
+	defer cueStore.Close() // the stores save in the background, like the library
 
 	// A served rekordbox USB carries rekordbox's own analysis. Prefer its
 	// ANLZ files over re-running our DSP: the deck gets rekordbox's exact
@@ -488,7 +489,9 @@ func main() {
 	}
 
 	tagStore := api.NewTagStore(filepath.Join(cfg.DataDir, "tags"))
+	defer tagStore.Close()
 	playlistStore := api.NewPlaylistStore(filepath.Join(cfg.DataDir, "playlists"))
+	defer playlistStore.Close()
 	menuStore := api.NewMenuStore(filepath.Join(cfg.DataDir, "menu"))
 
 	// The library owns track colours and ratings. Older versions also kept

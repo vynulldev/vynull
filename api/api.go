@@ -1194,14 +1194,6 @@ func (s *Server) applyImportBundle(w http.ResponseWriter, bundle *library.Import
 		log.Printf("import: materialized %d playlist nodes (%d smart, %d skipped)", created, smart, skipped)
 	}
 
-	// Batch all tag/category/color writes into a single persist at the end of
-	// the import — otherwise each CreateTag/SetTagsForTrack/SetTrackColor
-	// rewrites the whole JSON file, which is O(n²) over hundreds of assignments.
-	if s.Tags != nil {
-		s.Tags.BeginBatch()
-		defer s.Tags.EndBatch()
-	}
-
 	// Materialize MyTags (from the XML's comment encoding). Each tag is
 	// created uncategorized if it doesn't already exist by name, then
 	// assigned to the imported tracks. Existing per-track tag sets are
