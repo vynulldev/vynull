@@ -38,9 +38,9 @@ func (h *Handler) handleRenderMenu(msg *proto.DBMessage) []*proto.DBMessage {
 	//     category's actual count and args[1] is a paging offset
 	//     into THAT list (not the root menu's offset).
 	// Use args[4] as the discriminator: rootMenuItems' size → root
-	// list; otherwise serve lastCategoryItems (the response from the
-	// most recent category-list query, e.g. handleGetColors). Falls
-	// through to the normal pending lookup when neither matches.
+	// list; otherwise serve the list last queried in the render's context
+	// (e.g. by handleGetColors).
+	// Falls through to the normal pending lookup when neither matches.
 	var pending []*menuItem
 	// Menu bytes 1 and 7 both indicate a root-menu render. The deck
 	// uses scope=7 for the initial "give me the full root menu" call
@@ -52,17 +52,17 @@ func (h *Handler) handleRenderMenu(msg *proto.DBMessage) []*proto.DBMessage {
 	if (menu == 1 || menu == 7) && len(msg.Args) >= 6 {
 		expected := int(msg.Args[4].Int())
 		root := h.rootMenu()
-		// Prefer lastCategoryItems whenever its size matches the deck's
-		// expected count — it's strictly more specific than rootMenu
-		// (every category query touches it, including 0x2002 metadata).
-		// Without this priority, a category that happens to have the
-		// same item count as the root menu (e.g. 0x2002 metadata also
-		// returns 16 items) would render rootMenu rows in place of the
-		// actual category content. Fall back to rootMenu only when no
+		// Prefer the render context's recent list whenever its size matches
+		// the deck's expected count — it's strictly more specific than
+		// rootMenu (every category query touches it, including 0x2002
+		// metadata). Without this priority, a category that happens to
+		// have the same item count as the root menu (e.g. 0x2002 metadata
+		// also returns 16 items) would render rootMenu rows in place of
+		// the actual category content. Fall back to rootMenu only when no
 		// recent category result matches.
-		switch {
-		case len(h.lastCategoryItems) > 0 && expected == len(h.lastCategoryItems):
-			pending = h.lastCategoryItems
+		switch last := h.recentLists().get(dmstContext(msg)); {
+		case len(last) > 0 && expected == len(last):
+			pending = last
 		case expected == len(root) && len(root) > 0:
 			pending = root
 		}
@@ -291,12 +291,12 @@ func (h *Handler) setPendingAll(msg *proto.DBMessage, items []*menuItem) {
 	h.setPending(menu, items)
 	h.setPendingTxID(msg.TxID, items)
 	h.pendingItems = items
-	// Also stash as the "most recent category-query result" so the
-	// menu=1 render dispatch in handleRenderMenu can prefer this over
-	// rootMenu when both have the same item count (e.g. 0x2002
+	// Also stash as this context's "most recent category-query result"
+	// so the menu=1 render dispatch in handleRenderMenu can prefer this
+	// over rootMenu when both have the same item count (e.g. 0x2002
 	// metadata returns 16 items and so does the root menu — without
 	// this update the metadata render would serve root-menu rows).
-	h.lastCategoryItems = items
+	h.recentLists().set(dmstContext(msg), items)
 }
 
 func (h *Handler) setPending(menu uint8, items []*menuItem) {

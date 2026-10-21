@@ -243,7 +243,6 @@ func (h *Handler) handleGetColors(msg *proto.DBMessage) []*proto.DBMessage {
 		})
 	}
 	h.setPendingAll(msg, items)
-	h.lastCategoryItems = items
 	return []*proto.DBMessage{h.successWithCount(msg)}
 }
 
@@ -267,11 +266,6 @@ func (h *Handler) handleGetTracksByColor(msg *proto.DBMessage) []*proto.DBMessag
 	}
 	items := h.tracksToStdItems(matches)
 	h.setPendingAll(msg, items)
-	// Stash these as the "most recent category-query result" too —
-	// the deck's follow-up drill render (menu=1, args[5]=0x0c) routes
-	// through lastCategoryItems, and without this update it would
-	// still hold the colour-list rows from the preceding 0x100d.
-	h.lastCategoryItems = items
 	return []*proto.DBMessage{h.successWithCount(msg)}
 }
 

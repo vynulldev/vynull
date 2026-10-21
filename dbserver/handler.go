@@ -49,14 +49,14 @@ type Handler struct {
 	pendingByMenu map[uint8][]*menuItem // legacy fallback
 	pendingItems  []*menuItem           // legacy fallback
 
-	// lastCategoryItems is the items list returned by the most recent
-	// category-list query (0x100d COLOR list, etc.). The deck uses
-	// menu=1 renders for BOTH the root menu and category drill-ins
-	// post-tap; args[4] (expected count) is the only discriminator,
-	// and when it doesn't match rootMenuItems' size we serve this
-	// instead so the deck's "drilled into colour list" view shows
-	// the right rows.
-	lastCategoryItems []*menuItem
+	// recent holds the list each request context last queried (0x100d
+	// COLOR list, a playlist, etc.), shared by the server's sessions
+	// (recentlists.go). The deck uses menu=1 renders for BOTH the root
+	// menu and category drill-ins post-tap; args[4] (expected count) is
+	// the only discriminator, and when it matches the render context's
+	// list we serve it instead of the root menu so the deck's "drilled
+	// into colour list" view shows the right rows.
+	recent *recentLists
 
 	// Context from the last 0x2705 cue write request.
 	lastCueTrackID uint32
@@ -562,11 +562,12 @@ func (h *Handler) handleRootMenu(msg *proto.DBMessage) []*proto.DBMessage {
 	dlog.Debugf("dbserver: root menu (0x1000)")
 	// The deck is back at the root menu, so any "most recent category/detail
 	// list" context is stale. Clear it — otherwise the follow-up root render
-	// (menu=1/7) can match lastCategoryItems by count and show that stale
+	// (menu=1/7) can match a recent list by count and show that stale
 	// content instead of the root menu. This is exactly the INFO bug: the
 	// track-info detail list has 16 rows, same as the root's 16 categories,
-	// so browsing the menu after INFO rendered the track info.
-	h.lastCategoryItems = nil
+	// so browsing the menu after INFO rendered the track info. Only this
+	// deck's lists go; other decks keep theirs.
+	h.recentLists().forget(uint8(dmstContext(msg) >> 24))
 	items := h.rootMenu()
 	dlog.Debugf("dbserver: root menu returning %d categories", len(items))
 	return []*proto.DBMessage{{
