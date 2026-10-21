@@ -8,11 +8,13 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"sync"
 	"time"
 
 	"github.com/vynulldev/vynull/internal/fsutil"
+	"github.com/vynulldev/vynull/internal/saver"
 	"github.com/vynulldev/vynull/library"
 )
 
@@ -48,6 +50,7 @@ type PlaylistStore struct {
 	dir       string
 	playlists []*PlaylistInfo
 	nextID    uint32
+	saver     *saver.Saver // writes playlists.json in the background
 }
 
 // NewPlaylistStore creates a store backed by dir/playlists.json.
@@ -59,6 +62,9 @@ func NewPlaylistStore(dir string) *PlaylistStore {
 		nextID: 1,
 	}
 	ps.load()
+	if dir != "" {
+		ps.saver = saver.New("playlists", saver.Interval, ps.write)
+	}
 	return ps
 }
 
@@ -135,7 +141,7 @@ func (ps *PlaylistStore) create(name string, parentID uint32, isFolder, isSmart 
 	}
 	ps.nextID++
 	ps.playlists = append(ps.playlists, p)
-	ps.saveLocked()
+	ps.changed()
 	kind := typeName(isFolder)
 	if isSmart {
 		kind = "smart playlist"
@@ -158,7 +164,7 @@ func (ps *PlaylistStore) SetRules(id uint32, rules *SmartRules) error {
 		return fmt.Errorf("playlist %d is not a smart playlist", id)
 	}
 	p.Rules = rules
-	ps.saveLocked()
+	ps.changed()
 	return nil
 }
 
@@ -171,7 +177,7 @@ func (ps *PlaylistStore) Rename(id uint32, name string) error {
 		return fmt.Errorf("playlist %d not found", id)
 	}
 	p.Name = name
-	ps.saveLocked()
+	ps.changed()
 	return nil
 }
 
@@ -207,7 +213,7 @@ func (ps *PlaylistStore) Move(id uint32, parentID uint32, order int) error {
 	} else {
 		p.SortOrder = order
 	}
-	ps.saveLocked()
+	ps.changed()
 	return nil
 }
 
@@ -240,7 +246,7 @@ func (ps *PlaylistStore) Delete(id uint32) error {
 		}
 	}
 	ps.playlists = kept
-	ps.saveLocked()
+	ps.changed()
 	log.Printf("api: deleted playlist %d (%d removed including descendants)", id, len(toRemove))
 	return nil
 }
@@ -262,7 +268,7 @@ func (ps *PlaylistStore) SetTracks(id uint32, trackIDs []uint32) error {
 		return fmt.Errorf("playlist %d is a smart playlist (edit rules, not tracks)", id)
 	}
 	p.TrackIDs = append([]uint32(nil), trackIDs...)
-	ps.saveLocked()
+	ps.changed()
 	log.Printf("api: playlist %d (%q) now has %d tracks", id, p.Name, len(trackIDs))
 	return nil
 }
@@ -308,7 +314,7 @@ func (ps *PlaylistStore) RemoveTrackFromAll(trackID uint32) int {
 		}
 	}
 	if touched > 0 {
-		ps.saveLocked()
+		ps.changed()
 	}
 	return touched
 }
@@ -420,23 +426,49 @@ type playlistFileData struct {
 	Playlists []*PlaylistInfo `json:"playlists"`
 }
 
-func (ps *PlaylistStore) saveLocked() {
-	if ps.dir == "" {
-		return
+// changed records a change for the background writer. Callers hold ps.mu.
+func (ps *PlaylistStore) changed() {
+	if ps.saver != nil {
+		ps.saver.Mark()
 	}
+}
+
+// Flush writes playlists.json now if it has unsaved changes.
+func (ps *PlaylistStore) Flush() error {
+	if ps.saver == nil {
+		return nil
+	}
+	return ps.saver.Flush()
+}
+
+// Close stops the background writer and writes any unsaved changes, on
+// shutdown.
+func (ps *PlaylistStore) Close() error {
+	if ps.saver == nil {
+		return nil
+	}
+	return ps.saver.Close()
+}
+
+// write writes playlists.json from a copy taken under the lock, encoded
+// outside it.
+func (ps *PlaylistStore) write() error {
+	ps.mu.RLock()
 	data := playlistFileData{
 		NextID:    ps.nextID,
-		Playlists: ps.playlists,
+		Playlists: make([]*PlaylistInfo, len(ps.playlists)),
 	}
-	b, err := json.MarshalIndent(data, "", "  ")
+	for i, p := range ps.playlists {
+		cp := *p // Rules are replaced, never edited, so sharing them is safe
+		cp.TrackIDs = slices.Clone(p.TrackIDs)
+		data.Playlists[i] = &cp
+	}
+	ps.mu.RUnlock()
+	b, err := json.Marshal(data)
 	if err != nil {
-		log.Printf("playlists: marshal error: %v", err)
-		return
+		return err
 	}
-	path := filepath.Join(ps.dir, "playlists.json")
-	if err := fsutil.WriteFile(path, b, 0644); err != nil {
-		log.Printf("playlists: write %s: %v", path, err)
-	}
+	return fsutil.WriteFile(filepath.Join(ps.dir, "playlists.json"), b, 0644)
 }
 
 func (ps *PlaylistStore) load() {

@@ -269,6 +269,9 @@ func TestPlaylistRecursiveDelete(t *testing.T) {
 	}
 
 	// Reopen and confirm persistence reflects the deletion.
+	if err := ps.Flush(); err != nil {
+		t.Fatal(err)
+	}
 	ps2 := NewPlaylistStore(dir)
 	if len(ps2.All()) != 0 {
 		t.Fatalf("persistence kept stale entries: %+v", ps2.All())
@@ -284,6 +287,9 @@ func TestPlaylistStoreReload(t *testing.T) {
 	folder, _ := ps.Create("F", 0, true)
 	pl, _ := ps.Create("P", folder.ID, false)
 	_ = ps.SetTracks(pl.ID, []uint32{7, 8, 9})
+	if err := ps.Flush(); err != nil {
+		t.Fatal(err)
+	}
 
 	ps2 := NewPlaylistStore(dir)
 	got := ps2.Get(pl.ID)

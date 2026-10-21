@@ -6,11 +6,14 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"maps"
 	"os"
 	"path/filepath"
+	"slices"
 	"sync"
 
 	"github.com/vynulldev/vynull/internal/fsutil"
+	"github.com/vynulldev/vynull/internal/saver"
 )
 
 // TagCategoryInfo represents a tag category.
@@ -44,8 +47,6 @@ type TagStoreInterface interface {
 	GetTagsForTrack(trackID uint32) []TagInfo
 	SetTagsForTrack(trackID uint32, tagIDs []uint32)
 	RemoveAllTrackData(trackID uint32)
-	BeginBatch()
-	EndBatch()
 }
 
 // TagStore persists tags, categories, and track-tag assignments to JSON files.
@@ -54,26 +55,10 @@ type TagStore struct {
 	dir        string
 	categories []TagCategoryInfo
 	tags       []TagInfo
-	trackTags  map[uint32][]uint32 // trackID → tag IDs
+	trackTags  map[uint32][]uint32 // trackID → tag IDs; a track's slice is replaced, never edited
 	nextCatID  uint32
 	nextTagID  uint32
-	batch      bool // when true, save* are deferred until EndBatch (bulk import)
-}
-
-// BeginBatch suppresses per-mutation disk writes until EndBatch — used by the
-// importer, which would otherwise rewrite the whole tag JSON once per
-// assignment (O(n²) writes). EndBatch persists everything once.
-func (ts *TagStore) BeginBatch() {
-	ts.mu.Lock()
-	ts.batch = true
-	ts.mu.Unlock()
-}
-
-func (ts *TagStore) EndBatch() {
-	ts.mu.Lock()
-	ts.batch = false
-	ts.saveAll() // tags.json + track_tags.json
-	ts.mu.Unlock()
+	saver      *saver.Saver // writes tags.json and track_tags.json in the background
 }
 
 // NewTagStore creates a tag store that persists to the given directory.
@@ -86,6 +71,7 @@ func NewTagStore(dir string) *TagStore {
 		nextTagID: 1,
 	}
 	ts.load()
+	ts.saver = saver.New("tags", saver.Interval, ts.write)
 	return ts
 }
 
@@ -110,7 +96,7 @@ func (ts *TagStore) CreateCategory(name string) (uint32, error) {
 	id := ts.nextCatID
 	ts.nextCatID++
 	ts.categories = append(ts.categories, TagCategoryInfo{ID: id, Name: name})
-	ts.saveAll()
+	ts.changed()
 	log.Printf("api: created tag category #%d %q", id, name)
 	return id, nil
 }
@@ -121,7 +107,7 @@ func (ts *TagStore) RenameCategory(id uint32, name string) error {
 	for i, c := range ts.categories {
 		if c.ID == id {
 			ts.categories[i].Name = name
-			ts.saveAll()
+			ts.changed()
 			return nil
 		}
 	}
@@ -143,7 +129,7 @@ func (ts *TagStore) DeleteCategory(id uint32) {
 			ts.tags[i].CategoryID = 0
 		}
 	}
-	ts.saveAll()
+	ts.changed()
 }
 
 // ── Tags ────────────────────────────────────────────────────────────────
@@ -167,7 +153,7 @@ func (ts *TagStore) CreateTag(name string, categoryID uint32) (uint32, error) {
 	id := ts.nextTagID
 	ts.nextTagID++
 	ts.tags = append(ts.tags, TagInfo{ID: id, Name: name, CategoryID: categoryID})
-	ts.saveAll()
+	ts.changed()
 	log.Printf("api: created tag #%d %q (category %d)", id, name, categoryID)
 	return id, nil
 }
@@ -178,7 +164,7 @@ func (ts *TagStore) RenameTag(id uint32, name string) error {
 	for i, t := range ts.tags {
 		if t.ID == id {
 			ts.tags[i].Name = name
-			ts.saveAll()
+			ts.changed()
 			return nil
 		}
 	}
@@ -191,7 +177,7 @@ func (ts *TagStore) SetTagCategory(id uint32, categoryID uint32) {
 	for i, t := range ts.tags {
 		if t.ID == id {
 			ts.tags[i].CategoryID = categoryID
-			ts.saveAll()
+			ts.changed()
 			return
 		}
 	}
@@ -203,7 +189,7 @@ func (ts *TagStore) SetTagColor(id uint32, colorID uint8) error {
 	for i, t := range ts.tags {
 		if t.ID == id {
 			ts.tags[i].Color = colorID
-			ts.saveAll()
+			ts.changed()
 			return nil
 		}
 	}
@@ -220,19 +206,17 @@ func (ts *TagStore) DeleteTag(id uint32) {
 		}
 	}
 	for trackID, tagIDs := range ts.trackTags {
-		filtered := tagIDs[:0]
-		for _, tid := range tagIDs {
-			if tid != id {
-				filtered = append(filtered, tid)
-			}
+		if !slices.Contains(tagIDs, id) {
+			continue
 		}
+		filtered := slices.DeleteFunc(slices.Clone(tagIDs), func(tid uint32) bool { return tid == id })
 		if len(filtered) == 0 {
 			delete(ts.trackTags, trackID)
 		} else {
 			ts.trackTags[trackID] = filtered
 		}
 	}
-	ts.saveAll()
+	ts.changed()
 }
 
 // ── Track assignments ───────────────────────────────────────────────────
@@ -279,9 +263,9 @@ func (ts *TagStore) SetTagsForTrack(trackID uint32, tagIDs []uint32) {
 	if len(tagIDs) == 0 {
 		delete(ts.trackTags, trackID)
 	} else {
-		ts.trackTags[trackID] = tagIDs
+		ts.trackTags[trackID] = slices.Clone(tagIDs)
 	}
-	ts.saveTrackTags()
+	ts.changed()
 	log.Printf("api: set %d tags for track %d", len(tagIDs), trackID)
 }
 
@@ -321,7 +305,7 @@ func (ts *TagStore) RemoveAllTrackData(trackID uint32) {
 	defer ts.mu.Unlock()
 	if _, ok := ts.trackTags[trackID]; ok {
 		delete(ts.trackTags, trackID)
-		ts.saveTrackTags()
+		ts.changed()
 	}
 }
 
@@ -334,27 +318,45 @@ type storeFileData struct {
 	Tags       []TagInfo         `json:"tags"`
 }
 
-func (ts *TagStore) saveAll() {
-	if ts.batch {
-		return
-	}
+// changed records a change for the background writer. Callers hold ts.mu.
+func (ts *TagStore) changed() {
+	ts.saver.Mark()
+}
+
+// Flush writes the tag files now if they have unsaved changes.
+func (ts *TagStore) Flush() error {
+	return ts.saver.Flush()
+}
+
+// Close stops the background writer and writes any unsaved changes, on
+// shutdown.
+func (ts *TagStore) Close() error {
+	return ts.saver.Close()
+}
+
+// write writes tags.json and track_tags.json from a copy taken under the
+// lock, encoded outside it.
+func (ts *TagStore) write() error {
+	ts.mu.RLock()
 	data := storeFileData{
 		NextCatID:  ts.nextCatID,
 		NextTagID:  ts.nextTagID,
-		Categories: ts.categories,
-		Tags:       ts.tags,
+		Categories: slices.Clone(ts.categories),
+		Tags:       slices.Clone(ts.tags),
 	}
-	b, _ := json.MarshalIndent(data, "", "  ")
-	fsutil.WriteFile(filepath.Join(ts.dir, "tags.json"), b, 0644)
-	ts.saveTrackTags()
-}
-
-func (ts *TagStore) saveTrackTags() {
-	if ts.batch {
-		return
+	trackTags := maps.Clone(ts.trackTags) // the slices are never edited in place
+	ts.mu.RUnlock()
+	b, err := json.Marshal(data)
+	if err != nil {
+		return err
 	}
-	b, _ := json.MarshalIndent(ts.trackTags, "", "  ")
-	fsutil.WriteFile(filepath.Join(ts.dir, "track_tags.json"), b, 0644)
+	if err := fsutil.WriteFile(filepath.Join(ts.dir, "tags.json"), b, 0644); err != nil {
+		return err
+	}
+	if b, err = json.Marshal(trackTags); err != nil {
+		return err
+	}
+	return fsutil.WriteFile(filepath.Join(ts.dir, "track_tags.json"), b, 0644)
 }
 
 func (ts *TagStore) load() {

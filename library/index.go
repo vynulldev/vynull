@@ -13,6 +13,8 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+
+	"github.com/vynulldev/vynull/internal/saver"
 )
 
 // HashID generates a stable rekordbox-style 32-bit ID from a type and name.
@@ -68,8 +70,9 @@ type Library struct {
 
 	dbPath string // if set, persist track list to this JSON file
 
-	// writer saves the track list in the background (writer.go).
-	writer writer
+	// saver writes the track list in the background once dbPath is set
+	// (writer.go).
+	saver *saver.Saver
 
 	// rev is a monotonic revision counter bumped whenever track data
 	// changes. Clients poll it (cheaply) and only refetch the full track
@@ -389,6 +392,9 @@ func (l *Library) RemoveTrack(id uint32) bool {
 // SetDBPath sets the path for persisting the track list. If the file exists, loads it.
 func (l *Library) SetDBPath(path string) {
 	l.dbPath = path
+	if l.saver == nil {
+		l.saver = saver.New("library", saver.Interval, l.writeTracks)
+	}
 	l.loadFromDisk()
 	l.loadHotCueBanks()
 }
