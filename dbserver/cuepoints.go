@@ -207,25 +207,46 @@ func cueColorFromBlob(blob []byte) uint32 {
 // SaveCue stores or updates a cue point for a track, including the raw blob
 // (nil for a cue that didn't come from a deck: it's synthesized on serving).
 func (cs *CueStore) SaveCue(trackID uint32, cue *CuePoint, rawBlob []byte) {
+	cs.saveCues(trackID, []CuePoint{*cue}, [][]byte{rawBlob})
+}
+
+// SaveCues stores several cue points for a track as one change, as an import
+// does: each replaces the track's cue with its number or is added. They carry
+// no deck blob, so a replaced cue's blob goes and the cue is synthesized on
+// serving.
+func (cs *CueStore) SaveCues(trackID uint32, cues []CuePoint) {
+	cs.saveCues(trackID, cues, nil)
+}
+
+// saveCues stores cues for a track as one change; blobs[i], when blobs is
+// given, is the deck's blob for cues[i].
+func (cs *CueStore) saveCues(trackID uint32, cues []CuePoint, blobs [][]byte) {
+	if len(cues) == 0 {
+		return
+	}
 	cs.mu.Lock()
 	defer cs.mu.Unlock()
 
-	// Replace the cue with the same number, or append.
-	cues := slices.Clone(cs.data[trackID])
-	if i := slices.IndexFunc(cues, func(c CuePoint) bool { return c.Number == cue.Number }); i >= 0 {
-		cues[i] = *cue
-	} else {
-		cues = append(cues, *cue)
+	list := slices.Clone(cs.data[trackID])
+	raw := maps.Clone(cs.rawBlobs[trackID])
+	if raw == nil {
+		raw = make(map[uint16][]byte)
 	}
-	cs.data[trackID] = cues
-
-	blobs := maps.Clone(cs.rawBlobs[trackID])
-	if blobs == nil {
-		blobs = make(map[uint16][]byte)
+	for i, cue := range cues {
+		// Replace the cue with the same number, or append.
+		if j := slices.IndexFunc(list, func(c CuePoint) bool { return c.Number == cue.Number }); j >= 0 {
+			list[j] = cue
+		} else {
+			list = append(list, cue)
+		}
+		if blobs != nil && len(blobs[i]) > 0 {
+			raw[cue.Number] = bytes.Clone(blobs[i])
+		} else {
+			delete(raw, cue.Number)
+		}
 	}
-	blobs[cue.Number] = bytes.Clone(rawBlob)
-	cs.rawBlobs[trackID] = blobs
-
+	cs.data[trackID] = list
+	cs.rawBlobs[trackID] = raw
 	cs.changedLocked(trackID)
 }
 

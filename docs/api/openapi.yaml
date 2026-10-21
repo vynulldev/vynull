@@ -148,6 +148,40 @@ paths:
       responses:
         "200": { description: OK, content: { application/json: { schema: { type: object, properties: { rev: { type: integer, format: int64 } } } } } }
 
+  /api/tracks/color:
+    put:
+      tags: [Track edits]
+      summary: Set the colour of several tracks (0 none, 1-8 palette).
+      description: |
+        One change for a selection, instead of a request per track. Track IDs
+        the library doesn't hold are skipped. A deck with one of the tracks
+        loaded is told to re-fetch it.
+      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [track_ids, color_id], properties: { track_ids: { $ref: "#/components/schemas/TrackIDs" }, color_id: { type: integer, minimum: 0, maximum: 8 } } } } } }
+      responses: { "200": { description: OK, content: { application/json: { schema: { $ref: "#/components/schemas/BatchResult" } } } }, "400": { description: No track_ids, or color_id above 8. } }
+
+  /api/tracks/rating:
+    put:
+      tags: [Track edits]
+      summary: Set the rating of several tracks (clamped 0-5).
+      description: |
+        One change for a selection, instead of a request per track. Track IDs
+        the library doesn't hold are skipped. A deck with one of the tracks
+        loaded is told to re-fetch its rating.
+      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [track_ids, rating], properties: { track_ids: { $ref: "#/components/schemas/TrackIDs" }, rating: { type: integer, minimum: 0, maximum: 5 } } } } } }
+      responses: { "200": { description: OK, content: { application/json: { schema: { $ref: "#/components/schemas/BatchResult" } } } }, "400": { description: No track_ids. } }
+
+  /api/tracks/tags:
+    post:
+      tags: [Track edits]
+      summary: Add tags to and remove tags from several tracks.
+      description: |
+        Each track keeps its other tags; an added tag goes after them. One
+        change for a selection, instead of reading and setting each track's
+        tag set. Track IDs the library doesn't hold are skipped, and
+        `updated` counts only the tracks whose tags changed.
+      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [track_ids], properties: { track_ids: { $ref: "#/components/schemas/TrackIDs" }, add: { type: array, items: { type: integer, format: int64 } }, remove: { type: array, items: { type: integer, format: int64 } } } } } } }
+      responses: { "200": { description: OK, content: { application/json: { schema: { $ref: "#/components/schemas/BatchResult" } } } }, "400": { description: No track_ids, nothing to add or remove, or an added tag that doesn't exist. } }
+
   /api/tracks/add:
     post:
       tags: [Library]
@@ -616,6 +650,8 @@ components:
 
     Ack: { type: object, properties: { ok: { type: boolean } }, description: 'Success ack (lowercase "ok").' }
     AckOK: { type: object, properties: { OK: { type: boolean } }, description: 'Success ack (capitalised "OK" — historical).' }
+    TrackIDs: { type: array, minItems: 1, items: { type: integer, format: int64 }, description: The tracks a batch edit applies to. }
+    BatchResult: { type: object, properties: { updated: { type: integer, description: How many tracks the edit changed. } } }
 
     StatusResponse:
       type: object

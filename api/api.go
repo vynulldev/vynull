@@ -160,6 +160,7 @@ type CueStoreInterface interface {
 	GetCues(trackID uint32) []CueInfo
 	AllCues() map[uint32][]CueInfo
 	SaveCue(trackID uint32, cue CueInfo)
+	SaveCues(trackID uint32, cues []CueInfo)
 	DeleteCue(trackID uint32, cueNumber uint16)
 	DeleteAllForTrack(trackID uint32)
 }
@@ -262,6 +263,9 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/history", s.handleHistory)
 	mux.HandleFunc("/api/tracks", s.handleTracks)
 	mux.HandleFunc("/api/tracks/rev", s.handleTracksRev)
+	mux.HandleFunc("/api/tracks/color", s.handleTracksColor)
+	mux.HandleFunc("/api/tracks/rating", s.handleTracksRating)
+	mux.HandleFunc("/api/tracks/tags", s.handleTracksTags)
 	mux.HandleFunc("/api/tracks/add", s.handleAddTracks)
 	mux.HandleFunc("/api/tracks/add/status", s.handleAddStatus)
 	mux.HandleFunc("/api/fs/list", s.handleFSList)
@@ -1280,6 +1284,10 @@ func (s *Server) applyImportBundle(w http.ResponseWriter, bundle *library.Import
 		log.Printf("import: materialized %d track colour label(s)", n)
 	}
 
+	// The tracks given cues, so the decks holding one re-fetch its cues once
+	// the import is done.
+	var cueTracks []uint32
+
 	// Import ANLZ analysis (waveforms, beat grids, phrases) and cover art from
 	// the share/ tree, so we reuse rekordbox's exact data instead of
 	// re-analysing. Populated by a .zip (extracted share/) or by a .db that
@@ -1335,9 +1343,10 @@ func (s *Server) applyImportBundle(w http.ResponseWriter, bundle *library.Import
 			// keep their pad number (A=1..H=8); memory cues are numbered 9.. in
 			// order, matching the app's cue-number convention.
 			if incCues && s.Cues != nil {
-				for _, ci := range importedCuesToInfo(analysis.ParseANLZCues(extPath, dat)) {
-					s.Cues.SaveCue(a.TrackID, ci)
-					cueN++
+				if cues := importedCuesToInfo(analysis.ParseANLZCues(extPath, dat)); len(cues) > 0 {
+					s.Cues.SaveCues(a.TrackID, cues)
+					cueTracks = append(cueTracks, a.TrackID)
+					cueN += len(cues)
 				}
 			}
 		}
@@ -1356,7 +1365,7 @@ func (s *Server) applyImportBundle(w http.ResponseWriter, bundle *library.Import
 	// the ANLZ pass above already imported cues, so a zip doesn't double up.
 	if incCues && s.Cues != nil && result.CuesImported == 0 && len(masterCues) > 0 {
 		mems := map[uint32]int{} // per-track memory-cue counter (numbered 9..)
-		n := 0
+		byTrack := map[uint32][]CueInfo{}
 		for _, c := range masterCues {
 			num := uint16(c.HotCue)
 			if c.HotCue < 1 || c.HotCue > 8 {
@@ -1368,12 +1377,18 @@ func (s *Server) applyImportBundle(w http.ResponseWriter, bundle *library.Import
 				ci.Type = "loop"
 				ci.LoopMs = c.LoopMs
 			}
-			s.Cues.SaveCue(c.TrackID, ci)
-			n++
+			if byTrack[c.TrackID] == nil {
+				cueTracks = append(cueTracks, c.TrackID)
+			}
+			byTrack[c.TrackID] = append(byTrack[c.TrackID], ci)
 		}
-		result.CuesImported = n
-		log.Printf("import: imported %d cue point(s) from master.db", n)
+		for id, cues := range byTrack {
+			s.Cues.SaveCues(id, cues)
+		}
+		result.CuesImported = len(masterCues)
+		log.Printf("import: imported %d cue point(s) from master.db", len(masterCues))
 	}
+	s.refreshLoaded(cueTracks, (*device.VirtualDevice).BroadcastTrackRefresh)
 
 	// Flag tracks whose audio file isn't present on this machine. A
 	// rekordbox DB faithfully carries every track's path, including files on
@@ -3539,6 +3554,11 @@ func (s *Server) handleCues(w http.ResponseWriter, r *http.Request) {
 		s.Cues.SaveCue(trackID, cue)
 		log.Printf("api: saved cue #%d for track %d at %dms (color=%d)",
 			cue.Number, trackID, cue.TimeMs, cue.ColorID)
+		if s.Device != nil {
+			// The deck re-fetches the cues of its loaded track, so a
+			// colour edit shows without reloading it.
+			s.Device.BroadcastTrackRefresh(trackID)
+		}
 		writeJSON(w, struct {
 			OK bool `json:"ok"`
 		}{true})
@@ -3556,6 +3576,9 @@ func (s *Server) handleCues(w http.ResponseWriter, r *http.Request) {
 		}
 		s.Cues.DeleteCue(trackID, cueNum)
 		log.Printf("api: deleted cue #%d for track %d", cueNum, trackID)
+		if s.Device != nil {
+			s.Device.BroadcastTrackRefresh(trackID)
+		}
 		writeJSON(w, struct {
 			OK bool `json:"ok"`
 		}{true})

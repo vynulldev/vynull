@@ -108,3 +108,27 @@ func TestCueStoreChangesDontEditHandedOutCues(t *testing.T) {
 		t.Errorf("handed-out cues changed: %+v", before)
 	}
 }
+
+// SaveCues adds and replaces cues by number as one change; a cue it replaces
+// loses the deck's blob, so the new cue is the one served.
+func TestCueStoreSaveCues(t *testing.T) {
+	dir := t.TempDir()
+	cs := NewCueStore(dir)
+	cs.SaveCue(7, &CuePoint{Number: 1, Type: 1, LoopMs: -1, Status: 1}, makeNXS2CueBlob(1, 0x2a, 0, 0, 0))
+	cs.SaveCue(7, &CuePoint{Number: 2, Type: 1, LoopMs: -1, Status: 1}, makeNXS2CueBlob(2, 0x2a, 0, 0, 0))
+	cs.Flush()
+	cs.SaveCues(7, []CuePoint{
+		{Number: 1, Type: 1, TimeMs: 1500, LoopMs: -1, Status: 1},
+		{Number: 9, Type: 1, TimeMs: 3000, LoopMs: -1, Status: 1},
+	})
+	if err := cs.Close(); err != nil {
+		t.Fatal(err)
+	}
+	cues := NewCueStore(dir).GetCues(7)
+	if len(cues) != 3 || cues[0].Number != 1 || cues[0].TimeMs != 1500 || cues[2].Number != 9 {
+		t.Fatalf("cues %+v, want 1 (replaced), 2, 9", cues)
+	}
+	if got, want := cueFiles(t, dir), []string{"cue_7_2.bin", "cues_7.json"}; !slices.Equal(got, want) {
+		t.Errorf("files %v, want %v (the replaced cue's blob gone)", got, want)
+	}
+}

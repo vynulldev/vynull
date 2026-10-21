@@ -6579,10 +6579,9 @@ async function bulkDeleteTracks() {
   }
 }
 
-// Bulk colour: reuses the swatch picker UI; loops the existing
-// /api/tracks/{id}/color endpoint. Local cache (allTracks) is patched
-// so the COLOR column reflects the change without waiting for the
-// 1Hz poll.
+// Bulk colour: reuses the swatch picker UI; one PUT /api/tracks/color
+// for the whole selection. Local cache (allTracks) is patched so the
+// COLOR column reflects the change without waiting for the 1Hz poll.
 function openBulkColorPicker(anchorEl) {
   closeColorPicker();
   const menu = document.createElement('div');
@@ -6601,10 +6600,11 @@ function openBulkColorPicker(anchorEl) {
   menu.querySelectorAll('.swatch').forEach(sw => sw.addEventListener('click', async () => {
     const cid = parseInt(sw.getAttribute('data-color'), 10);
     const ids = Array.from(bulkSelectedIDs);
-    await Promise.all(ids.map(id => fetch(`/api/tracks/${id}/color`, {
+    const res = await fetchJSON('/api/tracks/color', {
       method: 'PUT', headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({ color_id: cid }),
-    })));
+      body: JSON.stringify({ track_ids: ids, color_id: cid }),
+    });
+    if (!res) { closeColorPicker(); toast('COLOR FAILED', 'error'); return; }
     const patch = { color_id: cid, color_name: COLOR_NAMES[cid] || '' };
     ids.forEach(id => {
       markPendingTrackEdit(id, patch);
@@ -6633,10 +6633,11 @@ function openBulkRatingPicker(anchorEl) {
   menu.querySelectorAll('[data-rating]').forEach(sw => sw.addEventListener('click', async () => {
     const rating = parseInt(sw.getAttribute('data-rating'), 10);
     const ids = Array.from(bulkSelectedIDs);
-    await Promise.all(ids.map(id => fetch(`/api/tracks/${id}/rating`, {
+    const res = await fetchJSON('/api/tracks/rating', {
       method: 'PUT', headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({ rating }),
-    })));
+      body: JSON.stringify({ track_ids: ids, rating }),
+    });
+    if (!res) { closeColorPicker(); toast('RATING FAILED', 'error'); return; }
     ids.forEach(id => {
       markPendingTrackEdit(id, { rating });
       const t = allTracks.find(x => x.id === id);
@@ -6651,9 +6652,9 @@ function openBulkRatingPicker(anchorEl) {
 }
 
 // Bulk tag add/remove: opens a small popover listing every tag in
-// allTagsCache; clicking a tag applies the chosen mode to every
-// selected track. POSTs per-track to /api/tracks/{id}/tags with the
-// union (add) or set-difference (remove).
+// allTagsCache; clicking a tag adds it to (or removes it from) every
+// selected track with one POST /api/tracks/tags. The server applies it
+// to each track's own tags, so other tags on the tracks are kept.
 async function openBulkTagPicker(anchorEl, mode) {
   closeColorPicker();
   const cats = await ensureAllCategories();
@@ -6673,22 +6674,12 @@ async function openBulkTagPicker(anchorEl, mode) {
   menu.querySelectorAll('.picker-item').forEach(item => item.addEventListener('click', async () => {
     const tagID = parseInt(item.getAttribute('data-tag-id'), 10);
     const ids = Array.from(bulkSelectedIDs);
-    await Promise.all(ids.map(async tid => {
-      const cur = await fetchJSON(`/api/tracks/${tid}/tags`);
-      const have = Array.isArray(cur) ? cur.map(x => x.id) : [];
-      let next;
-      if (mode === 'add') {
-        next = have.includes(tagID) ? have : [...have, tagID];
-      } else {
-        next = have.filter(x => x !== tagID);
-      }
-      if (next.length === have.length && next.every((v,i) => v === have[i])) return;
-      await fetch(`/api/tracks/${tid}/tags`, {
-        method: 'POST', headers: {'Content-Type':'application/json'},
-        body: JSON.stringify({ tag_ids: next }),
-      });
-    }));
+    const res = await fetchJSON('/api/tracks/tags', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ track_ids: ids, [mode]: [tagID] }),
+    });
     closeColorPicker();
+    if (!res) { toast('TAG FAILED', 'error'); return; }
     const tagName = (tags.find(t => t.id === tagID) || {}).name || 'TAG';
     toast(`${mode === 'add' ? '+ ' : '− '}${tagName.toUpperCase()} · ${ids.length} TRACK${ids.length === 1 ? '' : 'S'}`, 'success');
   }));
