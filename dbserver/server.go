@@ -139,6 +139,9 @@ type Server struct {
 	filters trackFilters
 	// history is the Link history the decks keep (linkhistory.go).
 	history linkHistory
+	// recent holds the list each request context last queried, which
+	// rekordbox keeps for the whole server (recentlists.go).
+	recent recentLists
 	// Clock names a new Link history after its day (optional; nil uses
 	// time.Now). The conformance server pins it.
 	Clock        func() time.Time
@@ -454,6 +457,7 @@ func (s *Server) handleSession(ctx context.Context, conn net.Conn) {
 		folders:      s.Folders,
 		playlists:    s.Playlists,
 		history:      &s.history,
+		recent:       &s.recent,
 		clock:        s.Clock,
 		menu:         s.Menu,
 		cues:         s.Cues,
