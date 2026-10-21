@@ -85,11 +85,6 @@ type Server struct {
 	// Keyed by trackID; presence means "queued or in flight".
 	queuedAnalyses sync.Map
 
-	// Debounced library save for lazy artwork extraction: handleArtwork sets
-	// ArtID/ArtChecked on first view and coalesces the resulting library.json
-	// writes so scrolling the ART column doesn't trigger a save per row.
-	artSaveMu    sync.Mutex
-	artSaveTimer *time.Timer
 	// artInFlight dedups concurrent lazy artwork extractions per track so two
 	// requests for the same un-probed track don't both spawn ffmpeg / race on
 	// the track fields. Keyed by trackID.
@@ -152,41 +147,6 @@ func (s *Server) handleImportStatus(w http.ResponseWriter, r *http.Request) {
 // artExtractSem bounds concurrent lazy ffmpeg artwork probes so a fast scroll
 // over a fresh import doesn't spawn one ffmpeg process per visible row at once.
 var artExtractSem = make(chan struct{}, 4)
-
-// scheduleArtworkSave persists the library ~2s after the last lazy-artwork
-// extraction, coalescing a burst of per-track writes into one.
-func (s *Server) scheduleArtworkSave() {
-	if s.Library == nil {
-		return
-	}
-	s.artSaveMu.Lock()
-	defer s.artSaveMu.Unlock()
-	if s.artSaveTimer != nil {
-		return // a save is already pending
-	}
-	s.artSaveTimer = time.AfterFunc(2*time.Second, func() {
-		s.artSaveMu.Lock()
-		s.artSaveTimer = nil
-		s.artSaveMu.Unlock()
-		s.Library.Save()
-	})
-}
-
-// flushArtworkSave persists immediately if a debounced artwork save is pending,
-// so ArtID/ArtChecked extracted just before shutdown aren't lost (which would
-// force ffmpeg to re-probe those tracks on the next view).
-func (s *Server) flushArtworkSave() {
-	s.artSaveMu.Lock()
-	pending := s.artSaveTimer != nil
-	if pending {
-		s.artSaveTimer.Stop()
-		s.artSaveTimer = nil
-	}
-	s.artSaveMu.Unlock()
-	if pending && s.Library != nil {
-		s.Library.Save()
-	}
-}
 
 // DBServerControl exposes the slice of dbserver functionality the API
 // layer needs without forcing a direct dependency on the dbserver package.
@@ -439,7 +399,6 @@ func (s *Server) Start(ctx context.Context) error {
 		shutCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		defer cancel()
 		srv.Shutdown(shutCtx)
-		s.flushArtworkSave() // persist any pending lazy-artwork writes
 	}()
 
 	log.Printf("api: listening on %s", addr)
@@ -2527,7 +2486,9 @@ func (s *Server) handleArtwork(w http.ResponseWriter, r *http.Request) {
 		}
 		s.Library.SetArtwork(trackID, artID)
 		s.artInFlight.Delete(trackID)
-		s.scheduleArtworkSave()
+		// The library coalesces these saves, so scrolling the ART column
+		// doesn't rewrite library.json per row.
+		s.Library.Save()
 	}
 	if t.ArtID == 0 {
 		http.NotFound(w, r)

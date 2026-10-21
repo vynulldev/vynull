@@ -48,6 +48,7 @@ func TestImportHotCueBanks(t *testing.T) {
 	}
 	check(lib)
 
+	lib.Flush()
 	reloaded := New()
 	reloaded.SetDBPath(filepath.Join(dir, "library.json"))
 	check(reloaded)

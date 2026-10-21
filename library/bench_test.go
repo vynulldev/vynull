@@ -56,14 +56,15 @@ func BenchmarkTrackByPath(b *testing.B) {
 	}
 }
 
-// BenchmarkLibrarySave measures one Save of a 20k-track library: the full
-// library.json rewrite that every play count, rating, analysis result and
-// edit triggers today.
+// BenchmarkLibrarySave measures one write of a 20k-track library's
+// library.json, which the background writer does at most every couple of
+// seconds after any change.
 func BenchmarkLibrarySave(b *testing.B) {
 	lib := benchlib.Library(benchlib.Size)
 	path := filepath.Join(b.TempDir(), "library.json")
 	lib.SetDBPath(path)
 	lib.Save()
+	lib.Flush()
 	fi, err := os.Stat(path)
 	if err != nil {
 		b.Fatal(err)
@@ -72,5 +73,19 @@ func BenchmarkLibrarySave(b *testing.B) {
 	b.ReportAllocs()
 	for b.Loop() {
 		lib.Save()
+		lib.Flush()
 	}
+}
+
+// BenchmarkLibrarySaveCall measures what a change (a play count, a rating, an
+// analysis result) waits for when it saves a 20k-track library.
+func BenchmarkLibrarySaveCall(b *testing.B) {
+	lib := benchlib.Library(benchlib.Size)
+	lib.SetDBPath(filepath.Join(b.TempDir(), "library.json"))
+	b.ReportAllocs()
+	for b.Loop() {
+		lib.Save()
+	}
+	b.StopTimer()
+	lib.Close()
 }

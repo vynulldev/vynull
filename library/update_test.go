@@ -41,6 +41,7 @@ func TestUpdateSaves(t *testing.T) {
 	if got := lib.Track(1); got.Title != "New" || got.Rating != 4 || lib.Rev() == rev {
 		t.Errorf("after update: %q rating %d, rev %d (was %d)", got.Title, got.Rating, lib.Rev(), rev)
 	}
+	lib.Flush()
 	reloaded := library.New()
 	reloaded.SetDBPath(path)
 	if got := reloaded.Track(1); got == nil || got.Title != "New" {

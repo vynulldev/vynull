@@ -44,6 +44,7 @@ func TestRatingAndColorHaveOneOwner(t *testing.T) {
 	// Clearing both in the web UI survives a restart.
 	do(s.handleTrackRating, http.MethodPut, "/api/tracks/1/rating", `{"rating":0}`)
 	do(s.handleTrackColor, http.MethodPut, "/api/tracks/1/color", `{"color_id":0}`)
+	lib.Flush()
 	reloaded := library.New()
 	reloaded.SetDBPath(db)
 	if tr := reloaded.Track(1); tr == nil || tr.Rating != 0 || tr.ColorID != 0 {

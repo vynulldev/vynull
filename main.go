@@ -195,6 +195,8 @@ func main() {
 		lib.SetDBPath(filepath.Join(cfg.DataDir, "library.json"))
 		log.Printf("library mode: add tracks via API (/api/tracks/add)")
 	}
+	// The library saves in the background; write what's pending on the way out.
+	defer lib.Close()
 
 	// Enable disk-cached artwork (persists across restarts, loaded on-demand).
 	lib.Artwork.SetCacheDir(filepath.Join(cfg.DataDir, "artwork"))
