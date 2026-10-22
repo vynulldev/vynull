@@ -103,9 +103,12 @@ func (h *Handler) lazyAnalyze(trackID uint32) *analysis.Result {
 		return analysis.ApplyOverrides(r)
 	}
 
-	// Start background analysis (deduplicated globally via the Store).
-	h.analysis.AnalyzeInBackground(trackID, filePath, func(r *analysis.Result) {
-		h.storeAnalysisResult(trackID, r)
+	// Request the analysis: a deck is waiting, so it goes ahead of background
+	// work, and it joins an analysis of the track already queued or running.
+	h.analysis.Request(trackID, filePath, analysis.Foreground, func(r *analysis.Result) {
+		if r != nil {
+			h.storeAnalysisResult(trackID, r)
+		}
 	})
 
 	return nil

@@ -22,7 +22,7 @@ func TestStoreImporterPreemptsDSP(t *testing.T) {
 	}
 
 	done := make(chan *Result, 1)
-	s.AnalyzeInBackground(7, "/nonexistent/dir/file.mp3", func(r *Result) { done <- r })
+	s.Request(7, "/nonexistent/dir/file.mp3", Background, func(r *Result) { done <- r })
 
 	select {
 	case r := <-done:
@@ -41,8 +41,9 @@ func TestStoreImporterPreemptsDSP(t *testing.T) {
 }
 
 // TestStoreImporterNilFallsThrough: an Importer returning nil must fall
-// through to real analysis (which here fails on the missing file, storing
-// nothing) — a track without ANLZ data still gets our own DSP.
+// through to real analysis (which here finds the file missing, storing
+// nothing and reporting nil) — a track without ANLZ data still gets our own
+// DSP.
 func TestStoreImporterNilFallsThrough(t *testing.T) {
 	s := NewStore()
 	called := make(chan struct{}, 1)
@@ -51,18 +52,22 @@ func TestStoreImporterNilFallsThrough(t *testing.T) {
 		return nil
 	}
 
-	s.AnalyzeInBackground(9, "/nonexistent/dir/file.mp3", func(r *Result) {
-		t.Error("onDone fired — nothing should be produced for a missing file")
-	})
+	done := make(chan *Result, 1)
+	s.Request(9, "/nonexistent/dir/file.mp3", Background, func(r *Result) { done <- r })
 
 	select {
 	case <-called:
 	case <-time.After(5 * time.Second):
 		t.Fatal("importer was never consulted")
 	}
-	// Give the fallback path a moment to (fail to) analyze, then confirm
-	// nothing was stored.
-	time.Sleep(300 * time.Millisecond)
+	select {
+	case r := <-done:
+		if r != nil {
+			t.Fatalf("got %+v for a missing file, want nil", r)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("the request never finished")
+	}
 	if s.Get(9) != nil {
 		t.Fatal("a result was stored for a missing file")
 	}

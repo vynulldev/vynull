@@ -315,6 +315,7 @@ func main() {
 	// Always create a cached analysis store so API-added tracks get analyzed.
 	cacheDir := filepath.Join(cfg.DataDir, "analysis")
 	analysisStore := analysis.NewStoreWithCache(cacheDir)
+	defer analysisStore.Close() // start no more analyses on the way out
 	// A locked track's cached analysis is served as-is, never discarded as
 	// stale, so the lock survives cache-version bumps and tempo-range changes.
 	analysisStore.SetKeep(func(id uint32) bool {

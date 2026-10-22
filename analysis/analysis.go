@@ -134,13 +134,10 @@ type Store struct {
 	keep func(trackID uint32) bool
 
 	statusMu sync.RWMutex
-	status   string // current activity (e.g., "analyzing track 5...")
-	cached   int    // count of cache hits
-	pending  int32  // count of tracks queued for analysis
+	cached   int // count of cache hits
 
-	// In-flight analysis deduplication.
-	inflight   map[uint32]bool
-	inflightMu sync.Mutex
+	// queue runs the analyses requested through Request (queue.go).
+	queue queue
 
 	// TotalTracksFn, when set, supplies the library track count used as the
 	// "N tracks" figure in Status() (instead of the in-memory result count,
@@ -406,13 +403,11 @@ func (s *Store) Remove(trackID uint32) {
 	delete(s.results, trackID)
 	delete(s.pathMap, trackID)
 	s.mu.Unlock()
+	s.forget(trackID)
 }
 
 // Status returns a human-readable status line for the monitor UI.
 func (s *Store) Status() string {
-	s.statusMu.RLock()
-	defer s.statusMu.RUnlock()
-
 	s.mu.RLock()
 	total := len(s.results)
 	s.mu.RUnlock()
@@ -421,48 +416,19 @@ func (s *Store) Status() string {
 	if s.TotalTracksFn != nil {
 		total = s.TotalTracksFn()
 	}
+	cached := s.CachedCount()
+	pending := s.Pending()
 
-	pending := atomic.LoadInt32(&s.pending)
-
-	if s.status != "" {
+	if activity := s.activity(); activity != "" {
 		if pending > 1 {
-			return fmt.Sprintf("%s (%d queued, %d tracks, %d cached)", s.status, pending-1, total, s.cached)
+			return fmt.Sprintf("%s (%d queued, %d tracks, %d cached)", activity, pending-1, total, cached)
 		}
-		return fmt.Sprintf("%s (%d tracks, %d cached)", s.status, total, s.cached)
+		return fmt.Sprintf("%s (%d tracks, %d cached)", activity, total, cached)
 	}
 	if total > 0 {
-		return fmt.Sprintf("Ready (%d tracks, %d cached)", total, s.cached)
+		return fmt.Sprintf("Ready (%d tracks, %d cached)", total, cached)
 	}
 	return "Idle"
-}
-
-// IncPending increments the pending analysis counter.
-func (s *Store) IncPending() {
-	atomic.AddInt32(&s.pending, 1)
-}
-
-// DecPending decrements the pending analysis counter.
-func (s *Store) DecPending() {
-	atomic.AddInt32(&s.pending, -1)
-}
-
-// SetStatus sets the current activity message.
-func (s *Store) SetStatus(msg string) {
-	s.statusMu.Lock()
-	s.status = msg
-	s.statusMu.Unlock()
-}
-
-// ClearStatus clears the current activity message.
-func (s *Store) ClearStatus() {
-	s.statusMu.Lock()
-	s.status = ""
-	s.statusMu.Unlock()
-}
-
-// Pending returns the number of tracks queued for analysis.
-func (s *Store) Pending() int32 {
-	return atomic.LoadInt32(&s.pending)
 }
 
 // Count returns the total number of analyzed tracks in memory.
@@ -483,60 +449,6 @@ func (s *Store) incCached() {
 	s.statusMu.Lock()
 	s.cached++
 	s.statusMu.Unlock()
-}
-
-// AnalyzeInBackground starts analysis for a track if not already in progress.
-// The callback is called with the result when analysis completes.
-// Never blocks. Safe to call from multiple goroutines/sessions.
-func (s *Store) AnalyzeInBackground(trackID uint32, filePath string, onDone func(*Result)) {
-	s.inflightMu.Lock()
-	if s.inflight == nil {
-		s.inflight = make(map[uint32]bool)
-	}
-	if s.inflight[trackID] {
-		s.inflightMu.Unlock()
-		return // already in progress
-	}
-	s.inflight[trackID] = true
-	s.inflightMu.Unlock()
-
-	go func() {
-		defer func() {
-			s.inflightMu.Lock()
-			delete(s.inflight, trackID)
-			s.inflightMu.Unlock()
-		}()
-
-		if s.Importer != nil {
-			if r := s.Importer(trackID, filePath); r != nil {
-				r = s.keepCurrent(trackID, r)
-				if onDone != nil {
-					onDone(r)
-				}
-				log.Printf("lazy-analysis: track %d imported from ANLZ (BPM=%.1f dur=%ds)", trackID, r.BPM, r.Duration)
-				return
-			}
-		}
-
-		if _, err := os.Stat(filePath); err != nil {
-			log.Printf("lazy-analysis: track %d not analyzed, its file is missing: %s", trackID, filePath)
-			return
-		}
-		log.Printf("lazy-analysis: analyzing track %d (%s)...", trackID, filepath.Base(filePath))
-		s.SetStatus(fmt.Sprintf("Analyzing: %s", filepath.Base(filePath)))
-		r, err := AnalyzeTrack(filePath)
-		s.ClearStatus()
-		if err != nil {
-			log.Printf("lazy-analysis: track %d failed: %v", trackID, err)
-			return
-		}
-		r = s.keepCurrent(trackID, r)
-		if onDone != nil {
-			onDone(r)
-		}
-		log.Printf("lazy-analysis: track %d done (BPM=%.1f key=%s dur=%ds)",
-			trackID, r.BPM, r.KeyCamelot, r.Duration)
-	}()
 }
 
 // TryImport runs the Importer synchronously and returns the track's Result:

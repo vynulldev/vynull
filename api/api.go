@@ -33,7 +33,6 @@ import (
 	"github.com/vynulldev/vynull/device"
 	"github.com/vynulldev/vynull/export"
 	"github.com/vynulldev/vynull/internal/buildinfo"
-	"github.com/vynulldev/vynull/internal/dlog"
 	"github.com/vynulldev/vynull/library"
 	"github.com/vynulldev/vynull/link/prolink"
 	"github.com/vynulldev/vynull/mediadb"
@@ -75,15 +74,6 @@ type Server struct {
 	// Set on first Start(); used by the diagnostic endpoints.
 	started time.Time
 	logs    *logRing
-
-	analyzeOnce sync.Once
-	analyzeCh   chan analyzeJob
-	// queuedAnalyses guards against duplicate enqueues when the same
-	// trackID is requested by many in-flight HTTP handlers — typically
-	// the library page firing N <img loading="lazy"> waveform fetches in
-	// parallel after a cacheVersion bump invalidates the on-disk cache.
-	// Keyed by trackID; presence means "queued or in flight".
-	queuedAnalyses sync.Map
 
 	// artInFlight dedups concurrent lazy artwork extractions per track so two
 	// requests for the same un-probed track don't both spawn ffmpeg / race on
@@ -173,11 +163,6 @@ type CueInfo struct {
 	LoopMs  int32  `json:"loop_ms"`  // loop end in ms (-1 if not loop)
 	ColorID uint32 `json:"color_id"` // 0=default, 1=pink, 2=red, etc.
 	Label   string `json:"label"`    // optional label
-}
-
-type analyzeJob struct {
-	trackID  uint32
-	filePath string
 }
 
 // PeerInfo is the JSON representation of a connected device.
@@ -860,7 +845,6 @@ func (s *Server) handleTracks(w http.ResponseWriter, r *http.Request) {
 			if s.Analysis != nil {
 				s.Analysis.Remove(trackID)
 			}
-			s.queuedAnalyses.Delete(trackID)
 			s.Library.RemoveTrack(trackID)
 			log.Printf("api: deleted track %d (library + playlists + tags + cues + analysis)", trackID)
 			writeJSON(w, struct{ OK bool }{true})
@@ -1870,44 +1854,21 @@ func (s *Server) handleReimportTracks(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// queueAnalysis sends a track to the analysis worker pool.
-func (s *Server) queueAnalysis(trackID uint32, filePath string) {
-	s.analyzeOnce.Do(func() {
-		s.analyzeCh = make(chan analyzeJob, 1000)
-		workers := 2 // limit concurrent analyses to control memory usage
-		for i := 0; i < workers; i++ {
-			go s.analysisWorker()
-		}
-	})
-	s.analyzeCh <- analyzeJob{trackID: trackID, filePath: filePath}
-}
-
-// tryQueueAnalysis enqueues trackID for background analysis through the
-// worker pool, deduped against concurrent submissions for the same ID.
-// Returns true if newly queued, false if another goroutine already
-// enqueued this track or analysis is unavailable. If filePath is empty,
-// looks it up from the library/PDB.
+// tryQueueAnalysis requests background analysis for a track that has none
+// (the web UI's list thumbnails, a newly added track). The analysis queue
+// joins requests for a track already queued or running and runs them behind
+// any a deck or the web UI is waiting for. A cached analysis is served
+// instead, and a track whose file is missing is skipped. Returns true if it
+// requested an analysis. If filePath is empty, looks it up from the
+// library/PDB.
 func (s *Server) tryQueueAnalysis(trackID uint32, filePath string) bool {
 	if s.Analysis == nil {
 		return false
 	}
-	if _, loaded := s.queuedAnalyses.LoadOrStore(trackID, struct{}{}); loaded {
-		return false
+	if filePath == "" {
+		filePath = s.trackFilePath(trackID)
 	}
 	if filePath == "" {
-		if s.Library != nil {
-			if t := s.Library.Track(trackID); t != nil {
-				filePath = t.FilePath
-			}
-		}
-		if filePath == "" && s.PDB != nil {
-			if t := s.PDB.TrackByID(trackID); t != nil {
-				filePath = t.FilePath
-			}
-		}
-	}
-	if filePath == "" {
-		s.queuedAnalyses.Delete(trackID)
 		return false
 	}
 	s.Analysis.SetPath(trackID, filePath)
@@ -1917,10 +1878,9 @@ func (s *Server) tryQueueAnalysis(trackID uint32, filePath string) bool {
 	// which silently misses the cache when pathMap was empty, then queues
 	// here). SetPath above lets Get find the .gob now.
 	if r := s.Analysis.Get(trackID); r != nil {
-		s.queuedAnalyses.Delete(trackID)
-		// A cache hit skips the worker, so apply the worker's library-row
-		// writeback here — without this, a deleted-and-re-added track (whose
-		// cache entry survives, keyed by file path) keeps BPM/duration 0.
+		// A cache hit skips the queue, so apply its library-row writeback
+		// here — without this, a deleted-and-re-added track (whose cache
+		// entry survives, keyed by file path) keeps BPM/duration 0.
 		s.applyAnalysisToTrack(trackID, r)
 		return false
 	}
@@ -1928,11 +1888,11 @@ func (s *Server) tryQueueAnalysis(trackID uint32, filePath string) bool {
 	// request for the track (the web UI asks again on each render) queued
 	// another ffmpeg run that failed the same way.
 	if s.audioMissing(trackID, filePath) {
-		s.queuedAnalyses.Delete(trackID)
 		return false
 	}
-	s.Analysis.IncPending()
-	s.queueAnalysis(trackID, filePath)
+	s.Analysis.Request(trackID, filePath, analysis.Background, func(r *analysis.Result) {
+		s.applyAnalysisToTrack(trackID, r)
+	})
 	return true
 }
 
@@ -1947,58 +1907,6 @@ func (s *Server) audioMissing(trackID uint32, filePath string) bool {
 		log.Printf("api: track %d's file is missing, not analyzing: %s", trackID, filePath)
 	}
 	return true
-}
-
-func (s *Server) analysisWorker() {
-	for job := range s.analyzeCh {
-		// Jobs are queued for tracks with no analysis yet. One may have
-		// arrived while the job waited: an import adds its tracks before
-		// storing (and locking) rekordbox's analysis, and the web UI's
-		// waveform requests queue whatever rows are on screen in between.
-		// Analyzing now would overwrite the imported analysis.
-		if r := s.Analysis.Get(job.trackID); r != nil {
-			s.Analysis.DecPending()
-			s.queuedAnalyses.Delete(job.trackID)
-			s.applyAnalysisToTrack(job.trackID, r)
-			dlog.Debugf("api: skipping queued analysis of track %d: it has one now", job.trackID)
-			continue
-		}
-		s.Analysis.SetStatus(fmt.Sprintf("Analyzing: %s", filepath.Base(job.filePath)))
-		var r *analysis.Result
-		var err error
-		if s.Analysis.Importer != nil {
-			r = s.Analysis.Importer(job.trackID, job.filePath)
-		}
-		if r == nil {
-			r, err = analysis.AnalyzeTrack(job.filePath)
-		}
-		s.Analysis.DecPending()
-		s.queuedAnalyses.Delete(job.trackID)
-		if err != nil {
-			s.Analysis.ClearStatus()
-			log.Printf("api: analysis failed for track %d: %v", job.trackID, err)
-			continue
-		}
-		// The track may have gained an analysis while this one ran: an import
-		// storing (and locking) rekordbox's. Keep that one, not ours.
-		if !s.Analysis.SetIfAbsent(job.trackID, r) {
-			s.Analysis.ClearStatus()
-			if cur := s.Analysis.Get(job.trackID); cur != nil {
-				s.applyAnalysisToTrack(job.trackID, cur)
-			}
-			log.Printf("api: discarded analysis of track %d: it gained one while this one ran", job.trackID)
-			continue
-		}
-		s.applyAnalysisToTrack(job.trackID, r)
-
-		// Update device track count.
-		if s.Device != nil {
-			s.Device.TrackCount = uint16(s.Library.TrackCount())
-		}
-
-		s.Analysis.ClearStatus()
-		log.Printf("api: analyzed track %d: BPM=%.1f key=%s path=%s", job.trackID, r.BPM, r.KeyCamelot, job.filePath)
-	}
 }
 
 // applyAnalysisToTrack writes a result back to its library track through
@@ -2064,9 +1972,11 @@ func (s *Server) resolveTrackID(filePath string) uint32 {
 	return 0
 }
 
-// getOrAnalyze returns the analysis result for a track, triggering on-demand
-// analysis if the result is missing or was invalidated (stale cache version).
-func (s *Server) getOrAnalyze(trackID uint32) *analysis.Result {
+// getOrAnalyze returns the analysis result for a track, analyzing it on
+// demand if the result is missing or was invalidated (stale cache version).
+// The analysis goes through the analysis queue as a Foreground request; ctx
+// (the HTTP request's) ends the wait, not the analysis.
+func (s *Server) getOrAnalyze(ctx context.Context, trackID uint32) *analysis.Result {
 	if s.Analysis == nil {
 		return nil
 	}
@@ -2075,18 +1985,7 @@ func (s *Server) getOrAnalyze(trackID uint32) *analysis.Result {
 		return r
 	}
 
-	// Find file path from library or PDB.
-	var filePath string
-	if s.Library != nil {
-		if t := s.Library.Track(trackID); t != nil {
-			filePath = t.FilePath
-		}
-	}
-	if filePath == "" && s.PDB != nil {
-		if t := s.PDB.TrackByID(trackID); t != nil {
-			filePath = t.FilePath
-		}
-	}
+	filePath := s.trackFilePath(trackID)
 	if filePath == "" {
 		return nil
 	}
@@ -2114,26 +2013,8 @@ func (s *Server) getOrAnalyze(trackID uint32) *analysis.Result {
 		return nil
 	}
 	log.Printf("api: on-demand analysis for track %d: %s", trackID, filePath)
-	var r *analysis.Result
-	var err error
-	if s.Analysis.Importer != nil {
-		r = s.Analysis.Importer(trackID, filePath)
-	}
-	if r == nil {
-		r, err = analysis.AnalyzeTrack(filePath)
-	}
-	if err != nil {
-		log.Printf("api: on-demand analysis failed for track %d: %v", trackID, err)
-		return nil
-	}
-	if !s.Analysis.SetIfAbsent(trackID, r) {
-		// It gained one while this ran (an import); serve that instead.
-		if cur := s.Analysis.Get(trackID); cur != nil {
-			r = cur
-		}
-	}
+	r := s.Analysis.Analyze(ctx, trackID, filePath)
 	s.applyAnalysisToTrack(trackID, r)
-	log.Printf("api: analyzed track %d: BPM=%.1f key=%s path=%s", trackID, r.BPM, r.KeyCamelot, filePath)
 	return r
 }
 
@@ -2183,7 +2064,7 @@ func (s *Server) handleReanalyze(w http.ResponseWriter, r *http.Request) {
 	if parts == "all" {
 		s.Analysis.Invalidate(trackID)
 		log.Printf("api: reanalyzing track %d (all, user-requested)", trackID)
-		result = s.getOrAnalyze(trackID) // honors the ANLZ importer for served USB tracks
+		result = s.getOrAnalyze(r.Context(), trackID) // honors the ANLZ importer for served USB tracks
 	} else {
 		filePath := s.trackFilePath(trackID)
 		if filePath == "" {
@@ -2248,7 +2129,7 @@ func (s *Server) handleAnalysis(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	result := s.getOrAnalyze(trackID)
+	result := s.getOrAnalyze(r.Context(), trackID)
 	if result == nil {
 		http.Error(w, "analysis not found", http.StatusNotFound)
 		return
@@ -2350,7 +2231,7 @@ func (s *Server) handleWaveform(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	result := s.getOrAnalyze(trackID)
+	result := s.getOrAnalyze(r.Context(), trackID)
 	if result == nil {
 		http.Error(w, "analysis not found", http.StatusNotFound)
 		return
@@ -3294,7 +3175,7 @@ func (s *Server) handleBeatGridAdjust(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	result := s.getOrAnalyze(req.TrackID)
+	result := s.getOrAnalyze(r.Context(), req.TrackID)
 	if result == nil {
 		http.Error(w, "analysis not found", http.StatusNotFound)
 		return
