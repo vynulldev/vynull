@@ -16,10 +16,11 @@ check:
 	go test ./...
 	$(MAKE) e2e
 
-# Benchmarks on a synthetic 20k-track library (internal/benchlib). Compare
-# two runs with benchstat; COUNT=10 gives it enough samples.
+# Benchmarks on a synthetic 20k-track library (internal/benchlib), and one
+# track's analysis (needs ffmpeg). Compare two runs with benchstat; COUNT=10
+# gives it enough samples.
 bench:
-	go test -run '^$$' -bench . -benchmem -count $(or $(COUNT),1) ./library ./dbserver ./api
+	go test -run '^$$' -bench . -benchmem -count $(or $(COUNT),1) ./library ./dbserver ./api ./analysis
 
 # rekordbox mode (the default) — no privileged ports needed
 run: build
