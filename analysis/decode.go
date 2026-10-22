@@ -4,6 +4,7 @@ package analysis
 
 import (
 	"bytes"
+	"context"
 	"encoding/binary"
 	"fmt"
 	"io"
@@ -14,7 +15,13 @@ import (
 // DecodePCM decodes an audio file to mono float32 samples at the given sample rate.
 // Requires ffmpeg on PATH.
 func DecodePCM(filePath string, sampleRate int) ([]float32, error) {
-	cmd := exec.Command("ffmpeg",
+	return DecodePCMContext(context.Background(), filePath, sampleRate)
+}
+
+// DecodePCMContext is DecodePCM, killing ffmpeg and returning ctx's error
+// when ctx ends first.
+func DecodePCMContext(ctx context.Context, filePath string, sampleRate int) ([]float32, error) {
+	cmd := exec.CommandContext(ctx, "ffmpeg",
 		"-i", filePath,
 		"-f", "f32le",
 		"-ac", "1",
@@ -51,11 +58,17 @@ func DecodePCM(filePath string, sampleRate int) ([]float32, error) {
 		}
 		if err != nil {
 			cmd.Wait()
+			if ctx.Err() != nil {
+				return nil, ctx.Err()
+			}
 			return nil, fmt.Errorf("ffmpeg read: %w", err)
 		}
 	}
 
 	if err := cmd.Wait(); err != nil {
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
 		return nil, fmt.Errorf("ffmpeg (%s): %s: %w", filePath, stderrBuf.String(), err)
 	}
 

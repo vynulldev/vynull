@@ -178,24 +178,37 @@ func TestQueueKeepsResultStoredWhileQueued(t *testing.T) {
 	}
 }
 
-// Close drops queued requests (nil) and refuses new ones; a running analysis
-// finishes.
+// Close drops queued requests (nil) at once and refuses new ones, then waits
+// for the running analysis it cancelled. (The fake, like the ANLZ import,
+// can't be cancelled, so it runs to the end; real analysis stops: see
+// TestQueueCancelsRealAnalysis.)
 func TestQueueClose(t *testing.T) {
 	s := NewStore()
 	f := newFake(s)
 	a := request(s, 1, Background)
 	f.expectStart(t, 1)
 	b := request(s, 2, Background)
-	s.Close()
+	closed := make(chan struct{})
+	go func() { s.Close(); close(closed) }()
 	if r := result(t, b); r != nil {
 		t.Errorf("queued request after Close: %+v, want nil", r)
 	}
 	if r := result(t, request(s, 3, Foreground)); r != nil {
 		t.Errorf("request after Close: %+v, want nil", r)
 	}
+	select {
+	case <-closed:
+		t.Fatal("Close returned with an analysis still running")
+	case <-time.After(50 * time.Millisecond):
+	}
 	f.finish(1)
 	if r := result(t, a); r == nil || r.BPM != 1 {
 		t.Errorf("running analysis after Close: %+v, want its result", r)
+	}
+	select {
+	case <-closed:
+	case <-time.After(time.Second):
+		t.Fatal("Close never returned")
 	}
 	f.expectNoStart(t)
 }
