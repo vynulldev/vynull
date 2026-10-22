@@ -318,29 +318,18 @@ func detectBeats(ctx context.Context, samples []float32, sampleRate int, encoder
 		prevPhase := make([]float64, maxBin+1)
 		prevPrevPhase := make([]float64, maxBin+1)
 
-		const csdChunk = 8192
-		for chunkStart := 0; chunkStart < csdNumFrames; chunkStart += csdChunk {
-			chunkEnd := chunkStart + csdChunk
-			if chunkEnd > csdNumFrames {
-				chunkEnd = csdNumFrames
+		// Only bins 1..maxBin are read, so only those are kept; the spectra
+		// arrive a chunk at a time, in frame order (stftChunks).
+		bins := maxBin + 1
+		stftChunks(csdNumFrames, csdFrameSize, bins, func(i int, buf []float64) {
+			off := i * csdHop
+			for j := 0; j < csdFrameSize && off+j < len(samples); j++ {
+				buf[j] = float64(samples[off+j]) * hannWindow[j]
 			}
-			n := chunkEnd - chunkStart
-
-			windows := make([][]float64, n)
-			for ci := 0; ci < n; ci++ {
-				off := (chunkStart + ci) * csdHop
-				w := make([]float64, csdFrameSize)
-				for j := 0; j < csdFrameSize && off+j < len(samples); j++ {
-					w[j] = float64(samples[off+j]) * hannWindow[j]
-				}
-				windows[ci] = w
-			}
-
-			fftReals, fftImags := batchFFT(windows, csdFrameSize)
-
-			for ci := 0; ci < n && ci < len(fftReals); ci++ {
-				fftR := fftReals[ci]
-				fftI := fftImags[ci]
+		}, func(chunkStart int, fftReals, fftImags []float64) {
+			for ci := 0; ci*bins < len(fftReals); ci++ {
+				fftR := fftReals[ci*bins : (ci+1)*bins]
+				fftI := fftImags[ci*bins : (ci+1)*bins]
 				var df float64
 				limit := maxBin + 1
 				if limit > len(fftR) {
@@ -363,7 +352,7 @@ func detectBeats(ctx context.Context, samples []float32, sampleRate int, encoder
 				}
 				csdOnset[chunkStart+ci] = df
 			}
-		}
+		})
 	}
 
 	// Normalize onset to prevent numerical issues.
@@ -1151,17 +1140,6 @@ func multiBandOnset(samples []float32, sampleRate int) ([]float64, float64) {
 	for i := range win {
 		win[i] = 0.5 * (1 - math.Cos(2*math.Pi*float64(i)/float64(frameSize-1)))
 	}
-	windows := make([][]float64, n)
-	for k := 0; k < n; k++ {
-		off := k * hop
-		w := make([]float64, frameSize)
-		for j := 0; j < frameSize; j++ {
-			w[j] = float64(samples[off+j]) * win[j]
-		}
-		windows[k] = w
-	}
-	re, im := batchFFT(windows, frameSize)
-
 	freqPerBin := float64(sampleRate) / float64(frameSize)
 	nyq := float64(sampleRate) / 2
 	nb := len(rbBandEdgesHz)
@@ -1179,9 +1157,33 @@ func multiBandOnset(samples []float32, sampleRate int) ([]float64, float64) {
 		hiBin[b] = hb
 	}
 
+	// Each frame's band magnitudes (the sum of its bins' magnitudes in each
+	// band) are all the passes below read, so keep those, not the spectra.
+	bandMags := make([]float64, n*nb)
+	const bins = frameSize / 2 // hiBin never reaches past it
+	stftChunks(n, frameSize, bins, func(k int, buf []float64) {
+		off := k * hop
+		for j := 0; j < frameSize; j++ {
+			buf[j] = float64(samples[off+j]) * win[j]
+		}
+	}, func(start int, re, im []float64) {
+		for c := 0; c*bins < len(re); c++ {
+			k := start + c
+			fr, fi := re[c*bins:(c+1)*bins], im[c*bins:(c+1)*bins]
+			lo := 1
+			for b := 0; b < nb; b++ {
+				var s float64
+				for bin := lo; bin < hiBin[b]; bin++ {
+					s += math.Sqrt(fr[bin]*fr[bin] + fi[bin]*fi[bin])
+				}
+				bandMags[k*nb+b] = s
+				lo = hiBin[b]
+			}
+		}
+	})
+
 	onset := make([]float64, n)
 	prevMag := make([]float64, nb)
-	bandMag := make([]float64, nb)
 	mean := make([]float64, nb) // per-band running level for adaptive normalization
 	if UseBandNorm && BandNormWarmupSec > 0 {
 		// Seed the EMA at each band's average level over the leading
@@ -1191,15 +1193,9 @@ func multiBandOnset(samples []float32, sampleRate int) ([]float64, float64) {
 		if warm > n {
 			warm = n
 		}
-		for k := 0; k < warm && k < len(re); k++ {
-			lo := 1
+		for k := 0; k < warm; k++ {
 			for b := 0; b < nb; b++ {
-				var s float64
-				for bin := lo; bin < hiBin[b]; bin++ {
-					s += math.Sqrt(re[k][bin]*re[k][bin] + im[k][bin]*im[k][bin])
-				}
-				mean[b] += s
-				lo = hiBin[b]
+				mean[b] += bandMags[k*nb+b]
 			}
 		}
 		if warm > 0 {
@@ -1208,16 +1204,8 @@ func multiBandOnset(samples []float32, sampleRate int) ([]float64, float64) {
 			}
 		}
 	}
-	for k := 0; k < n && k < len(re); k++ {
-		lo := 1
-		for b := 0; b < nb; b++ {
-			var s float64
-			for bin := lo; bin < hiBin[b]; bin++ {
-				s += math.Sqrt(re[k][bin]*re[k][bin] + im[k][bin]*im[k][bin])
-			}
-			bandMag[b] = s
-			lo = hiBin[b]
-		}
+	for k := 0; k < n; k++ {
+		bandMag := bandMags[k*nb : (k+1)*nb]
 		if k > 0 {
 			var flux float64
 			for b := 0; b < nb; b++ {
