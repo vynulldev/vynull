@@ -673,10 +673,9 @@ func AnalyzeTrackContext(ctx context.Context, filePath string) (*Result, error) 
 	if err != nil {
 		return nil, err
 	}
-	if err := ctx.Err(); err != nil {
+	if err := waveformEncoder.Encode(ctx, samples, AnalysisRate, r, beatResult); err != nil { // installed wire format (Pioneer)
 		return nil, err
 	}
-	waveformEncoder.Encode(samples, AnalysisRate, r, beatResult) // installed wire format (Pioneer)
 	return r, nil
 }
 
@@ -703,11 +702,11 @@ func Reanalyze(filePath string, existing *Result, parts ReanalyzeParts) (*Result
 		beatResult, _ := analyzeGridInto(context.Background(), r, samples, filePath)
 		r.GridEdited = false // a fresh detection replaces any prior hand edit
 		if len(r.WaveDetail) == 0 {
-			waveformEncoder.Encode(samples, AnalysisRate, r, beatResult)
+			waveformEncoder.Encode(context.Background(), samples, AnalysisRate, r, beatResult)
 		}
 	case PartsWaveform:
 		// Keep the grid exactly as stored; encode the waveform against it.
-		waveformEncoder.Encode(samples, AnalysisRate, r, beatResultFrom(r))
+		waveformEncoder.Encode(context.Background(), samples, AnalysisRate, r, beatResultFrom(r))
 	}
 	return r, nil
 }
@@ -716,9 +715,9 @@ func Reanalyze(filePath string, existing *Result, parts ReanalyzeParts) (*Result
 // them into r, returning the BeatResult (the waveform encoder needs it).
 func analyzeGridInto(ctx context.Context, r *Result, samples []float32, filePath string) (*BeatResult, error) {
 	// Compensate the lossy encoder delay so lossless grids are not shifted late.
-	beatResult := DetectBeatsWithEncoderDelay(samples, AnalysisRate, EncoderDelayMs(filePath))
-	if err := ctx.Err(); err != nil {
-		return nil, err
+	beatResult := detectBeats(ctx, samples, AnalysisRate, EncoderDelayMs(filePath))
+	if beatResult == nil {
+		return nil, ctx.Err()
 	}
 	camelot, standard := DetectKey(samples, AnalysisRate)
 	if err := ctx.Err(); err != nil {

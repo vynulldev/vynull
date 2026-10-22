@@ -286,3 +286,19 @@ func TestQueueWritesBackOnce(t *testing.T) {
 		t.Errorf("a request with no result was written back %d times", writes[2])
 	}
 }
+
+// Close waits for running analyses to stop, but not forever: quitting stays
+// quick even when one is mid-way through a long step (here, one that never
+// stops until released).
+func TestQueueCloseWaitIsBounded(t *testing.T) {
+	s := NewStore()
+	f := newFake(s)
+	request(s, 1, Background)
+	f.expectStart(t, 1)
+	start := time.Now()
+	s.Close()
+	if d := time.Since(start); d < closeWait || d > closeWait+time.Second {
+		t.Errorf("Close returned after %v, want about %v", d, closeWait)
+	}
+	f.finish(1)
+}

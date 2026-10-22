@@ -2,7 +2,11 @@
 
 package prolink
 
-import "github.com/vynulldev/vynull/analysis"
+import (
+	"context"
+
+	"github.com/vynulldev/vynull/analysis"
+)
 
 // NewEncoder returns the built-in Pro DJ Link wire-format encoder. Install it
 // into analysis via analysis.SetEncoder(prolink.NewEncoder()) at startup so
@@ -14,17 +18,33 @@ func NewEncoder() analysis.Encoder { return pioneerEncoder{} }
 // unchanged.
 type pioneerEncoder struct{}
 
-func (pioneerEncoder) Encode(samples []float32, sampleRate int, r *analysis.Result, beats *analysis.BeatResult) {
+func (pioneerEncoder) Encode(ctx context.Context, samples []float32, sampleRate int, r *analysis.Result, beats *analysis.BeatResult) error {
 	durationMs := float64(len(samples)) / float64(sampleRate) * 1000.0
 
+	// Each generator takes seconds on an hour-long mix: check ctx between them.
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	detail := GenerateDetail(samples, sampleRate)
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	r.WaveDetail = detail
 	r.WaveDetailMono = GenerateDetailMono(detail)
 	r.WavePreview = GeneratePreview(samples, sampleRate)
 	r.WavePreviewANLZ = GeneratePreviewANLZ(samples, sampleRate)
 	r.WaveTinyANLZ = GenerateTinyPreviewANLZ(samples)
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	r.WaveColorPreview = GenerateColorPreview(samples, sampleRate)
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	r.WaveDetail3Band = GenerateDetail3Band(samples, sampleRate)
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	r.WavePreview3Band = GeneratePreview3Band(samples, sampleRate)
 
 	// Beat grid: prefer detected beat positions, else fall back to BPM.
@@ -36,6 +56,7 @@ func (pioneerEncoder) Encode(samples []float32, sampleRate int, r *analysis.Resu
 	}
 
 	r.SongStructure = GeneratePSSI(r.Phrases, r.BPM)
+	return nil
 }
 
 // EncodeGrid rebuilds just the beat-grid blobs from r.Beats (analysis.GridEncoder),

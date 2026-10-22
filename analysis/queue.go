@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"slices"
 	"sync"
+	"time"
 )
 
 // queue.go runs the analyses the daemon starts by itself: a deck loading a
@@ -107,9 +108,11 @@ func (s *Store) Analyze(ctx context.Context, trackID uint32, filePath string) *R
 }
 
 // Close stops the analyses, on shutdown: queued requests get nil, later ones
-// get nil at once, and running analyses are cancelled. It returns once they
-// have stopped (within a stage of the analysis, about a second), so none is
-// left writing its cache file as the process exits.
+// get nil at once, and running analyses are cancelled. It waits for them to
+// stop, which takes a second or two (an analysis checks between its steps),
+// but no longer than closeWait, so quitting stays quick even mid-way through
+// a long mix's step. An analysis left running can't leave a broken cache
+// file: the file is written atomically.
 func (s *Store) Close() {
 	q := &s.queue
 	q.mu.Lock()
@@ -131,8 +134,17 @@ func (s *Store) Close() {
 			done(nil)
 		}
 	}
-	q.wg.Wait()
+	stopped := make(chan struct{})
+	go func() { q.wg.Wait(); close(stopped) }()
+	select {
+	case <-stopped:
+	case <-time.After(closeWait):
+		log.Printf("analysis: shutting down with an analysis still stopping")
+	}
 }
+
+// closeWait bounds how long Close waits for running analyses to stop.
+const closeWait = 2 * time.Second
 
 // dispatchLocked starts queued analyses while there are free slots,
 // Foreground first. Callers hold q.mu.
