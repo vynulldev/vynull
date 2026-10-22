@@ -46,21 +46,11 @@ func ButterworthHigh(cutoff, sampleRate float64) BiquadCoeffs {
 	}
 }
 
-// ApplyBiquad applies a biquad IIR filter to samples, returning a new slice
-// (the input is not mutated).
-func ApplyBiquad(samples []float32, c BiquadCoeffs) []float32 {
-	out := make([]float32, len(samples))
-	f := Biquad{c: c}
-	for i, s := range samples {
-		out[i] = f.Next(s)
-	}
-	return out
-}
-
 // Biquad runs a biquad IIR filter one sample at a time: fed a signal's samples
-// in order, Next returns what ApplyBiquad puts at each position. A caller that
-// reads the filtered signal once, front to back, can filter as it reads
-// instead of holding a filtered copy of the whole track.
+// in order, Next returns the filtered signal's. The waveform generators read
+// each filtered band once, front to back, so they filter as they read instead
+// of holding a filtered copy of the whole track. Each output is rounded to
+// float32, as a stored filtered signal would be.
 type Biquad struct {
 	c              BiquadCoeffs
 	x1, x2, y1, y2 float64
@@ -77,8 +67,9 @@ func (f *Biquad) Next(s float32) float32 {
 	return float32(y0)
 }
 
-// Cascade is biquads in series, run one sample at a time: Next returns what
-// applying them one after another with ApplyBiquad gives at each position.
+// Cascade is biquads in series, run one sample at a time: each stage filters
+// the previous stage's (float32) output, as filtering a stored signal stage by
+// stage would.
 type Cascade []Biquad
 
 // NewCascade returns the filters for the given coefficients, in order.
