@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"slices"
 	"sync"
+	"time"
 )
 
 // queue.go runs the analyses the daemon starts by itself: a deck loading a
@@ -42,6 +43,7 @@ type job struct {
 	prio     Priority
 	slot     Priority // the priority it was started under, while running
 	running  bool
+	cancel   context.CancelFunc // stops the running analysis
 	waiters  []func(*Result)
 }
 
@@ -51,6 +53,7 @@ type queue struct {
 	waiting [2][]*job       // queued, oldest first, by priority
 	running [2]int          // running, by the priority they started under
 	closed  bool
+	wg      sync.WaitGroup // running analyses, for Close
 }
 
 // Request asks for a track's analysis: rekordbox's through the Importer when
@@ -104,8 +107,12 @@ func (s *Store) Analyze(ctx context.Context, trackID uint32, filePath string) *R
 	}
 }
 
-// Close stops starting analyses: queued requests get nil, and later ones get
-// nil at once. Analyses already running finish.
+// Close stops the analyses, on shutdown: queued requests get nil, later ones
+// get nil at once, and running analyses are cancelled. It waits for them to
+// stop, which takes a second or two (an analysis checks between its steps),
+// but no longer than closeWait, so quitting stays quick even mid-way through
+// a long mix's step. An analysis left running can't leave a broken cache
+// file: the file is written atomically.
 func (s *Store) Close() {
 	q := &s.queue
 	q.mu.Lock()
@@ -118,13 +125,26 @@ func (s *Store) Close() {
 	for _, j := range dropped {
 		delete(q.jobs, j.trackID)
 	}
+	for _, j := range q.jobs {
+		j.cancel()
+	}
 	q.mu.Unlock()
 	for _, j := range dropped {
 		for _, done := range j.waiters {
 			done(nil)
 		}
 	}
+	stopped := make(chan struct{})
+	go func() { q.wg.Wait(); close(stopped) }()
+	select {
+	case <-stopped:
+	case <-time.After(closeWait):
+		log.Printf("analysis: shutting down with an analysis still stopping")
+	}
 }
+
+// closeWait bounds how long Close waits for running analyses to stop.
+const closeWait = 2 * time.Second
 
 // dispatchLocked starts queued analyses while there are free slots,
 // Foreground first. Callers hold q.mu.
@@ -140,16 +160,21 @@ func (s *Store) dispatchLocked() {
 		}
 		j := q.waiting[p][0]
 		q.waiting[p] = q.waiting[p][1:]
+		var ctx context.Context
+		ctx, j.cancel = context.WithCancel(context.Background())
 		j.running, j.slot = true, p
 		q.running[p]++
-		go s.run(j)
+		q.wg.Add(1)
+		go s.run(ctx, j)
 	}
 }
 
 // run analyzes a started job's track, then hands the result to its waiters.
-func (s *Store) run(j *job) {
-	r := s.analyze(j.trackID, j.filePath)
+func (s *Store) run(ctx context.Context, j *job) {
 	q := &s.queue
+	defer q.wg.Done()
+	r := s.analyze(ctx, j.trackID, j.filePath)
+	j.cancel()
 	q.mu.Lock()
 	delete(q.jobs, j.trackID)
 	q.running[j.slot]--
@@ -167,8 +192,10 @@ func (s *Store) run(j *job) {
 }
 
 // analyze produces a track's result: one that arrived while the request was
-// queued (an import storing rekordbox's), the Importer's, or our own.
-func (s *Store) analyze(trackID uint32, filePath string) *Result {
+// queued (an import storing rekordbox's), the Importer's, or our own. A
+// cancelled analysis gives whatever the track holds by then: the result that
+// replaced it, or nil.
+func (s *Store) analyze(ctx context.Context, trackID uint32, filePath string) *Result {
 	if r := s.Get(trackID); r != nil {
 		return r
 	}
@@ -184,7 +211,11 @@ func (s *Store) analyze(trackID uint32, filePath string) *Result {
 		return nil
 	}
 	log.Printf("analysis: analyzing track %d (%s)...", trackID, filepath.Base(filePath))
-	r, err := AnalyzeTrack(filePath)
+	r, err := AnalyzeTrackContext(ctx, filePath)
+	if ctx.Err() != nil {
+		log.Printf("analysis: track %d cancelled", trackID)
+		return s.stored(trackID)
+	}
 	if err != nil {
 		log.Printf("analysis: track %d failed: %v", trackID, err)
 		return nil
@@ -194,12 +225,36 @@ func (s *Store) analyze(trackID uint32, filePath string) *Result {
 	return r
 }
 
-// forget drops a track's queued request, as when the track is deleted.
+// cancel stops a track's running analysis, whose result is no longer wanted:
+// the track was given another (Set).
+func (s *Store) cancel(trackID uint32) {
+	q := &s.queue
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	if j := q.jobs[trackID]; j != nil && j.running {
+		j.cancel()
+	}
+}
+
+// stored returns the result the track holds in memory, or nil.
+func (s *Store) stored(trackID uint32) *Result {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.results[trackID]
+}
+
+// forget drops a track's queued request and cancels its running analysis, as
+// when the track is deleted.
 func (s *Store) forget(trackID uint32) {
 	q := &s.queue
 	q.mu.Lock()
 	j := q.jobs[trackID]
-	if j == nil || j.running {
+	if j == nil {
+		q.mu.Unlock()
+		return
+	}
+	if j.running {
+		j.cancel()
 		q.mu.Unlock()
 		return
 	}

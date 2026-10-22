@@ -3,6 +3,8 @@
 package analysis
 
 import (
+	"bytes"
+	"context"
 	"crypto/sha256"
 	"encoding/gob"
 	"fmt"
@@ -12,6 +14,7 @@ import (
 	"sync"
 	"sync/atomic"
 
+	"github.com/vynulldev/vynull/internal/fsutil"
 	"github.com/vynulldev/vynull/pdb"
 )
 
@@ -391,6 +394,13 @@ func (s *Store) set(trackID uint32, r *Result, onlyIfAbsent bool) bool {
 	s.results[trackID] = r
 	s.mu.Unlock()
 
+	// A deliberate replacement (an import, a re-analysis, a grid edit) makes an
+	// analysis still running for the track pointless: its result would be
+	// discarded (keepCurrent), so stop it.
+	if !onlyIfAbsent {
+		s.cancel(trackID)
+	}
+
 	// Persist to disk.
 	if s.cacheDir != "" && filePath != "" {
 		s.saveToDisk(filePath, r)
@@ -554,16 +564,18 @@ func (s *Store) RenameCachedPath(oldPath, newPath string) {
 	}
 }
 
+// saveToDisk writes a result's cache file, atomically: a crash or kill
+// mid-write leaves the old file (or none), never a truncated one. No fsync:
+// the cache can be rebuilt, and an import writes thousands of these.
 func (s *Store) saveToDisk(filePath string, r *Result) {
 	path := s.cacheFile(filePath)
-	f, err := os.Create(path)
-	if err != nil {
-		log.Printf("analysis-cache: create %s: %v", path, err)
+	var buf bytes.Buffer
+	if err := gob.NewEncoder(&buf).Encode(r); err != nil {
+		log.Printf("analysis-cache: encode %s: %v", path, err)
 		return
 	}
-	defer f.Close()
-	if err := gob.NewEncoder(f).Encode(r); err != nil {
-		log.Printf("analysis-cache: encode %s: %v", path, err)
+	if err := fsutil.WriteCache(path, buf.Bytes(), 0644); err != nil {
+		log.Printf("analysis-cache: write %s: %v", path, err)
 	}
 }
 
@@ -638,8 +650,18 @@ const (
 
 // AnalyzeTrack decodes and analyzes a single track (grid and waveform).
 func AnalyzeTrack(filePath string) (*Result, error) {
-	samples, err := DecodePCM(filePath, AnalysisRate)
+	return AnalyzeTrackContext(context.Background(), filePath)
+}
+
+// AnalyzeTrackContext is AnalyzeTrack, stopping early when ctx ends: the
+// decoder is killed, and the analysis checks ctx between its stages (each up
+// to about a second), then returns ctx's error.
+func AnalyzeTrackContext(ctx context.Context, filePath string) (*Result, error) {
+	samples, err := DecodePCMContext(ctx, filePath, AnalysisRate)
 	if err != nil {
+		return nil, err
+	}
+	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
 	r := &Result{
@@ -647,8 +669,13 @@ func AnalyzeTrack(filePath string) (*Result, error) {
 		Duration:     uint16(float64(len(samples)) / float64(AnalysisRate)),
 		Artwork:      ExtractArtwork(filePath),
 	}
-	beatResult := analyzeGridInto(r, samples, filePath)
-	waveformEncoder.Encode(samples, AnalysisRate, r, beatResult) // installed wire format (Pioneer)
+	beatResult, err := analyzeGridInto(ctx, r, samples, filePath)
+	if err != nil {
+		return nil, err
+	}
+	if err := waveformEncoder.Encode(ctx, samples, AnalysisRate, r, beatResult); err != nil { // installed wire format (Pioneer)
+		return nil, err
+	}
 	return r, nil
 }
 
@@ -671,24 +698,31 @@ func Reanalyze(filePath string, existing *Result, parts ReanalyzeParts) (*Result
 
 	switch parts {
 	case PartsGrid:
-		beatResult := analyzeGridInto(r, samples, filePath)
+		// Without a context to end, the grid can't fail.
+		beatResult, _ := analyzeGridInto(context.Background(), r, samples, filePath)
 		r.GridEdited = false // a fresh detection replaces any prior hand edit
 		if len(r.WaveDetail) == 0 {
-			waveformEncoder.Encode(samples, AnalysisRate, r, beatResult)
+			waveformEncoder.Encode(context.Background(), samples, AnalysisRate, r, beatResult)
 		}
 	case PartsWaveform:
 		// Keep the grid exactly as stored; encode the waveform against it.
-		waveformEncoder.Encode(samples, AnalysisRate, r, beatResultFrom(r))
+		waveformEncoder.Encode(context.Background(), samples, AnalysisRate, r, beatResultFrom(r))
 	}
 	return r, nil
 }
 
 // analyzeGridInto computes the grid, key, and phrases from samples and writes
 // them into r, returning the BeatResult (the waveform encoder needs it).
-func analyzeGridInto(r *Result, samples []float32, filePath string) *BeatResult {
+func analyzeGridInto(ctx context.Context, r *Result, samples []float32, filePath string) (*BeatResult, error) {
 	// Compensate the lossy encoder delay so lossless grids are not shifted late.
-	beatResult := DetectBeatsWithEncoderDelay(samples, AnalysisRate, EncoderDelayMs(filePath))
+	beatResult := detectBeats(ctx, samples, AnalysisRate, EncoderDelayMs(filePath))
+	if beatResult == nil {
+		return nil, ctx.Err()
+	}
 	camelot, standard := DetectKey(samples, AnalysisRate)
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 
 	// Downbeat index into Beats (the first beat at/after the detected downbeat).
 	downbeatIdx := 0
@@ -700,6 +734,9 @@ func analyzeGridInto(r *Result, samples []float32, filePath string) *BeatResult 
 	}
 
 	phrases := DetectPhrases(samples, AnalysisRate, beatResult.BPM, beatResult.Downbeat)
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	AnnotateVocals(samples, AnalysisRate, beatResult.BPM, beatResult.Downbeat, phrases)
 	SetPhraseTimes(phrases, beatResult.Beats, beatResult.BPM)
 
@@ -711,7 +748,7 @@ func analyzeGridInto(r *Result, samples []float32, filePath string) *BeatResult 
 	r.Phrases = phrases
 	r.TempoMinBPM, r.TempoMaxBPM = TempoRange()
 	r.GridDetected, r.GridOffsetMs = true, GridOffset() // DetectBeats applied the offset
-	return beatResult
+	return beatResult, nil
 }
 
 // beatResultFrom reconstructs a BeatResult from a Result's stored grid, so the

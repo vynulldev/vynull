@@ -3,6 +3,7 @@
 package analysis
 
 import (
+	"context"
 	"math"
 	"os/exec"
 	"path/filepath"
@@ -218,6 +219,13 @@ func DetectBeats(samples []float32, sampleRate int) *BeatResult {
 // for a lossless source. Uses onset peak detection with an adaptive threshold,
 // then computes BPM from the median inter-beat interval.
 func DetectBeatsWithEncoderDelay(samples []float32, sampleRate int, encoderDelayMs float64) *BeatResult {
+	return detectBeats(context.Background(), samples, sampleRate, encoderDelayMs)
+}
+
+// detectBeats is DetectBeatsWithEncoderDelay, returning nil when ctx ends: it
+// checks ctx between its steps, the longest of which takes seconds on an
+// hour-long mix. The checks don't touch the result.
+func detectBeats(ctx context.Context, samples []float32, sampleRate int, encoderDelayMs float64) *BeatResult {
 	if len(samples) < sampleRate*2 {
 		return &BeatResult{}
 	}
@@ -239,16 +247,25 @@ func DetectBeatsWithEncoderDelay(samples []float32, sampleRate int, encoderDelay
 
 	// Regular low-pass at 500Hz for BPM detection + peak-scoring phase.
 	filtered := lowPass(samples, float64(sampleRate), 500.0)
+	if ctx.Err() != nil {
+		return nil
+	}
 
 	// Zero-phase low-pass for DP beat tracker: eliminates the ~60ms transient
 	// delay, giving more accurate beat positions at actual transient starts.
 	zpForward := lowPass(samples, float64(sampleRate), 500.0)
+	if ctx.Err() != nil {
+		return nil
+	}
 	for i, j := 0, len(zpForward)-1; i < j; i, j = i+1, j-1 {
 		zpForward[i], zpForward[j] = zpForward[j], zpForward[i]
 	}
 	zpFiltered := lowPass(zpForward, float64(sampleRate), 500.0)
 	for i, j := 0, len(zpFiltered)-1; i < j; i, j = i+1, j-1 {
 		zpFiltered[i], zpFiltered[j] = zpFiltered[j], zpFiltered[i]
+	}
+	if ctx.Err() != nil {
+		return nil
 	}
 
 	numFrames := (len(filtered) - frameSize) / hopSize
@@ -504,6 +521,9 @@ func DetectBeatsWithEncoderDelay(samples []float32, sampleRate int, encoderDelay
 	}
 
 	bpm = math.Round(bpm*100) / 100
+	if ctx.Err() != nil {
+		return nil
+	}
 
 	// The phase onset envelope (multi-band when enabled) is shared by the
 	// snap verification here and the tempogram phase step below; computing it
@@ -519,6 +539,9 @@ func DetectBeatsWithEncoderDelay(samples []float32, sampleRate int, encoderDelay
 	// downbeat are fit at the corrected tempo rather than patched after.
 	if SnapVerify && UseTempogramPhase {
 		bpm = snapVerifyBPM(phaseOnset, phaseOnsetMs, bpm)
+	}
+	if ctx.Err() != nil {
+		return nil
 	}
 
 	// Now build a refined beat grid by snapping peaks to a regular grid.
@@ -567,6 +590,9 @@ func DetectBeatsWithEncoderDelay(samples []float32, sampleRate int, encoderDelay
 	}
 
 	// DP forward pass.
+	if ctx.Err() != nil {
+		return nil
+	}
 	const alpha = 0.9
 	const tightness = 4.0
 	cumscore := make([]float64, nTrackFrames)
@@ -614,6 +640,9 @@ func DetectBeatsWithEncoderDelay(samples []float32, sampleRate int, encoderDelay
 		}
 	}
 
+	if ctx.Err() != nil {
+		return nil
+	}
 	// Backtrack: start from the best score in the last beat-period of the track.
 	startFrame := nTrackFrames - int(periodFrames)
 	if startFrame < 0 {
@@ -766,6 +795,9 @@ func DetectBeatsWithEncoderDelay(samples []float32, sampleRate int, encoderDelay
 		bestPhase = dpPhase
 	}
 
+	if ctx.Err() != nil {
+		return nil
+	}
 	// Tempogram phase: the first-beat phase is the argument of the onset
 	// envelope's complex DFT bin at the beat period (a 2π onset-envelope
 	// tempogram, matching rekordbox's beat analysis). This replaces the
@@ -851,6 +883,9 @@ func DetectBeatsWithEncoderDelay(samples []float32, sampleRate int, encoderDelay
 		samples = orig
 	}
 
+	if ctx.Err() != nil {
+		return nil
+	}
 	// Attack placement (AttackPlacement): move the grid onto the kick's
 	// measured attack, where rekordbox places the beat, rather than relying on
 	// the tempogram latency constant alone.
@@ -860,6 +895,9 @@ func DetectBeatsWithEncoderDelay(samples []float32, sampleRate int, encoderDelay
 		}
 	}
 
+	if ctx.Err() != nil {
+		return nil
+	}
 	// Find downbeat (beat 1 of 4) on the detector's own grid, before any user
 	// offset: the downbeat logic samples onset strength around each beat, so
 	// it must judge the detector's phase, not a shifted one.

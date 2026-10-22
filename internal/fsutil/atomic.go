@@ -20,6 +20,20 @@ import (
 // crash before the rename may leave a stray ".<name>.tmp-*" file — harmless,
 // and it never corrupts the real destination.
 func WriteFile(path string, data []byte, perm os.FileMode) error {
+	return writeAtomic(path, data, perm, true)
+}
+
+// WriteCache writes data to path atomically like WriteFile, but without the
+// fsync: a process that dies mid-write still leaves the old file (or none),
+// never a truncated one, though a power loss may lose the new one. For files
+// that can be rebuilt, such as the analysis cache, where an fsync per file
+// costs more than it protects (about 1 ms each on NVMe, far more on an SD
+// card, times thousands of files on an import).
+func WriteCache(path string, data []byte, perm os.FileMode) error {
+	return writeAtomic(path, data, perm, false)
+}
+
+func writeAtomic(path string, data []byte, perm os.FileMode, sync bool) error {
 	dir := filepath.Dir(path)
 	tmp, err := os.CreateTemp(dir, "."+filepath.Base(path)+".tmp-*")
 	if err != nil {
@@ -34,9 +48,11 @@ func WriteFile(path string, data []byte, perm os.FileMode) error {
 		tmp.Close()
 		return err
 	}
-	if err := tmp.Sync(); err != nil {
-		tmp.Close()
-		return err
+	if sync {
+		if err := tmp.Sync(); err != nil {
+			tmp.Close()
+			return err
+		}
 	}
 	if err := tmp.Close(); err != nil {
 		return err
