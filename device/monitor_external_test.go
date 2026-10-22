@@ -30,3 +30,16 @@ func TestExternalSource(t *testing.T) {
 		}
 	}
 }
+
+// LoadedTracks lists our tracks on the decks, not a USB track whose ID only
+// collides with ours, nor an empty deck.
+func TestLoadedTracks(t *testing.T) {
+	m := NewPlayerMonitor(nil, nil)
+	m.SelfDevice = func() uint8 { return 17 }
+	m.Update(&proto.CDJStatus{DeviceNumber: 1, TrackID: 5, TrackDevice: 17, TrackSlot: proto.SlotRekordbox})
+	m.Update(&proto.CDJStatus{DeviceNumber: 2, TrackID: 6, TrackDevice: 2, TrackSlot: proto.SlotUSB})
+	m.Update(&proto.CDJStatus{DeviceNumber: 3})
+	if got := m.LoadedTracks(); len(got) != 1 || !got[5] {
+		t.Errorf("LoadedTracks = %v, want only track 5", got)
+	}
+}

@@ -46,6 +46,7 @@ type TagStoreInterface interface {
 	DeleteTag(id uint32)
 	GetTagsForTrack(trackID uint32) []TagInfo
 	SetTagsForTrack(trackID uint32, tagIDs []uint32)
+	EditTags(trackIDs, add, remove []uint32) ([]uint32, error)
 	RemoveAllTrackData(trackID uint32)
 }
 
@@ -267,6 +268,44 @@ func (ts *TagStore) SetTagsForTrack(trackID uint32, tagIDs []uint32) {
 	}
 	ts.changed()
 	log.Printf("api: set %d tags for track %d", len(tagIDs), trackID)
+}
+
+// EditTags adds tags to and removes tags from several tracks as one change,
+// and returns the tracks whose tags changed. An added tag goes after the
+// track's others. Adding a tag that doesn't exist is refused, before any
+// change.
+func (ts *TagStore) EditTags(trackIDs, add, remove []uint32) ([]uint32, error) {
+	ts.mu.Lock()
+	defer ts.mu.Unlock()
+	for _, id := range add {
+		if !slices.ContainsFunc(ts.tags, func(t TagInfo) bool { return t.ID == id }) {
+			return nil, fmt.Errorf("tag %d not found", id)
+		}
+	}
+	var changed []uint32
+	for _, trackID := range trackIDs {
+		cur := ts.trackTags[trackID]
+		next := slices.DeleteFunc(slices.Clone(cur), func(id uint32) bool { return slices.Contains(remove, id) })
+		for _, id := range add {
+			if !slices.Contains(next, id) {
+				next = append(next, id)
+			}
+		}
+		if slices.Equal(next, cur) {
+			continue
+		}
+		if len(next) == 0 {
+			delete(ts.trackTags, trackID)
+		} else {
+			ts.trackTags[trackID] = next
+		}
+		changed = append(changed, trackID)
+	}
+	if len(changed) > 0 {
+		ts.changed()
+		log.Printf("api: edited tags on %d tracks (+%v -%v)", len(changed), add, remove)
+	}
+	return changed, nil
 }
 
 // Track colours and ratings used to be kept here too, in track_colors.json

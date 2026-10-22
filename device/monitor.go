@@ -166,6 +166,21 @@ func (m *PlayerMonitor) States() map[uint8]*PlayerState {
 	return out
 }
 
+// LoadedTracks returns the IDs of our tracks loaded on the decks seen in the
+// last few seconds: the only tracks a deck acts on a refresh trigger for.
+func (m *PlayerMonitor) LoadedTracks() map[uint32]bool {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	out := make(map[uint32]bool)
+	now := time.Now()
+	for _, p := range m.players {
+		if now.Sub(p.LastSeen) < 5*time.Second && p.Status.TrackID != 0 && !p.External {
+			out[p.Status.TrackID] = true
+		}
+	}
+	return out
+}
+
 // History returns a copy of the track history.
 func (m *PlayerMonitor) History() []HistoryEntry {
 	m.histMu.RLock()

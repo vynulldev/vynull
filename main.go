@@ -363,21 +363,23 @@ func main() {
 			// store persists them, and existing cues are never overwritten.
 			if len(cueStore.GetCues(trackID)) == 0 {
 				mem := 8
+				var cues []dbserver.CuePoint
 				for _, c := range analysis.ParseANLZCues(base+".EXT", dat) {
 					num := uint16(c.HotCue)
 					if c.HotCue == 0 {
 						mem++
 						num = uint16(mem)
 					}
-					cue := &dbserver.CuePoint{Number: num, Type: 1, TimeMs: c.TimeMs, LoopMs: -1, Status: 1, ColorID: c.ColorID}
+					cue := dbserver.CuePoint{Number: num, Type: 1, TimeMs: c.TimeMs, LoopMs: -1, Status: 1, ColorID: c.ColorID}
 					if c.IsLoop {
 						cue.Type = 2
 						if c.LoopMs > 0 {
 							cue.LoopMs = int32(c.LoopMs)
 						}
 					}
-					cueStore.SaveCue(trackID, cue, nil)
+					cues = append(cues, cue)
 				}
+				cueStore.SaveCues(trackID, cues)
 			}
 			return res
 		}
@@ -679,20 +681,11 @@ func main() {
 
 	// Start HTTP API server for external application integration.
 	apiSrv := &api.Server{
-		Device:   dev,
-		Library:  lib,
-		PDB:      pdbDB,
-		Analysis: analysisStore,
-		Cues: &api.CueStoreAdapter{
-			Store: cueStore,
-			OnChange: func(trackID uint32) {
-				// Tell connected CDJs to re-fetch cues so colour edits
-				// from the web UI show up without a track reload. The
-				// CDJ ignores the trigger unless its embedded track ID
-				// matches the track currently loaded on the deck.
-				dev.BroadcastTrackRefresh(trackID)
-			},
-		},
+		Device:       dev,
+		Library:      lib,
+		PDB:          pdbDB,
+		Analysis:     analysisStore,
+		Cues:         &api.CueStoreAdapter{Store: cueStore},
 		Tags:         tagStore,
 		Playlists:    playlistStore,
 		Menu:         menuStore,
