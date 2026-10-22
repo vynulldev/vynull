@@ -35,6 +35,7 @@ func TestQueuedAnalysisKeepsImportedResult(t *testing.T) {
 		return &analysis.Result{BPM: 99}
 	}
 	srv := &Server{Library: lib, Analysis: store}
+	store.OnAnalyzed = srv.applyAnalysisToTrack // main wires the dbserver's, a superset
 
 	// The import stores rekordbox's analysis for track 1 and locks it.
 	store.Set(1, &analysis.Result{BPM: 128})

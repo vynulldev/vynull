@@ -1890,9 +1890,8 @@ func (s *Server) tryQueueAnalysis(trackID uint32, filePath string) bool {
 	if s.audioMissing(trackID, filePath) {
 		return false
 	}
-	s.Analysis.Request(trackID, filePath, analysis.Background, func(r *analysis.Result) {
-		s.applyAnalysisToTrack(trackID, r)
-	})
+	// The store writes the result back (OnAnalyzed), once.
+	s.Analysis.Request(trackID, filePath, analysis.Background, nil)
 	return true
 }
 
@@ -2013,9 +2012,7 @@ func (s *Server) getOrAnalyze(ctx context.Context, trackID uint32) *analysis.Res
 		return nil
 	}
 	log.Printf("api: on-demand analysis for track %d: %s", trackID, filePath)
-	r := s.Analysis.Analyze(ctx, trackID, filePath)
-	s.applyAnalysisToTrack(trackID, r)
-	return r
+	return s.Analysis.Analyze(ctx, trackID, filePath) // written back by the store's OnAnalyzed
 }
 
 // handleReanalyze invalidates the cached analysis for a track and

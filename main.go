@@ -524,6 +524,9 @@ func main() {
 		Cues:         cueStore,
 		ReplayDir:    cfg.ReplayDir,
 	}
+	// Every analysis the queue finishes is written back to its track once,
+	// whoever asked for it (a deck, the web UI, an added track).
+	analysisStore.OnAnalyzed = db.ApplyAnalysis
 	// Wired after dev is constructed below; uses a closure so we can
 	// reference dev.Peers (which is created inside dev.Start).
 	// db.OnPeerTeardown set later.

@@ -240,3 +240,36 @@ func TestAnalyzeStopsWaitingOnContext(t *testing.T) {
 		time.Sleep(5 * time.Millisecond)
 	}
 }
+
+// A finished analysis is written back once, however many requests joined it:
+// a deck asks for a track's waveforms, grid and cues many times while it
+// loads, and each request used to bring its own write-back.
+func TestQueueWritesBackOnce(t *testing.T) {
+	s := NewStore()
+	f := newFake(s)
+	var mu sync.Mutex
+	writes := map[uint32]int{}
+	s.OnAnalyzed = func(id uint32, r *Result) {
+		mu.Lock()
+		writes[id]++
+		mu.Unlock()
+	}
+	for range 20 {
+		s.Request(1, "/music/track.flac", Foreground, nil)
+	}
+	f.expectStart(t, 1)
+	last := request(s, 1, Foreground)
+	f.finish(1)
+	result(t, last)
+	mu.Lock()
+	defer mu.Unlock()
+	if writes[1] != 1 {
+		t.Errorf("written back %d times, want once", writes[1])
+	}
+
+	s.Importer = func(uint32, string) *Result { return nil } // a missing file: no result
+	result(t, request(s, 2, Foreground))
+	if writes[2] != 0 {
+		t.Errorf("a request with no result was written back %d times", writes[2])
+	}
+}

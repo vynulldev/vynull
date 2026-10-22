@@ -188,6 +188,13 @@ type Server struct {
 	activeConnsMu sync.Mutex
 }
 
+// ApplyAnalysis writes an analysis back to its track (see applyAnalysis).
+// main makes it the analysis store's OnAnalyzed, so every analysis the queue
+// finishes is written back once, whoever asked for it.
+func (s *Server) ApplyAnalysis(trackID uint32, r *analysis.Result) {
+	applyAnalysis(s.Library, s.PDB, trackID, r)
+}
+
 // Start begins listening on both the discovery port (12523) and a
 // random dynamic query port.
 func (s *Server) Start(ctx context.Context) error {

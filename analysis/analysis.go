@@ -155,6 +155,12 @@ type Store struct {
 	// Result is cached like any other, so the import runs once per track.
 	// Set once at startup, before any analysis is requested.
 	Importer func(trackID uint32, filePath string) *Result
+
+	// OnAnalyzed, when set, writes a result back to its track (the library
+	// row, the artwork it found): called once for every request the queue
+	// finishes with a result, however many requests joined it. Set once at
+	// startup, before any analysis is requested.
+	OnAnalyzed func(trackID uint32, r *Result)
 }
 
 // NewStore creates an in-memory-only analysis store.

@@ -55,9 +55,9 @@ type queue struct {
 
 // Request asks for a track's analysis: rekordbox's through the Importer when
 // it has one, otherwise our own, stored like any filled-in result (see
-// keepCurrent). done, if not nil, is called once with the track's result, or
-// nil if there is none (a missing file, a failed analysis, Close). Never
-// blocks.
+// keepCurrent), and written back through OnAnalyzed. done, if not nil, is
+// called once with the track's result, or nil if there is none (a missing
+// file, a failed analysis, Close). Never blocks.
 func (s *Store) Request(trackID uint32, filePath string, prio Priority, done func(*Result)) {
 	q := &s.queue
 	q.mu.Lock()
@@ -158,6 +158,9 @@ func (s *Store) run(j *job) {
 		s.dispatchLocked()
 	}
 	q.mu.Unlock()
+	if r != nil && s.OnAnalyzed != nil {
+		s.OnAnalyzed(j.trackID, r)
+	}
 	for _, done := range waiters {
 		done(r)
 	}

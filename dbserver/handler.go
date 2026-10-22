@@ -100,16 +100,14 @@ func (h *Handler) lazyAnalyze(trackID uint32) *analysis.Result {
 	// loses that race on every first load.
 	if r := h.analysis.TryImport(trackID, filePath); r != nil {
 		h.storeAnalysisResult(trackID, r)
+		log.Printf("dbserver: track %d imported from ANLZ (BPM=%.1f dur=%ds)", trackID, r.BPM, r.Duration)
 		return analysis.ApplyOverrides(r)
 	}
 
 	// Request the analysis: a deck is waiting, so it goes ahead of background
 	// work, and it joins an analysis of the track already queued or running.
-	h.analysis.Request(trackID, filePath, analysis.Foreground, func(r *analysis.Result) {
-		if r != nil {
-			h.storeAnalysisResult(trackID, r)
-		}
-	})
+	// The store writes the result back (Server.ApplyAnalysis), once.
+	h.analysis.Request(trackID, filePath, analysis.Foreground, nil)
 
 	return nil
 }
@@ -160,9 +158,17 @@ func (h *Handler) resolveTrackPath(trackID uint32) string {
 }
 
 func (h *Handler) storeAnalysisResult(trackID uint32, r *analysis.Result) {
+	applyAnalysis(h.lib, h.pdb, trackID, r)
+}
+
+// applyAnalysis writes an analysis back to its track: the served USB's
+// database row in PDB mode (filling only what it lacks), the library row
+// through the library's write-back (the same one the API uses), and the
+// artwork the analysis found.
+func applyAnalysis(lib *library.Library, db *pdb.Database, trackID uint32, r *analysis.Result) {
 	// Update track metadata from analysis — PDB tracks
-	if h.pdb != nil {
-		if t := h.pdb.TrackByID(trackID); t != nil {
+	if db != nil {
+		if t := db.TrackByID(trackID); t != nil {
 			if t.Tempo == 0 && r.BPM > 0 {
 				t.Tempo = uint32(r.BPM * 100)
 			}
@@ -176,18 +182,15 @@ func (h *Handler) storeAnalysisResult(trackID uint32, r *analysis.Result) {
 	}
 
 	// Library tracks: the library's write-back, the same one the API uses.
-	if h.lib != nil {
-		h.lib.ApplyAnalysis(trackID, library.AnalysisFacts{BPM: r.BPM, Duration: int(r.Duration), KeyCamelot: r.KeyCamelot})
+	if lib != nil {
+		lib.ApplyAnalysis(trackID, library.AnalysisFacts{BPM: r.BPM, Duration: int(r.Duration), KeyCamelot: r.KeyCamelot})
 	}
 
-	// The store already holds the result (TryImport and AnalyzeInBackground
+	// The store already holds the result (TryImport and the analysis queue
 	// store it, keeping one that arrived meanwhile); adopt its artwork.
-	if r.Artwork != nil && h.lib != nil {
-		h.lib.AdoptArtwork(trackID, "image/jpeg", r.Artwork)
+	if r.Artwork != nil && lib != nil {
+		lib.AdoptArtwork(trackID, "image/jpeg", r.Artwork)
 	}
-
-	log.Printf("lazy-analysis: track %d done (BPM=%.1f key=%s dur=%ds)",
-		trackID, r.BPM, r.KeyCamelot, r.Duration)
 }
 
 // Handle dispatches a message to the appropriate handler and returns
