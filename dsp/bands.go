@@ -20,12 +20,12 @@ func SplitBandsAndPeaks(samples []float32, sampleRate, numPoints int, bassMidHz,
 	}
 
 	sr := float64(sampleRate)
-	bassFiltered := ApplyBiquad(samples, ButterworthLow(bassMidHz, sr))
-	trebleFiltered := ApplyBiquad(samples, ButterworthHigh(midTrebleHz, sr))
-	midFiltered := ApplyBiquad(
-		ApplyBiquad(samples, ButterworthHigh(bassMidHz, sr)),
-		ButterworthLow(midTrebleHz, sr),
-	)
+	// The band filters run as the segments are read (contiguous, in sample
+	// order from the first), so no band is held as a filtered copy of the
+	// whole track.
+	bassFilter := NewCascade(ButterworthLow(bassMidHz, sr))
+	trebleFilter := NewCascade(ButterworthHigh(midTrebleHz, sr))
+	midFilter := NewCascade(ButterworthHigh(bassMidHz, sr), ButterworthLow(midTrebleHz, sr))
 
 	allBass = make([]float64, numPoints)
 	allMid = make([]float64, numPoints)
@@ -43,9 +43,9 @@ func SplitBandsAndPeaks(samples []float32, sampleRate, numPoints int, bassMidHz,
 		}
 		var bp, mp, tp, overall float64
 		for j := start; j < end; j++ {
-			bv := math.Abs(float64(bassFiltered[j]))
-			mv := math.Abs(float64(midFiltered[j]))
-			tv := math.Abs(float64(trebleFiltered[j]))
+			bv := math.Abs(float64(bassFilter.Next(samples[j])))
+			mv := math.Abs(float64(midFilter.Next(samples[j])))
+			tv := math.Abs(float64(trebleFilter.Next(samples[j])))
 			sv := math.Abs(float64(samples[j]))
 			if bv > bp {
 				bp = bv

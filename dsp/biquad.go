@@ -50,15 +50,50 @@ func ButterworthHigh(cutoff, sampleRate float64) BiquadCoeffs {
 // (the input is not mutated).
 func ApplyBiquad(samples []float32, c BiquadCoeffs) []float32 {
 	out := make([]float32, len(samples))
-	var x1, x2, y1, y2 float64
+	f := Biquad{c: c}
 	for i, s := range samples {
-		x0 := float64(s)
-		y0 := c.b0*x0 + c.b1*x1 + c.b2*x2 - c.a1*y1 - c.a2*y2
-		out[i] = float32(y0)
-		x2 = x1
-		x1 = x0
-		y2 = y1
-		y1 = y0
+		out[i] = f.Next(s)
 	}
 	return out
+}
+
+// Biquad runs a biquad IIR filter one sample at a time: fed a signal's samples
+// in order, Next returns what ApplyBiquad puts at each position. A caller that
+// reads the filtered signal once, front to back, can filter as it reads
+// instead of holding a filtered copy of the whole track.
+type Biquad struct {
+	c              BiquadCoeffs
+	x1, x2, y1, y2 float64
+}
+
+// Next filters the next sample.
+func (f *Biquad) Next(s float32) float32 {
+	x0 := float64(s)
+	y0 := f.c.b0*x0 + f.c.b1*f.x1 + f.c.b2*f.x2 - f.c.a1*f.y1 - f.c.a2*f.y2
+	f.x2 = f.x1
+	f.x1 = x0
+	f.y2 = f.y1
+	f.y1 = y0
+	return float32(y0)
+}
+
+// Cascade is biquads in series, run one sample at a time: Next returns what
+// applying them one after another with ApplyBiquad gives at each position.
+type Cascade []Biquad
+
+// NewCascade returns the filters for the given coefficients, in order.
+func NewCascade(cs ...BiquadCoeffs) Cascade {
+	f := make(Cascade, len(cs))
+	for i, c := range cs {
+		f[i].c = c
+	}
+	return f
+}
+
+// Next filters the next sample through every stage.
+func (f Cascade) Next(s float32) float32 {
+	for i := range f {
+		s = f[i].Next(s)
+	}
+	return s
 }
