@@ -7,8 +7,9 @@ import (
 	"sync"
 )
 
-// stftChunk is how many frames' spectra stftChunks holds at once.
-const stftChunk = 2048
+// stftChunk is how many frames' spectra stftChunks holds at once: enough to
+// keep every CPU busy, small enough that the buffers stay a few MB.
+const stftChunk = 512
 
 // stftChunks computes the spectra of frames 0..n-1 a chunk at a time and hands
 // each chunk to use, in frame order, so a caller's running sums see the frames

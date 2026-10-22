@@ -251,23 +251,6 @@ func detectBeats(ctx context.Context, samples []float32, sampleRate int, encoder
 		return nil
 	}
 
-	// Zero-phase low-pass for DP beat tracker: eliminates the ~60ms transient
-	// delay, giving more accurate beat positions at actual transient starts.
-	zpForward := lowPass(samples, float64(sampleRate), 500.0)
-	if ctx.Err() != nil {
-		return nil
-	}
-	for i, j := 0, len(zpForward)-1; i < j; i, j = i+1, j-1 {
-		zpForward[i], zpForward[j] = zpForward[j], zpForward[i]
-	}
-	zpFiltered := lowPass(zpForward, float64(sampleRate), 500.0)
-	for i, j := 0, len(zpFiltered)-1; i < j; i, j = i+1, j-1 {
-		zpFiltered[i], zpFiltered[j] = zpFiltered[j], zpFiltered[i]
-	}
-	if ctx.Err() != nil {
-		return nil
-	}
-
 	numFrames := (len(filtered) - frameSize) / hopSize
 	if numFrames < 2 {
 		return &BeatResult{}
@@ -283,6 +266,17 @@ func detectBeats(ctx context.Context, samples []float32, sampleRate int, encoder
 			sum += v * v
 		}
 		energy[i] = math.Sqrt(sum / float64(frameSize))
+	}
+
+	// Zero-phase low-pass for DP beat tracker: eliminates the ~60ms transient
+	// delay, giving more accurate beat positions at actual transient starts.
+	// It is the same low-pass run forward then backward. The forward pass is
+	// filtered, which nothing reads after the energy above, so the backward
+	// pass runs over it in place: one copy of the track instead of three.
+	zpFiltered := filtered
+	lowPassBackward(zpFiltered, float64(sampleRate), 500.0)
+	if ctx.Err() != nil {
+		return nil
 	}
 
 	onset := make([]float64, numFrames)
@@ -1634,6 +1628,16 @@ func FFmpegTrimsStart(path string) bool {
 }
 
 // lowPass applies a simple single-pole IIR low-pass filter.
+// lowPassBackward runs lowPass over buf from its end to its start, in place:
+// it leaves buf as reversing it, low-passing it and reversing it back would,
+// computed the same way, without the two reversed copies.
+func lowPassBackward(buf []float32, sampleRate, cutoff float64) {
+	alpha := cutoff / (sampleRate/2.0 + cutoff)
+	for i := len(buf) - 2; i >= 0; i-- {
+		buf[i] = buf[i+1] + float32(alpha)*(buf[i]-buf[i+1])
+	}
+}
+
 func lowPass(samples []float32, sampleRate, cutoff float64) []float32 {
 	alpha := cutoff / (sampleRate/2.0 + cutoff)
 	out := make([]float32, len(samples))
