@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"math"
 	"sort"
-	"strconv"
 	"strings"
 
 	"github.com/vynulldev/vynull/analysis"
@@ -158,8 +157,8 @@ func (h *Handler) trackToStdItem(t *library.Track) *menuItem {
 // to 16. Keys interleave A then B per wheel position: 1A=1, 1B=2, ... 8A=15,
 // 8B=16, ... 12A=23, 12B=24. Returns 0 for an unrecognized key.
 func newKeyID(key string) uint32 {
-	camelot, _ := analysis.KeyNamesFrom(key)
-	if camelot == "" {
+	k, ok := analysis.KeyByName(key)
+	if !ok {
 		// rekordbox reads a key name loosely: a leading root note A-G
 		// (fullwidth too), an optional sharp or flat, then "m" for minor;
 		// anything after is ignored ("Alpha" is A major, "Beta" B major), and
@@ -169,21 +168,7 @@ func newKeyID(key string) uint32 {
 		}
 		return 0
 	}
-	letter := camelot[len(camelot)-1]
-	var mode uint32
-	switch letter {
-	case 'A', 'a':
-		mode = 1
-	case 'B', 'b':
-		mode = 2
-	default:
-		return 0
-	}
-	num, err := strconv.Atoi(strings.TrimSpace(camelot[:len(camelot)-1]))
-	if err != nil || num < 1 || num > 12 {
-		return 0
-	}
-	return uint32(num-1)*2 + mode
+	return uint32(k.Index())
 }
 
 // newCDJIncompatible reports whether a track is rejected by rekordbox's

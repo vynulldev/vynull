@@ -4,10 +4,11 @@ package dbserver
 
 import (
 	"fmt"
-	"github.com/vynulldev/vynull/internal/dlog"
 	"sort"
 	"strings"
 
+	"github.com/vynulldev/vynull/analysis"
+	"github.com/vynulldev/vynull/internal/dlog"
 	"github.com/vynulldev/vynull/library"
 	"github.com/vynulldev/vynull/proto"
 	"github.com/vynulldev/vynull/related"
@@ -523,12 +524,12 @@ func (h *Handler) handleGetKeyDistances(msg *proto.DBMessage) []*proto.DBMessage
 	// position to compute the compatibility rings, then label them in the
 	// configured (Classic) notation. arg 1 is the selected index, arg 0 the
 	// distance (0 exact, 1 +relative, 2 +wheel neighbours).
-	groups := camelotDistanceGroups(keyIndexToCamelot(keyIndex))
+	key, _ := analysis.KeyAtIndex(int(keyIndex))
 	var items []*menuItem
-	for dist, groupKeys := range groups {
+	for dist, groupKeys := range keyDistanceGroups(key) {
 		names := make([]string, len(groupKeys))
-		for i, c := range groupKeys {
-			names[i] = classicKeyName(c)
+		for i, k := range groupKeys {
+			names[i] = classicKeyNames[k.Index()-1]
 		}
 		items = append(items, &menuItem{
 			ID:       keyIndex,
@@ -580,122 +581,34 @@ func (h *Handler) handleGetTracksByKey(msg *proto.DBMessage) []*proto.DBMessage 
 }
 
 // keyGroupIndexes returns the 1-24 key indexes in a key's distance group
-// (camelotDistanceGroups; a distance past 2 is the widest group), or nil for
-// an index that names no key.
+// (keyDistanceGroups; a distance past 2 is the widest group), or nil for an
+// index that names no key.
 func keyGroupIndexes(keyIndex uint32, distance int) map[uint32]bool {
-	groups := camelotDistanceGroups(keyIndexToCamelot(keyIndex))
-	if len(groups[0]) == 0 {
+	k, ok := analysis.KeyAtIndex(int(keyIndex))
+	if !ok {
 		return nil
 	}
+	groups := keyDistanceGroups(k)
 	group := groups[min(max(distance, 0), len(groups)-1)]
 	out := make(map[uint32]bool, len(group))
-	for _, c := range group {
-		out[camelotToKeyIndex(c)] = true
+	for _, g := range group {
+		out[uint32(g.Index())] = true
 	}
 	return out
 }
 
-// keyIndexToCamelot maps the 1-24 harmonic index to Camelot notation ("1A" …
-// "12B"); keyIndexToCamelot/camelotToKeyIndex are inverses. classicKeyName
-// gives the Classic (musical) label for a Camelot string.
-func keyIndexToCamelot(idx uint32) string {
-	if idx < 1 || idx > 24 {
-		return ""
+// keyDistanceGroups returns a key's three distance groups, as the KEY menu
+// shows them: distance 0 is the key, 1 adds its relative key, and 2 adds its
+// neighbours one step round the wheel. No key has three empty groups.
+func keyDistanceGroups(k analysis.Key) [][]analysis.Key {
+	if k == (analysis.Key{}) {
+		return [][]analysis.Key{{}, {}, {}}
 	}
-	wheel := (idx-1)/2 + 1
-	mode := "A"
-	if (idx-1)%2 == 1 {
-		mode = "B"
+	return [][]analysis.Key{
+		{k},
+		{k, k.Relative()},
+		{k, k.Relative(), k.Step(-1), k.Step(1)},
 	}
-	return fmt.Sprintf("%d%s", wheel, mode)
-}
-
-func camelotToKeyIndex(camelot string) uint32 {
-	if len(camelot) < 2 {
-		return 0
-	}
-	mode := camelot[len(camelot)-1]
-	var m uint32
-	switch mode {
-	case 'A', 'a':
-		m = 1
-	case 'B', 'b':
-		m = 2
-	default:
-		return 0
-	}
-	num := 0
-	if _, err := fmt.Sscanf(camelot[:len(camelot)-1], "%d", &num); err != nil || num < 1 || num > 12 {
-		return 0
-	}
-	return uint32(num-1)*2 + m
-}
-
-func classicKeyName(camelot string) string {
-	if i := camelotToKeyIndex(camelot); i >= 1 && i <= 24 {
-		return classicKeyNames[i-1]
-	}
-	return camelot
-}
-
-// camelotDistanceGroups returns 3 groups of Camelot keys at increasing distances.
-// Distance 0: exact key
-// Distance 1: +/-1 on Camelot wheel (adjacent keys)
-// Distance 2: +/-2 on Camelot wheel
-func camelotDistanceGroups(key string) [][]string {
-	if key == "" {
-		return [][]string{{}, {}, {}}
-	}
-
-	// Parse Camelot notation: number (1-12) + letter (A/B).
-	num := 0
-	mode := ""
-	for i, c := range key {
-		if c == 'A' || c == 'B' {
-			fmt.Sscanf(key[:i], "%d", &num)
-			mode = string(c)
-			break
-		}
-	}
-	if num == 0 || mode == "" {
-		return [][]string{{key}, {key}, {key}}
-	}
-
-	wrap := func(n int) int {
-		n = ((n - 1) % 12) + 1
-		if n <= 0 {
-			n += 12
-		}
-		return n
-	}
-
-	exact := []string{key}
-
-	// +/-1: same number other mode, +1 same mode, -1 same mode
-	near := []string{key}
-	otherMode := "A"
-	if mode == "A" {
-		otherMode = "B"
-	}
-	near = append(near, fmt.Sprintf("%d%s", num, otherMode))
-	for _, keys := range near {
-		_ = keys
-	}
-	// Actually: Camelot wheel neighbors are: same number other mode, +1 same mode, -1 same mode
-	near = []string{
-		key,
-		fmt.Sprintf("%d%s", num, otherMode),
-	}
-
-	// +/-2: add +1, -1, +2, -2 same mode
-	further := make([]string, len(near))
-	copy(further, near)
-	further = append(further,
-		fmt.Sprintf("%d%s", wrap(num-1), mode),
-		fmt.Sprintf("%d%s", wrap(num+1), mode),
-	)
-
-	return [][]string{exact, near, further}
 }
 
 func (h *Handler) handleGetByArtist(msg *proto.DBMessage) []*proto.DBMessage {

@@ -232,7 +232,7 @@ func keyMatch(op string, value any, trackKey string) bool {
 	case "is_not", "ne", "!=":
 		return !sameKey(target, trackKey)
 	case "compatible":
-		return camelotCompatible(camelotName(trackKey), camelotName(target))
+		return keysCompatible(trackKey, target)
 	case "contains", "starts_with", "ends_with":
 		// Text operators compare the key's name, as rekordbox does, in
 		// either notation: an import stores keys as Camelot, but the rule
@@ -265,15 +265,6 @@ func sameKey(rule, trackKey string) bool {
 	a, _ := analysis.KeyNamesFrom(rule)
 	b, _ := analysis.KeyNamesFrom(trackKey)
 	return a != "" && a == b && rule == strings.TrimSpace(rule)
-}
-
-// camelotName is a key's Camelot name when it names a key in either
-// notation ("Am" is 8A), else the text unchanged.
-func camelotName(key string) string {
-	if cam, _ := analysis.KeyNamesFrom(key); cam != "" {
-		return cam
-	}
-	return key
 }
 
 // keyNames is a track key's name in each notation it has: the stored name
@@ -326,48 +317,17 @@ func foldWidthKana(r rune) rune {
 	return r
 }
 
-// camelotCompatible reports whether `a` is a harmonically-compatible
-// neighbour of `b`. Returns true for the same key, ±1 on the wheel,
-// or the relative minor/major (same number, opposite letter). Both
-// inputs are parsed as "<number><A|B>"; non-Camelot strings fall back
-// to plain case-insensitive equality.
-func camelotCompatible(a, b string) bool {
-	an, al, ok := parseCamelot(a)
-	bn, bl, ok2 := parseCamelot(b)
+// keysCompatible reports whether two keys, in either notation, mix
+// harmonically: the same key, the relative minor or major (same number, other
+// letter), or one step round the wheel on the same letter. Keys that aren't
+// keys compare as text, ignoring case.
+func keysCompatible(a, b string) bool {
+	ka, ok := analysis.ParseKey(a)
+	kb, ok2 := analysis.ParseKey(b)
 	if !ok || !ok2 {
 		return strings.EqualFold(a, b)
 	}
-	if an == bn && al == bl {
-		return true
-	}
-	// Relative minor/major
-	if an == bn && al != bl {
-		return true
-	}
-	// Adjacent on the wheel (mod 12)
-	diff := (an - bn + 12) % 12
-	if diff == 1 || diff == 11 {
-		return al == bl
-	}
-	return false
-}
-
-func parseCamelot(s string) (int, byte, bool) {
-	s = strings.TrimSpace(strings.ToUpper(s))
-	if len(s) < 2 || len(s) > 3 {
-		return 0, 0, false
-	}
-	last := s[len(s)-1]
-	if last != 'A' && last != 'B' {
-		return 0, 0, false
-	}
-	numStr := s[:len(s)-1]
-	var n int
-	_, err := fmt.Sscanf(numStr, "%d", &n)
-	if err != nil || n < 1 || n > 12 {
-		return 0, 0, false
-	}
-	return n, last, true
+	return kb == ka || kb == ka.Relative() || kb == ka.Step(1) || kb == ka.Step(-1)
 }
 
 // tagMatch supports has (specific tag by name), not_has (specific

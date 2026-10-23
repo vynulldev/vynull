@@ -4,6 +4,7 @@ package analysis
 
 import (
 	"math"
+	"strconv"
 	"strings"
 )
 
@@ -175,20 +176,25 @@ func toStandard(key, mode int) string {
 	return minorNames[key]
 }
 
-// keyPairs maps any key name (Camelot like "8A" or standard like "Am") to
-// both notations, built once from the pitch-class tables. Lookups are
-// case-insensitive on the upper-cased name.
-var keyPairs = func() map[string][2]string {
-	m := make(map[string][2]string, 48)
-	for k := 0; k < 12; k++ {
-		for _, p := range [][2]string{
-			{camelotMajor[k], majorNames[k]},
-			{camelotMinor[k], minorNames[k]},
-		} {
-			cam, std := p[0], p[1]
-			m[strings.ToUpper(cam)] = [2]string{cam, std}
-			m[strings.ToUpper(std)] = [2]string{cam, std}
+// keyNames maps any key name (Camelot like "8A" or standard like "Am") to
+// both notations and the key, built once from the pitch-class tables. Lookups
+// are case-insensitive on the upper-cased name.
+var keyNames = func() map[string]keyName {
+	m := make(map[string]keyName, 58)
+	add := func(name string, pc int, minor bool) {
+		n := keyName{camelot: camelotMajor[pc], standard: majorNames[pc]}
+		if minor {
+			n = keyName{camelot: camelotMinor[pc], standard: minorNames[pc]}
 		}
+		num, _ := strconv.Atoi(n.camelot[:len(n.camelot)-1])
+		n.key = Key{Number: num, Minor: minor}
+		m[strings.ToUpper(name)] = n
+	}
+	for k := 0; k < 12; k++ {
+		add(camelotMajor[k], k, false)
+		add(majorNames[k], k, false)
+		add(camelotMinor[k], k, true)
+		add(minorNames[k], k, true)
 	}
 	// Enharmonic spellings rekordbox sometimes uses that differ from our
 	// canonical note names (e.g. it writes "Abm" where we use "G#m", "Dbm"
@@ -202,22 +208,105 @@ var keyPairs = func() map[string][2]string {
 		{"C#", 1, false}, {"D#", 3, false}, {"Gb", 6, false}, {"G#", 8, false}, {"A#", 10, false},
 		{"Dbm", 1, true}, {"D#m", 3, true}, {"Gbm", 6, true}, {"Abm", 8, true}, {"A#m", 10, true},
 	} {
-		cam, std := camelotMajor[e.pc], majorNames[e.pc]
-		if e.minor {
-			cam, std = camelotMinor[e.pc], minorNames[e.pc]
-		}
-		m[strings.ToUpper(e.alias)] = [2]string{cam, std}
+		add(e.alias, e.pc, e.minor)
 	}
 	return m
 }()
+
+type keyName struct {
+	camelot, standard string
+	key               Key
+}
 
 // KeyNamesFrom resolves a key string in either Camelot ("8A") or standard
 // ("Am") notation to both forms. Used to backfill the Camelot/standard key
 // fields when importing a rekordbox library (rekordbox stores whichever
 // notation the user configured). Returns ("","") for an unrecognized key.
 func KeyNamesFrom(key string) (camelot, standard string) {
-	if p, ok := keyPairs[strings.ToUpper(strings.TrimSpace(key))]; ok {
-		return p[0], p[1]
+	if n, ok := keyNames[strings.ToUpper(strings.TrimSpace(key))]; ok {
+		return n.camelot, n.standard
 	}
 	return "", ""
+}
+
+// Key is a musical key as its place on the Camelot wheel: Number 1 to 12
+// round the wheel, on the minor (A) ring or the major (B) ring. The zero Key
+// is no key.
+type Key struct {
+	Number int
+	Minor  bool
+}
+
+// KeyByName returns the key a name in either notation names, among the names
+// KeyNamesFrom knows: "8A", "Am", "Abm", in any case.
+func KeyByName(name string) (Key, bool) {
+	n, ok := keyNames[strings.ToUpper(strings.TrimSpace(name))]
+	return n.key, ok
+}
+
+// ParseKey reads a key the way the harmonic matching does: a name KeyByName
+// knows, or any Camelot position, "<1-12><A|B>" in any case ("08A" too).
+func ParseKey(s string) (Key, bool) {
+	if k, ok := KeyByName(s); ok {
+		return k, true
+	}
+	s = strings.ToUpper(strings.TrimSpace(s))
+	if len(s) < 2 || len(s) > 3 {
+		return Key{}, false
+	}
+	var minor bool
+	switch s[len(s)-1] {
+	case 'A':
+		minor = true
+	case 'B':
+	default:
+		return Key{}, false
+	}
+	n, err := strconv.Atoi(s[:len(s)-1])
+	if err != nil || n < 1 || n > 12 {
+		return Key{}, false
+	}
+	return Key{Number: n, Minor: minor}, true
+}
+
+// KeyAtIndex returns the key at a 1-24 key index (see Index).
+func KeyAtIndex(i int) (Key, bool) {
+	if i < 1 || i > 24 {
+		return Key{}, false
+	}
+	return Key{Number: (i + 1) / 2, Minor: i%2 == 1}, true
+}
+
+// Camelot is the key's Camelot name, "8A" or "8B", or "" for no key.
+func (k Key) Camelot() string {
+	switch {
+	case k.Number == 0:
+		return ""
+	case k.Minor:
+		return strconv.Itoa(k.Number) + "A"
+	}
+	return strconv.Itoa(k.Number) + "B"
+}
+
+// Index is rekordbox's 1-24 key index, A before B at each wheel position:
+// 1A=1, 1B=2, ... 8A=15, 8B=16, ... 12B=24. It is 0 for no key.
+func (k Key) Index() int {
+	switch {
+	case k.Number == 0:
+		return 0
+	case k.Minor:
+		return k.Number*2 - 1
+	}
+	return k.Number * 2
+}
+
+// Relative is the relative key, the same number on the other ring: 8A's is 8B.
+func (k Key) Relative() Key {
+	return Key{Number: k.Number, Minor: !k.Minor}
+}
+
+// Step is the key n places round the wheel on the same ring: 8A's Step(1) is
+// 9A, and 12A's is 1A.
+func (k Key) Step(n int) Key {
+	return Key{Number: (k.Number-1+n%12+12)%12 + 1, Minor: k.Minor}
 }
