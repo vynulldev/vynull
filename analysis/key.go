@@ -88,38 +88,35 @@ func computeChromagram(samples []float32, sampleRate int) [12]float64 {
 		hannWindow[i] = 0.5 * (1.0 - math.Cos(2.0*math.Pi*float64(i)/float64(windowSize-1)))
 	}
 
-	// Prepare all windowed frames for batch FFT.
 	numWindows := 0
 	for start := 0; start+windowSize <= len(samples); start += hopSize {
 		numWindows++
 	}
-	windows := make([][]float64, numWindows)
-	idx := 0
-	for start := 0; start+windowSize <= len(samples); start += hopSize {
-		w := make([]float64, windowSize)
-		for i := 0; i < windowSize; i++ {
-			w[i] = float64(samples[start+i]) * hannWindow[i]
+
+	// Accumulate chroma from each window's spectrum, in window order. Only
+	// the pitch-class bins are read, so only those are kept.
+	bins := 1
+	for _, pcBins := range pitchBins {
+		for _, bin := range pcBins {
+			bins = max(bins, bin+1)
 		}
-		windows[idx] = w
-		idx++
 	}
-
-	// Batch FFT (parallel CPU).
-	realParts, imagParts := batchFFT(windows, windowSize)
-
-	// Accumulate chroma from FFT results.
-	for i := 0; i < numWindows && i < len(realParts); i++ {
-		fftR := realParts[i]
-		fftI := imagParts[i]
-		for pc := 0; pc < 12; pc++ {
-			for _, bin := range pitchBins[pc] {
-				if bin < len(fftR) {
+	stftChunks(numWindows, windowSize, bins, func(i int, buf []float64) {
+		start := i * hopSize
+		for j := 0; j < windowSize; j++ {
+			buf[j] = float64(samples[start+j]) * hannWindow[j]
+		}
+	}, func(_ int, re, im []float64) {
+		for c := 0; c*bins < len(re); c++ {
+			fftR, fftI := re[c*bins:(c+1)*bins], im[c*bins:(c+1)*bins]
+			for pc := 0; pc < 12; pc++ {
+				for _, bin := range pitchBins[pc] {
 					mag := math.Sqrt(fftR[bin]*fftR[bin] + fftI[bin]*fftI[bin])
 					chroma[pc] += mag * mag
 				}
 			}
 		}
-	}
+	})
 
 	if numWindows > 0 {
 		for i := range chroma {

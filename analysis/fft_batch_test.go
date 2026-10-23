@@ -8,6 +8,8 @@ import (
 )
 
 // batchFFT runs a batch of real-input FFTs in parallel across CPU workers.
+// The analysis uses stftChunks, which keeps one chunk of spectra instead of
+// every window and spectrum at once; the phase diagnostics keep this.
 // Each window is copied to length FftSize; the returned slices hold the first
 // FftSize/2+1 bins (real-to-complex) for each input window.
 func batchFFT(windows [][]float64, FftSize int) (realOut, imagOut [][]float64) {

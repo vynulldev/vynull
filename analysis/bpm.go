@@ -251,23 +251,6 @@ func detectBeats(ctx context.Context, samples []float32, sampleRate int, encoder
 		return nil
 	}
 
-	// Zero-phase low-pass for DP beat tracker: eliminates the ~60ms transient
-	// delay, giving more accurate beat positions at actual transient starts.
-	zpForward := lowPass(samples, float64(sampleRate), 500.0)
-	if ctx.Err() != nil {
-		return nil
-	}
-	for i, j := 0, len(zpForward)-1; i < j; i, j = i+1, j-1 {
-		zpForward[i], zpForward[j] = zpForward[j], zpForward[i]
-	}
-	zpFiltered := lowPass(zpForward, float64(sampleRate), 500.0)
-	for i, j := 0, len(zpFiltered)-1; i < j; i, j = i+1, j-1 {
-		zpFiltered[i], zpFiltered[j] = zpFiltered[j], zpFiltered[i]
-	}
-	if ctx.Err() != nil {
-		return nil
-	}
-
 	numFrames := (len(filtered) - frameSize) / hopSize
 	if numFrames < 2 {
 		return &BeatResult{}
@@ -283,6 +266,17 @@ func detectBeats(ctx context.Context, samples []float32, sampleRate int, encoder
 			sum += v * v
 		}
 		energy[i] = math.Sqrt(sum / float64(frameSize))
+	}
+
+	// Zero-phase low-pass for DP beat tracker: eliminates the ~60ms transient
+	// delay, giving more accurate beat positions at actual transient starts.
+	// It is the same low-pass run forward then backward. The forward pass is
+	// filtered, which nothing reads after the energy above, so the backward
+	// pass runs over it in place: one copy of the track instead of three.
+	zpFiltered := filtered
+	lowPassBackward(zpFiltered, float64(sampleRate), 500.0)
+	if ctx.Err() != nil {
+		return nil
 	}
 
 	onset := make([]float64, numFrames)
@@ -318,29 +312,18 @@ func detectBeats(ctx context.Context, samples []float32, sampleRate int, encoder
 		prevPhase := make([]float64, maxBin+1)
 		prevPrevPhase := make([]float64, maxBin+1)
 
-		const csdChunk = 8192
-		for chunkStart := 0; chunkStart < csdNumFrames; chunkStart += csdChunk {
-			chunkEnd := chunkStart + csdChunk
-			if chunkEnd > csdNumFrames {
-				chunkEnd = csdNumFrames
+		// Only bins 1..maxBin are read, so only those are kept; the spectra
+		// arrive a chunk at a time, in frame order (stftChunks).
+		bins := maxBin + 1
+		stftChunks(csdNumFrames, csdFrameSize, bins, func(i int, buf []float64) {
+			off := i * csdHop
+			for j := 0; j < csdFrameSize && off+j < len(samples); j++ {
+				buf[j] = float64(samples[off+j]) * hannWindow[j]
 			}
-			n := chunkEnd - chunkStart
-
-			windows := make([][]float64, n)
-			for ci := 0; ci < n; ci++ {
-				off := (chunkStart + ci) * csdHop
-				w := make([]float64, csdFrameSize)
-				for j := 0; j < csdFrameSize && off+j < len(samples); j++ {
-					w[j] = float64(samples[off+j]) * hannWindow[j]
-				}
-				windows[ci] = w
-			}
-
-			fftReals, fftImags := batchFFT(windows, csdFrameSize)
-
-			for ci := 0; ci < n && ci < len(fftReals); ci++ {
-				fftR := fftReals[ci]
-				fftI := fftImags[ci]
+		}, func(chunkStart int, fftReals, fftImags []float64) {
+			for ci := 0; ci*bins < len(fftReals); ci++ {
+				fftR := fftReals[ci*bins : (ci+1)*bins]
+				fftI := fftImags[ci*bins : (ci+1)*bins]
 				var df float64
 				limit := maxBin + 1
 				if limit > len(fftR) {
@@ -363,7 +346,7 @@ func detectBeats(ctx context.Context, samples []float32, sampleRate int, encoder
 				}
 				csdOnset[chunkStart+ci] = df
 			}
-		}
+		})
 	}
 
 	// Normalize onset to prevent numerical issues.
@@ -1151,17 +1134,6 @@ func multiBandOnset(samples []float32, sampleRate int) ([]float64, float64) {
 	for i := range win {
 		win[i] = 0.5 * (1 - math.Cos(2*math.Pi*float64(i)/float64(frameSize-1)))
 	}
-	windows := make([][]float64, n)
-	for k := 0; k < n; k++ {
-		off := k * hop
-		w := make([]float64, frameSize)
-		for j := 0; j < frameSize; j++ {
-			w[j] = float64(samples[off+j]) * win[j]
-		}
-		windows[k] = w
-	}
-	re, im := batchFFT(windows, frameSize)
-
 	freqPerBin := float64(sampleRate) / float64(frameSize)
 	nyq := float64(sampleRate) / 2
 	nb := len(rbBandEdgesHz)
@@ -1179,9 +1151,33 @@ func multiBandOnset(samples []float32, sampleRate int) ([]float64, float64) {
 		hiBin[b] = hb
 	}
 
+	// Each frame's band magnitudes (the sum of its bins' magnitudes in each
+	// band) are all the passes below read, so keep those, not the spectra.
+	bandMags := make([]float64, n*nb)
+	const bins = frameSize / 2 // hiBin never reaches past it
+	stftChunks(n, frameSize, bins, func(k int, buf []float64) {
+		off := k * hop
+		for j := 0; j < frameSize; j++ {
+			buf[j] = float64(samples[off+j]) * win[j]
+		}
+	}, func(start int, re, im []float64) {
+		for c := 0; c*bins < len(re); c++ {
+			k := start + c
+			fr, fi := re[c*bins:(c+1)*bins], im[c*bins:(c+1)*bins]
+			lo := 1
+			for b := 0; b < nb; b++ {
+				var s float64
+				for bin := lo; bin < hiBin[b]; bin++ {
+					s += math.Sqrt(fr[bin]*fr[bin] + fi[bin]*fi[bin])
+				}
+				bandMags[k*nb+b] = s
+				lo = hiBin[b]
+			}
+		}
+	})
+
 	onset := make([]float64, n)
 	prevMag := make([]float64, nb)
-	bandMag := make([]float64, nb)
 	mean := make([]float64, nb) // per-band running level for adaptive normalization
 	if UseBandNorm && BandNormWarmupSec > 0 {
 		// Seed the EMA at each band's average level over the leading
@@ -1191,15 +1187,9 @@ func multiBandOnset(samples []float32, sampleRate int) ([]float64, float64) {
 		if warm > n {
 			warm = n
 		}
-		for k := 0; k < warm && k < len(re); k++ {
-			lo := 1
+		for k := 0; k < warm; k++ {
 			for b := 0; b < nb; b++ {
-				var s float64
-				for bin := lo; bin < hiBin[b]; bin++ {
-					s += math.Sqrt(re[k][bin]*re[k][bin] + im[k][bin]*im[k][bin])
-				}
-				mean[b] += s
-				lo = hiBin[b]
+				mean[b] += bandMags[k*nb+b]
 			}
 		}
 		if warm > 0 {
@@ -1208,16 +1198,8 @@ func multiBandOnset(samples []float32, sampleRate int) ([]float64, float64) {
 			}
 		}
 	}
-	for k := 0; k < n && k < len(re); k++ {
-		lo := 1
-		for b := 0; b < nb; b++ {
-			var s float64
-			for bin := lo; bin < hiBin[b]; bin++ {
-				s += math.Sqrt(re[k][bin]*re[k][bin] + im[k][bin]*im[k][bin])
-			}
-			bandMag[b] = s
-			lo = hiBin[b]
-		}
+	for k := 0; k < n; k++ {
+		bandMag := bandMags[k*nb : (k+1)*nb]
 		if k > 0 {
 			var flux float64
 			for b := 0; b < nb; b++ {
@@ -1646,6 +1628,16 @@ func FFmpegTrimsStart(path string) bool {
 }
 
 // lowPass applies a simple single-pole IIR low-pass filter.
+// lowPassBackward runs lowPass over buf from its end to its start, in place:
+// it leaves buf as reversing it, low-passing it and reversing it back would,
+// computed the same way, without the two reversed copies.
+func lowPassBackward(buf []float32, sampleRate, cutoff float64) {
+	alpha := cutoff / (sampleRate/2.0 + cutoff)
+	for i := len(buf) - 2; i >= 0; i-- {
+		buf[i] = buf[i+1] + float32(alpha)*(buf[i]-buf[i+1])
+	}
+}
+
 func lowPass(samples []float32, sampleRate, cutoff float64) []float32 {
 	alpha := cutoff / (sampleRate/2.0 + cutoff)
 	out := make([]float32, len(samples))

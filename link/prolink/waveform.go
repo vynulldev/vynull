@@ -123,13 +123,13 @@ func generateColorPreviewV2(samples []float32, sampleRate int) []byte {
 	// orders left ~50% of a 1.8 kHz tone in the treble band when cutoff was
 	// at 2 kHz; the target shows essentially zero in that transition zone,
 	// implying a near-brick-wall response.
-	bp8Low := func(s []float32, cutoff float64) []float32 {
+	bp8Low := func(cutoff float64) dsp.Cascade {
 		c := dsp.ButterworthLow(cutoff, sr)
-		return dsp.ApplyBiquad(dsp.ApplyBiquad(dsp.ApplyBiquad(dsp.ApplyBiquad(s, c), c), c), c)
+		return dsp.NewCascade(c, c, c, c)
 	}
-	bp8High := func(s []float32, cutoff float64) []float32 {
+	bp8High := func(cutoff float64) dsp.Cascade {
 		c := dsp.ButterworthHigh(cutoff, sr)
-		return dsp.ApplyBiquad(dsp.ApplyBiquad(dsp.ApplyBiquad(dsp.ApplyBiquad(s, c), c), c), c)
+		return dsp.NewCascade(c, c, c, c)
 	}
 	// Mid uses an 8th-order HP@200 for sharp bass rejection followed by a
 	// gentle 2nd-order LP@800 — the mid has a humped response
@@ -140,10 +140,13 @@ func generateColorPreviewV2(samples []float32, sampleRate int) []byte {
 	// 16→8→2 from 100→500→1000 Hz which an 8th-order would overshoot at the
 	// top end (still 8 at 1 kHz when the target is at 2).
 	lowLP := dsp.ButterworthLow(400, sr)
-	bassSamples := bp8Low(samples, 200)
-	lowSamples := dsp.ApplyBiquad(samples, lowLP)
-	midSamples := dsp.ApplyBiquad(bp8High(samples, 200), midLP)
-	trebleSamples := bp8High(samples, analysis.PreviewTrebleHz)
+	// The band filters run as the segments are read (contiguous, in sample
+	// order from the first), so no band is held as a filtered copy of the
+	// whole track.
+	bassFilter := bp8Low(200)
+	lowFilter := dsp.NewCascade(lowLP)
+	midFilter := append(bp8High(200), dsp.NewCascade(midLP)...)
+	trebleFilter := bp8High(analysis.PreviewTrebleHz)
 
 	const entrySize = 6
 	buf := make([]byte, analysis.ColorPreviewPoints*entrySize)
@@ -172,13 +175,13 @@ func generateColorPreviewV2(samples []float32, sampleRate int) []byte {
 		for j := start; j < end; j++ {
 			v := float64(samples[j])
 			sum += v * v
-			bv := float64(bassSamples[j])
+			bv := float64(bassFilter.Next(samples[j]))
 			bSum += bv * bv
-			lv := float64(lowSamples[j])
+			lv := float64(lowFilter.Next(samples[j]))
 			lSum += lv * lv
-			mv := float64(midSamples[j])
+			mv := float64(midFilter.Next(samples[j]))
 			mSum += mv * mv
-			tv := float64(trebleSamples[j])
+			tv := float64(trebleFilter.Next(samples[j]))
 			tSum += tv * tv
 		}
 		n := float64(end - start)
@@ -519,9 +522,12 @@ func splitBands3RMS(samples []float32, sampleRate, numPoints int) (bass, mid, tr
 		numPoints = 1
 	}
 	sr := float64(sampleRate)
-	bf := dsp.ApplyBiquad(samples, dsp.ButterworthLow(analysis.BandBassMidHz, sr))
-	tf := dsp.ApplyBiquad(samples, dsp.ButterworthHigh(analysis.BandMidTrebleHz, sr))
-	mf := dsp.ApplyBiquad(dsp.ApplyBiquad(samples, dsp.ButterworthHigh(analysis.BandBassMidHz, sr)), dsp.ButterworthLow(analysis.BandMidTrebleHz, sr))
+	// The band filters run as the segments are read (contiguous, in sample
+	// order from the first), so no band is held as a filtered copy of the
+	// whole track.
+	bf := dsp.NewCascade(dsp.ButterworthLow(analysis.BandBassMidHz, sr))
+	tf := dsp.NewCascade(dsp.ButterworthHigh(analysis.BandMidTrebleHz, sr))
+	mf := dsp.NewCascade(dsp.ButterworthHigh(analysis.BandBassMidHz, sr), dsp.ButterworthLow(analysis.BandMidTrebleHz, sr))
 	segLen := len(samples) / numPoints
 	if segLen < 1 {
 		segLen = 1
@@ -540,9 +546,12 @@ func splitBands3RMS(samples []float32, sampleRate, numPoints int) (bass, mid, tr
 		}
 		var bs, ms, ts float64
 		for j := start; j < end; j++ {
-			bs += float64(bf[j]) * float64(bf[j])
-			ms += float64(mf[j]) * float64(mf[j])
-			ts += float64(tf[j]) * float64(tf[j])
+			b := float64(bf.Next(samples[j]))
+			bs += b * b
+			m := float64(mf.Next(samples[j]))
+			ms += m * m
+			t := float64(tf.Next(samples[j]))
+			ts += t * t
 		}
 		if n := float64(end - start); n > 0 {
 			bass[i] = math.Sqrt(bs / n)

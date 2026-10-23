@@ -40,17 +40,6 @@ func detectVocals(samples []float32, sampleRate int) ([]float64, float64) {
 	for i := range win {
 		win[i] = 0.5 * (1 - math.Cos(2*math.Pi*float64(i)/float64(frameSize-1)))
 	}
-	windows := make([][]float64, n)
-	for k := 0; k < n; k++ {
-		off := k * hop
-		w := make([]float64, frameSize)
-		for j := 0; j < frameSize; j++ {
-			w[j] = float64(samples[off+j]) * win[j]
-		}
-		windows[k] = w
-	}
-	re, im := batchFFT(windows, frameSize)
-
 	freqPerBin := float64(sampleRate) / float64(frameSize)
 	loBin := int(VocalBandLoHz / freqPerBin)
 	if loBin < 1 {
@@ -63,27 +52,37 @@ func detectVocals(samples []float32, sampleRate int) ([]float64, float64) {
 
 	vbeRatio := make([]float64, n) // vocal-band energy fraction
 	voicing := make([]float64, n)  // 1 − spectral flatness of the vocal band
-	for k := 0; k < n && k < len(re); k++ {
-		var total, vocal, logSum float64
-		var cnt int
-		for bin := 1; bin < frameSize/2; bin++ {
-			mag := math.Sqrt(re[k][bin]*re[k][bin] + im[k][bin]*im[k][bin])
-			total += mag
-			if bin >= loBin && bin < hiBin {
-				vocal += mag
-				logSum += math.Log(mag + 1e-12)
-				cnt++
+	const bins = frameSize / 2     // the bins the loop below reads
+	stftChunks(n, frameSize, bins, func(k int, buf []float64) {
+		off := k * hop
+		for j := 0; j < frameSize; j++ {
+			buf[j] = float64(samples[off+j]) * win[j]
+		}
+	}, func(start int, re, im []float64) {
+		for c := 0; c*bins < len(re); c++ {
+			k := start + c
+			fr, fi := re[c*bins:(c+1)*bins], im[c*bins:(c+1)*bins]
+			var total, vocal, logSum float64
+			var cnt int
+			for bin := 1; bin < frameSize/2; bin++ {
+				mag := math.Sqrt(fr[bin]*fr[bin] + fi[bin]*fi[bin])
+				total += mag
+				if bin >= loBin && bin < hiBin {
+					vocal += mag
+					logSum += math.Log(mag + 1e-12)
+					cnt++
+				}
+			}
+			if total > 0 {
+				vbeRatio[k] = vocal / total
+			}
+			if cnt > 0 && vocal > 0 {
+				geo := math.Exp(logSum / float64(cnt))
+				arith := vocal / float64(cnt)
+				voicing[k] = 1 - geo/(arith+1e-12) // flat (noise)→0, peaky (pitched)→1
 			}
 		}
-		if total > 0 {
-			vbeRatio[k] = vocal / total
-		}
-		if cnt > 0 && vocal > 0 {
-			geo := math.Exp(logSum / float64(cnt))
-			arith := vocal / float64(cnt)
-			voicing[k] = 1 - geo/(arith+1e-12) // flat (noise)→0, peaky (pitched)→1
-		}
-	}
+	})
 
 	// Syllabic modulation: coefficient of variation of vbeRatio over ~1.2 s.
 	frameRate := float64(sampleRate) / float64(hop)
