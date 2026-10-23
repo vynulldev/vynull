@@ -44,12 +44,41 @@ func GeneratePreview(samples []float32, sampleRate int) []byte {
 	// Section 3: 100 entries × 1 byte (PWV2 tiny waveform)
 	copy(buf[800:], h100)
 
-	// Footer
-	buf[900] = 0x9e
-	buf[901] = 0xeb
-	buf[902] = 0x78
-	buf[903] = 0x10
+	copy(buf[900:], previewFooter[:])
+	return buf
+}
 
+// previewFooter ends the 0x2004 preview, in rekordbox's replies too.
+var previewFooter = [4]byte{0x9e, 0xeb, 0x78, 0x10}
+
+// DeckPreview returns a result's 0x2004 preview: the one it carries, or, for
+// an imported result (rekordbox's ANLZ files carry the .DAT previews, not
+// this one), one built from its PWAV and PWV2 (PreviewFromANLZ). nil if it
+// has neither.
+func DeckPreview(r *analysis.Result) []byte {
+	if len(r.WavePreview) > 0 {
+		return r.WavePreview
+	}
+	return PreviewFromANLZ(r.WavePreviewANLZ, r.WaveTinyANLZ)
+}
+
+// PreviewFromANLZ builds the 904-byte 0x2004 preview from a .DAT file's
+// previews, as rekordbox builds its reply (GetWave reads the loud-wave PWAV
+// and dot-wave PWV2 sections; link-spec ADJACENT_PAYLOAD_SERVICES): each of
+// PWAV's 400 entries, brightness<<5 | height, as two bytes, height then
+// whiteness (the layout GeneratePreview writes), then PWV2's 100 entries and
+// the footer. nil unless pwav has 400 entries.
+func PreviewFromANLZ(pwav, pwv2 []byte) []byte {
+	if len(pwav) != analysis.AnlzPreviewPoints {
+		return nil
+	}
+	buf := make([]byte, 904)
+	for i, b := range pwav {
+		buf[i*2] = b & 0x1f
+		buf[i*2+1] = b >> 5
+	}
+	copy(buf[800:900], pwv2)
+	copy(buf[900:], previewFooter[:])
 	return buf
 }
 

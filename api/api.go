@@ -2252,7 +2252,7 @@ func (s *Server) handleWaveform(w http.ResponseWriter, r *http.Request) {
 			sourceBytes = result.WaveDetail
 		}
 	case "preview":
-		sourceBytes = result.WavePreview
+		sourceBytes = prolink.DeckPreview(result)
 	case "color_preview":
 		sourceBytes = result.WaveColorPreview
 	}
@@ -2307,9 +2307,9 @@ func (s *Server) handleWaveform(w http.ResponseWriter, r *http.Request) {
 		}{trackID, "detail", "spectral", 150, decodePWV5(result.WaveDetail)})
 
 	case "preview":
-		// Raw PWAV blob (900 bytes for network, 400 for ANLZ).
+		// The 904-byte 0x2004 preview the decks get.
 		w.Header().Set("Content-Type", "application/octet-stream")
-		w.Write(result.WavePreview)
+		w.Write(prolink.DeckPreview(result))
 
 	case "color_preview":
 		// PWV4: 6 bytes per entry, decode to JSON.
