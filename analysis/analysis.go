@@ -142,6 +142,15 @@ type Store struct {
 	// queue runs the analyses requested through Request (queue.go).
 	queue queue
 
+	// lru orders the results in memory by use, to keep them within
+	// MaxResultBytes (lru.go). Guarded by mu.
+	lru resultLRU
+
+	// MaxResultBytes is the budget for results held in memory; 0 means
+	// DefaultMaxResultBytes. Older results that have a cache file are dropped
+	// to keep within it, and loaded again when needed. Set once at startup.
+	MaxResultBytes int64
+
 	// TotalTracksFn, when set, supplies the library track count used as the
 	// "N tracks" figure in Status() (instead of the in-memory result count,
 	// which only covers analyzed/cache-loaded tracks). Set once at startup.
@@ -187,10 +196,13 @@ func NewStoreWithCache(cacheDir string) *Store {
 // Get returns the analysis result for a track, or nil.
 // Checks disk cache if not in memory.
 func (s *Store) Get(trackID uint32) *Result {
-	s.mu.RLock()
+	s.mu.Lock()
 	r := s.results[trackID]
 	filePath := s.pathMap[trackID]
-	s.mu.RUnlock()
+	if r != nil {
+		s.touchLocked(trackID)
+	}
+	s.mu.Unlock()
 
 	if r != nil {
 		return s.alignGridOffset(trackID, r)
@@ -201,7 +213,7 @@ func (s *Store) Get(trackID uint32) *Result {
 		if cached := s.loadFromDisk(filePath, s.keeps(trackID)); cached != nil {
 			cached = withGridOffset(cached)
 			s.mu.Lock()
-			s.results[trackID] = cached
+			s.putLocked(trackID, cached)
 			s.mu.Unlock()
 			s.incCached()
 			log.Printf("analysis-cache: loaded track %d from disk", trackID)
@@ -353,7 +365,7 @@ func (s *Store) LoadStale(trackID uint32) *Result {
 		return nil
 	}
 	s.mu.Lock()
-	s.results[trackID] = &res
+	s.putLocked(trackID, &res)
 	s.mu.Unlock()
 	return s.alignGridOffset(trackID, &res)
 }
@@ -391,7 +403,7 @@ func (s *Store) set(trackID uint32, r *Result, onlyIfAbsent bool) bool {
 		delete(s.gridCarry, filePath)
 		log.Printf("analysis-cache: re-applied user-edited beat grid for track %d after re-analysis", trackID)
 	}
-	s.results[trackID] = r
+	s.putLocked(trackID, r)
 	s.mu.Unlock()
 
 	// A deliberate replacement (an import, a re-analysis, a grid edit) makes an
@@ -416,7 +428,7 @@ func (s *Store) set(trackID uint32, r *Result, onlyIfAbsent bool) bool {
 // blobs and all, hundreds of KB) stayed resident until restart.
 func (s *Store) Remove(trackID uint32) {
 	s.mu.Lock()
-	delete(s.results, trackID)
+	s.dropLocked(trackID)
 	delete(s.pathMap, trackID)
 	s.mu.Unlock()
 	s.forget(trackID)
@@ -522,7 +534,7 @@ func (s *Store) cacheFile(filePath string) string {
 // suspecting a stale result.
 func (s *Store) Invalidate(trackID uint32) {
 	s.mu.Lock()
-	delete(s.results, trackID)
+	s.dropLocked(trackID)
 	path := s.pathMap[trackID]
 	s.mu.Unlock()
 	if path == "" || s.cacheDir == "" {
@@ -540,7 +552,7 @@ func (s *Store) Invalidate(trackID uint32) {
 // that per-track check to discard lazily; nothing is re-analyzed up front.
 func (s *Store) InvalidateAll() {
 	s.mu.Lock()
-	s.results = make(map[uint32]*Result)
+	s.dropAllLocked()
 	s.mu.Unlock()
 }
 
