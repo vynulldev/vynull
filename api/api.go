@@ -3168,11 +3168,14 @@ func (s *Server) handleBeatGridAdjust(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	result := s.getOrAnalyze(r.Context(), req.TrackID)
-	if result == nil {
+	stored := s.getOrAnalyze(r.Context(), req.TrackID)
+	if stored == nil {
 		http.Error(w, "analysis not found", http.StatusNotFound)
 		return
 	}
+	// Edit a copy, stored by Set below: the stored result may be being served
+	// to a deck meanwhile, and must not change under it.
+	result := stored.CopyForEdit()
 
 	// Anchor phrases to absolute time from the CURRENT (pre-edit) grid for older
 	// phrases that lack it, so the grid edits below don't drag the phrase strip
