@@ -3,16 +3,17 @@
 package pdb
 
 import (
+	"context"
 	"encoding/binary"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
 	"unicode/utf16"
 	"unicode/utf8"
 
+	"github.com/vynulldev/vynull/internal/ffmpeg"
 	"github.com/vynulldev/vynull/internal/filetype"
 )
 
@@ -1292,9 +1293,6 @@ func TruncateFilename(name string, maxLen int) string {
 // quality. Returns an error if ffmpeg isn't installed or the re-encode
 // fails (PrepareUSBLayout falls back to a plain copy in that case).
 func reencodeAudio(src, dst string) error {
-	if _, err := exec.LookPath("ffmpeg"); err != nil {
-		return fmt.Errorf("ffmpeg not in PATH")
-	}
 	ext := strings.ToLower(filepath.Ext(dst))
 	var codecArgs []string
 	switch ext {
@@ -1316,15 +1314,9 @@ func reencodeAudio(src, dst string) error {
 	default:
 		return fmt.Errorf("unsupported extension %s", ext)
 	}
-	args := append([]string{"-y", "-v", "error", "-i", src}, codecArgs...)
-	args = append(args, dst)
-	cmd := exec.Command("ffmpeg", args...)
-	var stderr strings.Builder
-	cmd.Stderr = &stderr
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("ffmpeg: %w (%s)", err, strings.TrimSpace(stderr.String()))
-	}
-	return nil
+	args := append([]string{"-y", "-i", src}, codecArgs...)
+	_, err := ffmpeg.Run(context.Background(), append(args, dst)...)
+	return err
 }
 
 // PrepareUSBLayout copies music files into the Contents/ directory structure

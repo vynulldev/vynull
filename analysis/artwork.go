@@ -3,10 +3,12 @@
 package analysis
 
 import (
+	"context"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
+
+	"github.com/vynulldev/vynull/internal/ffmpeg"
 )
 
 // ExtractArtwork tries to extract artwork for an audio file.
@@ -25,27 +27,7 @@ func ExtractArtwork(filePath string) []byte {
 
 // extractEmbeddedArtwork extracts embedded album art from an audio file using ffmpeg.
 func extractEmbeddedArtwork(filePath string) []byte {
-	cmd := exec.Command("ffmpeg",
-		"-i", filePath,
-		"-an",
-		"-vf", "scale=240:240:force_original_aspect_ratio=decrease,pad=240:240:(ow-iw)/2:(oh-ih)/2",
-		"-vframes", "1",
-		"-f", "image2",
-		"-c:v", "mjpeg",
-		"-q:v", "5",
-		"-loglevel", "error",
-		"-",
-	)
-
-	out, err := cmd.Output()
-	if err != nil || len(out) < 100 {
-		return nil
-	}
-
-	if len(out) >= 2 && out[0] == 0xFF && out[1] == 0xD8 {
-		return out
-	}
-	return nil
+	return thumbnail(filePath, "-an")
 }
 
 // Common cover art filenames (case-insensitive).
@@ -101,18 +83,22 @@ func findDirectoryArtwork(dir string) []byte {
 
 // loadAndResizeImage loads an image file and converts/resizes to 240x240 JPEG via ffmpeg.
 func loadAndResizeImage(path string) []byte {
-	cmd := exec.Command("ffmpeg",
-		"-i", path,
+	return thumbnail(path)
+}
+
+// thumbnail renders the picture in the file at path as a 240x240 JPEG,
+// scaled to fit and padded, with inputArgs after the input; nil if ffmpeg
+// finds none.
+func thumbnail(path string, inputArgs ...string) []byte {
+	args := append([]string{"-i", path}, inputArgs...)
+	out, err := ffmpeg.Run(context.Background(), append(args,
 		"-vf", "scale=240:240:force_original_aspect_ratio=decrease,pad=240:240:(ow-iw)/2:(oh-ih)/2",
 		"-vframes", "1",
 		"-f", "image2",
 		"-c:v", "mjpeg",
 		"-q:v", "5",
-		"-loglevel", "error",
 		"-",
-	)
-
-	out, err := cmd.Output()
+	)...)
 	if err != nil || len(out) < 100 {
 		return nil
 	}

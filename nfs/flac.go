@@ -3,12 +3,12 @@
 package nfs
 
 import (
-	"bytes"
+	"context"
 	"fmt"
 	"log"
-	"os/exec"
 	"sync"
 
+	"github.com/vynulldev/vynull/internal/ffmpeg"
 	"github.com/vynulldev/vynull/internal/filetype"
 )
 
@@ -87,27 +87,20 @@ func (w *wavData) transcode(path string) {
 		// Transcode to high-quality MP3. The CDJ's NFS client has a 4-byte
 		// read alignment bug that corrupts lossless formats. MP3's frame
 		// sync mechanism tolerates the misalignment.
-		cmd := exec.Command("ffmpeg",
+		data, err := ffmpeg.Run(context.Background(),
 			"-i", path,
 			"-f", "mp3",
 			"-acodec", "libmp3lame",
 			"-b:a", "320k",
-			"-loglevel", "error",
 			"-",
 		)
-
-		var stdout bytes.Buffer
-		var stderr bytes.Buffer
-		cmd.Stdout = &stdout
-		cmd.Stderr = &stderr
-
-		if err := cmd.Run(); err != nil {
-			w.err = fmt.Errorf("ffmpeg transcode: %v: %s", err, stderr.String())
+		if err != nil {
+			w.err = err
 			log.Printf("nfs: FLAC transcode error: %v", w.err)
 			return
 		}
 
-		w.data = stdout.Bytes()
+		w.data = data
 		log.Printf("nfs: transcode complete: %s -> MP3 (%d bytes)", path, len(w.data))
 	})
 }

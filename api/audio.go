@@ -3,17 +3,19 @@
 package api
 
 import (
+	"context"
 	"fmt"
 	"hash/fnv"
 	"log"
 	"net/http"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/vynulldev/vynull/internal/ffmpeg"
 )
 
 // browserAudioTypes maps the library FileType to a Content-Type for formats
@@ -144,14 +146,12 @@ func (s *Server) transcodedAudio(src string) (string, error) {
 	}
 	tmp := dst + ".part"
 	start := time.Now()
-	out, err := exec.Command("ffmpeg", "-nostdin", "-y",
+	if _, err := ffmpeg.Run(context.Background(), "-y",
 		"-i", src, "-vn", "-map", "0:a:0",
-		"-c:a", "pcm_s16le", "-f", "wav",
-		"-loglevel", "error", tmp,
-	).CombinedOutput()
-	if err != nil {
+		"-c:a", "pcm_s16le", "-f", "wav", tmp,
+	); err != nil {
 		os.Remove(tmp)
-		return "", fmt.Errorf("ffmpeg: %s: %w", strings.TrimSpace(string(out)), err)
+		return "", err
 	}
 	if err := os.Rename(tmp, dst); err != nil {
 		os.Remove(tmp)
