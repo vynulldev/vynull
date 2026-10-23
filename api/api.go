@@ -30,6 +30,7 @@ import (
 	"time"
 
 	"github.com/vynulldev/vynull/analysis"
+	"github.com/vynulldev/vynull/dbserver"
 	"github.com/vynulldev/vynull/device"
 	"github.com/vynulldev/vynull/export"
 	"github.com/vynulldev/vynull/internal/buildinfo"
@@ -723,16 +724,9 @@ type TrackInfo struct {
 	AnalysisLocked bool     `json:"analysis_locked,omitempty"` // grid is protected from re-analysis / edits
 }
 
-// trackColorNames maps the 8-entry rekordbox track-colour palette to
-// human names. Index 0 is "no colour" → empty string.
-var trackColorNames = map[uint8]string{
-	1: "Pink", 2: "Red", 3: "Orange", 4: "Yellow",
-	5: "Green", 6: "Aqua", 7: "Blue", 8: "Purple",
-}
-
 // colorLabel names a track colour for the log: "Yellow (4)", "none (0)".
 func colorLabel(id uint8) string {
-	name := trackColorNames[id]
+	name := library.TrackColorName(id)
 	if name == "" {
 		name = "none"
 	}
@@ -780,7 +774,7 @@ func (s *Server) libTrackToInfo(t *library.Track) TrackInfo {
 		TrackNum:       t.TrackNum,
 		Rating:         int(t.Rating),
 		ColorID:        t.ColorID,
-		ColorName:      trackColorNames[t.ColorID],
+		ColorName:      library.TrackColorName(t.ColorID),
 		PlayCount:      t.PlayCount,
 		ArtID:          t.ArtID,
 		ArtChecked:     t.ArtChecked,
@@ -4815,14 +4809,14 @@ func (s *Server) handleMenuItems(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case "GET":
 		writeJSON(w, struct {
-			Items             []MenuItem         `json:"items"`
-			TrackDetail       string             `json:"track_detail"`
-			TrackDetailFields []TrackDetailField `json:"track_detail_fields"`
-			Sorts             []SortItem         `json:"sorts"`
+			Items             []MenuItem                  `json:"items"`
+			TrackDetail       string                      `json:"track_detail"`
+			TrackDetailFields []dbserver.TrackDetailField `json:"track_detail_fields"`
+			Sorts             []SortItem                  `json:"sorts"`
 		}{
 			Items:             s.Menu.All(),
 			TrackDetail:       s.Menu.TrackDetail(),
-			TrackDetailFields: TrackDetailFields,
+			TrackDetailFields: dbserver.TrackDetailFields,
 			Sorts:             s.Menu.Sorts(),
 		})
 	case "PUT":

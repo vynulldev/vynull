@@ -239,7 +239,7 @@ func (h *Handler) handleGetColors(msg *proto.DBMessage) []*proto.DBMessage {
 	for id := uint8(1); id <= 8; id++ {
 		items = append(items, &menuItem{
 			ID:       uint32(id),
-			Label1:   trackColorName(id),
+			Label1:   library.TrackColorName(id),
 			ItemType: uint32(0x13 + id),
 		})
 	}

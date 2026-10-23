@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"sync"
 
+	"github.com/vynulldev/vynull/dbserver"
 	"github.com/vynulldev/vynull/internal/fsutil"
 	"github.com/vynulldev/vynull/pdb"
 )
@@ -74,42 +75,8 @@ type MenuStore struct {
 	mu          sync.RWMutex
 	dir         string
 	items       []MenuItem
-	trackDetail string     // key from TrackDetailFields; default "bpm"
+	trackDetail string     // key from dbserver.TrackDetailFields; default "bpm"
 	sorts       []SortItem // the deck's SORT menu, in order (menustore_sorts.go)
-}
-
-// TrackDetailFields lists every track-detail column the CDJ knows how
-// to render in the second column of a track list. Each entry maps a
-// stable key (used in the API + persistence) to the on-the-wire
-// ItemType high byte and a human label for the UI dropdown.
-//
-// Wire-format mapping:
-// ItemType = (highByte << 8) | 0x04, ParentID carries the
-// raw value (hash, count, ID, BPM*100), Label2 carries the display
-// string (CDJ renders some fields from raw value alone).
-type TrackDetailField struct {
-	Key      string `json:"key"`
-	Label    string `json:"label"`
-	HighByte uint8  `json:"high_byte"`
-}
-
-var TrackDetailFields = []TrackDetailField{
-	{Key: "bpm", Label: "BPM", HighByte: 0x0d},
-	{Key: "artist", Label: "Artist", HighByte: 0x07},
-	{Key: "album", Label: "Album", HighByte: 0x02},
-	{Key: "genre", Label: "Genre", HighByte: 0x06},
-	{Key: "key", Label: "Key", HighByte: 0x0f},
-	{Key: "rating", Label: "Rating", HighByte: 0x0a},
-	{Key: "time", Label: "Time", HighByte: 0x0b},
-	{Key: "label", Label: "Record label", HighByte: 0x0e},
-	{Key: "bitrate", Label: "Bitrate", HighByte: 0x10},
-	{Key: "color", Label: "Track colour", HighByte: 0x17},
-	{Key: "comments", Label: "Comment", HighByte: 0x23},
-	{Key: "original_artist", Label: "Original artist", HighByte: 0x28},
-	{Key: "remixer", Label: "Remixer", HighByte: 0x29},
-	{Key: "dj_play_count", Label: "Play count", HighByte: 0x2a},
-	{Key: "date_added", Label: "Date added", HighByte: 0x2e},
-	{Key: "not_specified", Label: "(none)", HighByte: 0x00},
 }
 
 const defaultTrackDetail = "bpm"
@@ -142,16 +109,12 @@ func NewMenuStore(dir string) *MenuStore {
 }
 
 func isKnownTrackDetail(key string) bool {
-	for _, f := range TrackDetailFields {
-		if f.Key == key {
-			return true
-		}
-	}
-	return false
+	_, ok := dbserver.TrackDetailHighByte(key)
+	return ok
 }
 
 // TrackDetail returns the configured detail-column key (e.g. "bpm",
-// "key", "artist"). Always one of TrackDetailFields[].Key.
+// "key", "artist"). Always one of dbserver.TrackDetailFields[].Key.
 func (ms *MenuStore) TrackDetail() string {
 	ms.mu.RLock()
 	defer ms.mu.RUnlock()

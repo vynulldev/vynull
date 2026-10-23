@@ -64,9 +64,9 @@ type rbxmlTrack struct {
 }
 
 // rbColorIDs maps the rekordbox XML Colour hex values to the app's 8-entry
-// track-colour palette IDs (1=Pink … 8=Purple; see trackColorNames in the
-// api package). These eight hex codes are the fixed set rekordbox emits for
-// its track colour labels. Anything else (or "") maps to 0 = no colour.
+// track-colour palette IDs (1=Pink … 8=Purple; see TrackColorName). These
+// eight hex codes are the fixed set rekordbox emits for its track colour
+// labels. Anything else (or "") maps to 0 = no colour.
 var rbColorIDs = map[string]uint8{
 	"0XFF007F": 1, // pink
 	"0XFF0000": 2, // red

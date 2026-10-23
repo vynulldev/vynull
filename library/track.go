@@ -104,3 +104,16 @@ type Track struct {
 	// the CDJ's MATCHING browse and persists with the library.
 	Related []uint32 `json:"related,omitempty"`
 }
+
+// trackColorNames are the names of rekordbox's 8-colour track palette, by
+// ColorID; 0 is no colour.
+var trackColorNames = [9]string{"", "Pink", "Red", "Orange", "Yellow", "Green", "Aqua", "Blue", "Purple"}
+
+// TrackColorName is the name of a track colour, "Pink" (1) to "Purple" (8),
+// or "" for no colour or an ID past the palette.
+func TrackColorName(id uint8) string {
+	if int(id) < len(trackColorNames) {
+		return trackColorNames[id]
+	}
+	return ""
+}
