@@ -5,12 +5,11 @@ package dbserver
 import (
 	"fmt"
 	"log"
-	"path/filepath"
-	"strings"
 	"time"
 
 	"github.com/vynulldev/vynull/analysis"
 	"github.com/vynulldev/vynull/internal/dlog"
+	"github.com/vynulldev/vynull/internal/filetype"
 	"github.com/vynulldev/vynull/library"
 	"github.com/vynulldev/vynull/pdb"
 	"github.com/vynulldev/vynull/proto"
@@ -151,23 +150,8 @@ func (h *Handler) resolveFileType(trackID uint32) string {
 		}
 	}
 	// Derive from file extension.
-	path := h.resolveTrackPath(trackID)
-	if path != "" {
-		ext := strings.ToLower(filepath.Ext(path))
-		switch ext {
-		case ".mp3":
-			return "mp3"
-		case ".m4a":
-			return "m4a"
-		case ".flac":
-			return "flac"
-		case ".wav":
-			return "wav"
-		case ".aiff", ".aif":
-			return "aiff"
-		}
-	}
-	return ""
+	ft, _ := filetype.ForPath(h.resolveTrackPath(trackID))
+	return ft.Name
 }
 
 func (h *Handler) resolveTrackPath(trackID uint32) string {

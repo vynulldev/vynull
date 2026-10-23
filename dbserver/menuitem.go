@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/vynulldev/vynull/analysis"
+	"github.com/vynulldev/vynull/internal/filetype"
 	"github.com/vynulldev/vynull/library"
 	"github.com/vynulldev/vynull/proto"
 )
@@ -193,18 +194,8 @@ func newKeyID(key string) uint32 {
 func newCDJIncompatible(fileTypeID int, fileType string, sampleRate int) bool {
 	id := fileTypeID
 	if id == 0 {
-		switch fileType {
-		case "mp3":
-			id = 1
-		case "m4a":
-			id = 4
-		case "flac":
-			id = 5
-		case "wav":
-			id = 11
-		case "aiff":
-			id = 12
-		}
+		ft, _ := filetype.ByName(fileType)
+		id = ft.RekordboxID
 	}
 	switch id {
 	case 5, 6:
@@ -383,18 +374,10 @@ func (h *Handler) tracksToStdItems(tracks []*library.Track) []*menuItem {
 // and bailed to play-state 0x0e. AIFF is corrected to 0x0c by the same rule
 // (was 0x0b/WAV) — inferred from the enum, not yet hardware-verified.
 func trackInfoTitleID(fileType string) uint32 {
-	switch fileType {
-	case "m4a":
-		return 4
-	case "flac":
-		return 5
-	case "wav":
-		return 0x0b
-	case "aiff":
-		return 0x0c
-	default: // mp3
-		return 1
+	if ft, ok := filetype.ByName(fileType); ok {
+		return uint32(ft.RekordboxID)
 	}
+	return 1 // as MP3
 }
 
 // trackKeyID is a track's key ID as rekordbox serves it: the imported key row

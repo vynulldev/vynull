@@ -7,38 +7,22 @@ import (
 	"log"
 	"path/filepath"
 	"strings"
+
+	"github.com/vynulldev/vynull/internal/filetype"
 )
 
-// supportedExtensions maps file extensions to their type name.
-var supportedExtensions = map[string]string{
-	".mp3":  "mp3",
-	".m4a":  "m4a",
-	".flac": "flac",
-	".wav":  "wav",
-	".aiff": "aiff",
-	".aif":  "aiff",
-}
-
-// FileTypeForPath returns the library's codec string for an audio file's
-// extension ("mp3", "m4a", "flac", "wav", "aiff"; ".aif" is "aiff"), and
-// whether the extension is one Vynull can serve.
-func FileTypeForPath(path string) (string, bool) {
-	ft, ok := supportedExtensions[strings.ToLower(filepath.Ext(path))]
-	return ft, ok
-}
-
-// fileTypeOrExt is FileTypeForPath for imports, which keep an unsupported
+// fileTypeOrExt is a file's type name for imports, which keep an unsupported
 // file's own extension rather than dropping the track.
 func fileTypeOrExt(path string) string {
-	if ft, ok := FileTypeForPath(path); ok {
-		return ft
+	if ft, ok := filetype.ForPath(path); ok {
+		return ft.Name
 	}
 	return strings.TrimPrefix(strings.ToLower(filepath.Ext(path)), ".")
 }
 
 func fileTypeOrEmpty(path string) string {
-	ft, _ := FileTypeForPath(path)
-	return ft
+	ft, _ := filetype.ForPath(path)
+	return ft.Name
 }
 
 // Scan walks the given directory tree and returns a Library containing
@@ -57,7 +41,7 @@ func Scan(root string) (*Library, error) {
 			return nil
 		}
 
-		fileType, ok := FileTypeForPath(path)
+		fileType, ok := filetype.ForPath(path)
 		if !ok {
 			return nil
 		}
@@ -65,7 +49,7 @@ func Scan(root string) (*Library, error) {
 		track := &Track{
 			ID:       nextID,
 			FilePath: path,
-			FileType: fileType,
+			FileType: fileType.Name,
 		}
 		nextID++
 

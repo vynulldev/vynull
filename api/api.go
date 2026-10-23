@@ -33,6 +33,7 @@ import (
 	"github.com/vynulldev/vynull/device"
 	"github.com/vynulldev/vynull/export"
 	"github.com/vynulldev/vynull/internal/buildinfo"
+	"github.com/vynulldev/vynull/internal/filetype"
 	"github.com/vynulldev/vynull/library"
 	"github.com/vynulldev/vynull/link/prolink"
 	"github.com/vynulldev/vynull/mediadb"
@@ -1677,11 +1678,6 @@ func (s *Server) handleAddStatus(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, v.(*addJob).snapshot())
 }
 
-// audioExts are the file extensions addTrackByPath can add.
-var audioExts = map[string]bool{
-	".mp3": true, ".m4a": true, ".flac": true, ".wav": true, ".aiff": true, ".aif": true,
-}
-
 // expandAudioPaths returns the path itself when it's a file, or — when it's a
 // directory — every supported audio file beneath it (recursively). Lets the
 // "add files/folders" UI accept a folder and pull in its whole tree.
@@ -1695,7 +1691,7 @@ func expandAudioPaths(path string) []string {
 		if err != nil || info.IsDir() {
 			return nil
 		}
-		if audioExts[strings.ToLower(filepath.Ext(p))] {
+		if _, ok := filetype.ForPath(p); ok {
 			files = append(files, p)
 		}
 		return nil
@@ -1716,11 +1712,11 @@ func (s *Server) addTrackByPath(path string, bulk bool) (uint32, error) {
 		FilePath: path,
 	}
 
-	ft, ok := library.FileTypeForPath(path)
+	ft, ok := filetype.ForPath(path)
 	if !ok {
 		return 0, fmt.Errorf("unsupported file type: %s", filepath.Ext(path))
 	}
-	track.FileType = ft
+	track.FileType = ft.Name
 
 	if tags, err := library.ReadFileTags(path); err == nil {
 		tags.ApplyTo(track)
@@ -4047,7 +4043,7 @@ func (s *Server) handleTrackPath(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "path is required", http.StatusBadRequest)
 		return
 	}
-	newType, ok := library.FileTypeForPath(newPath)
+	newType, ok := filetype.ForPath(newPath)
 	if !ok {
 		http.Error(w, "unsupported file type: "+filepath.Ext(newPath), http.StatusBadRequest)
 		return
@@ -4065,7 +4061,7 @@ func (s *Server) handleTrackPath(w http.ResponseWriter, r *http.Request) {
 		t.FilePath = newPath
 		if !miss {
 			t.FileSize = size
-			t.FileType = newType
+			t.FileType = newType.Name
 		}
 		t.FileMissing = miss
 		return nil
