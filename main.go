@@ -523,6 +523,7 @@ func main() {
 		Menu:         menuSource{ms: menuStore},
 		Cues:         cueStore,
 		ReplayDir:    cfg.ReplayDir,
+		Transcode:    cfg.Transcode,
 	}
 	// Every analysis the queue finishes is written back to its track once,
 	// whoever asked for it (a deck, the web UI, an added track).
