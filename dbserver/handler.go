@@ -41,6 +41,9 @@ type Handler struct {
 	clock        func() time.Time // names a new Link history (nil: time.Now)
 	menu         MenuSource
 	cues         *CueStore
+	// transcode is set when the NFS server serves FLAC, WAV and AIFF files
+	// transcoded to MP3 (--transcode); see transcoded.
+	transcode bool
 
 	// Pending items keyed by transaction ID.
 	// The CDJ sends a query (which sets pending items), then a render
@@ -110,6 +113,31 @@ func (h *Handler) lazyAnalyze(trackID uint32) *analysis.Result {
 	h.analysis.Request(trackID, filePath, analysis.Foreground, nil)
 
 	return nil
+}
+
+// transcoded reports whether the NFS server serves a track of fileType as an
+// MP3 rather than as itself: with --transcode it converts FLAC, WAV and AIFF.
+// A deck must then be told the track is an MP3, since it picks its decoder
+// and its reads by what the dbserver says (decoding the MP3 as FLAC, it gave
+// up after the first read).
+func (h *Handler) transcoded(fileType string) bool {
+	if !h.transcode {
+		return false
+	}
+	switch fileType {
+	case "flac", "wav", "aiff":
+		return true
+	}
+	return false
+}
+
+// servedFileType is the type of the file a deck reads for a track of
+// fileType: "mp3" for one the NFS server transcodes, else fileType.
+func (h *Handler) servedFileType(fileType string) string {
+	if h.transcoded(fileType) {
+		return "mp3"
+	}
+	return fileType
 }
 
 // resolveFileType returns the file type (e.g. "mp3", "flac") for a track.

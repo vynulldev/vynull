@@ -155,7 +155,7 @@ func (h *Handler) handleGetMetadata(msg *proto.DBMessage) []*proto.DBMessage {
 		keyID = 0x7FFFFFFF
 	}
 
-	fileType := h.resolveFileType(trackID)
+	fileType := h.servedFileType(h.resolveFileType(trackID))
 
 	// Metadata items in the standard format (16 items).
 	// ParentID values: some items have parent=1, others parent=0.
@@ -686,6 +686,12 @@ func (h *Handler) handleGetExtAnalysis(msg *proto.DBMessage) []*proto.DBMessage 
 					}}
 				}
 			case "PVB2": // extended VBR seek index
+				// A transcoded track is an MP3 to the deck, which gets the
+				// not-found reply below, as for any MP3: a FLAC's seek index
+				// doesn't index the MP3 it reads.
+				if h.transcoded(h.resolveFileType(trackID)) {
+					break
+				}
 				// PVB2 is SERVED here (0x4f02, ~8036-byte blob). If we
 				// withhold it, the deck retries via a raw 0x2805 tagged-section
 				// read; that path is unanswered and deadlocks the deck's
@@ -1049,8 +1055,10 @@ func (h *Handler) handleGetTrackInfo(msg *proto.DBMessage) []*proto.DBMessage {
 	dlog.Debugf("dbserver: track info for track %d: path=%s dur=%d bpm=%d", trackID, relPath, duration, tempo)
 
 	// The response returns 7 items: title, duration, BPM, comment, path, unknown, key.
+	// The title row's ID is the decoder the deck uses.
+	served := h.servedFileType(h.resolveFileType(trackID))
 	infoItems := []*menuItem{
-		{ID: trackInfoTitleID(h.resolveFileType(trackID)), ItemType: 0x0004, FileType: h.resolveFileType(trackID), TrackInfo: true}, // title
+		{ID: trackInfoTitleID(served), ItemType: 0x0004, FileType: served, TrackInfo: true}, // title
 		{ID: duration, ItemType: 0x000b},                                 // duration (seconds)
 		{ID: tempo, ItemType: 0x000d},                                    // BPM (value * 100)
 		{ID: tID, Label1: comment, ItemType: 0x0023},                     // comment

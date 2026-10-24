@@ -134,7 +134,7 @@ func (h *Handler) pdbTrackToStdItem(t *pdb.Track) *menuItem {
 		ID:       t.ID,
 		Label1:   t.Title,
 		ArtID:    t.ArtworkID,
-		FileType: h.resolveFileType(t.ID),
+		FileType: h.servedFileType(h.resolveFileType(t.ID)),
 		ColorID:  uint32(t.ColorID),
 		rating:   uint32(t.Rating),
 		// USB exports carry hot-cue autoload; the compatibility bit and
@@ -158,7 +158,7 @@ func (h *Handler) trackToStdItem(t *library.Track) *menuItem {
 		ID:             t.ID,
 		Label1:         t.Title,
 		ArtID:          t.ArtID,
-		FileType:       t.FileType,
+		FileType:       h.servedFileType(t.FileType),
 		ColorID:        uint32(t.ColorID),
 		rating:         uint32(t.Rating),
 		sortArtist:     t.Artist,
@@ -171,6 +171,11 @@ func (h *Handler) trackToStdItem(t *library.Track) *menuItem {
 		sampleRate:     t.SampleRate,
 		newKeyID:       newKeyID(t.Key),
 		sv:             libSortValues(t),
+	}
+	if h.transcoded(t.FileType) {
+		// rekordbox's file type is the original file's; the deck reads an
+		// MP3, so the compatibility bit comes from the "mp3" fallback.
+		m.fileTypeID = 0
 	}
 	// keyID feeds the extended-row key argument; leave it 0 for keyless
 	// tracks rather than hashing an empty string.

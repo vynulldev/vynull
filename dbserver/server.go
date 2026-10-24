@@ -155,6 +155,9 @@ type Server struct {
 	Menu         MenuSource     // optional; if nil, root menu falls back to a built-in default list
 	Cues         *CueStore
 	ReplayDir    string // if set, serve raw response packets from this directory
+	// Transcode tells the decks that FLAC, WAV and AIFF tracks are MP3s, as
+	// the NFS server serves them with --transcode.
+	Transcode bool
 
 	// OnPeerTeardown, if set, is invoked when a CDJ sends us a 0x0100
 	// Teardown message — main.go wires this to PeerTracker.RemoveByIP so
@@ -470,6 +473,7 @@ func (s *Server) handleSession(ctx context.Context, conn net.Conn) {
 		cues:         s.Cues,
 		filters:      &s.filters,
 		mytags:       s.MyTags,
+		transcode:    s.Transcode,
 	}
 
 	for {
