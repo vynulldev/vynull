@@ -146,7 +146,6 @@ type Server struct {
 	// time.Now). The conformance server pins it.
 	Clock        func() time.Time
 	Library      *library.Library
-	PDB          *pdb.Database
 	DeviceNumber uint8
 	ExportRoot   string
 	Analysis     *analysis.Store
@@ -158,6 +157,10 @@ type Server struct {
 	// Transcode tells the decks that FLAC, WAV and AIFF tracks are MP3s, as
 	// the NFS server serves them with --transcode.
 	Transcode bool
+	// ExportPlaylists is a served USB export's playlist tree, from its PDB
+	// (nil: none). The PLAYLIST menu serves it while the playlist store has
+	// no playlists of its own.
+	ExportPlaylists []*pdb.FolderNode
 
 	// OnPeerTeardown, if set, is invoked when a CDJ sends us a 0x0100
 	// Teardown message — main.go wires this to PeerTracker.RemoveByIP so
@@ -195,7 +198,7 @@ type Server struct {
 // main makes it the analysis store's OnAnalyzed, so every analysis the queue
 // finishes is written back once, whoever asked for it.
 func (s *Server) ApplyAnalysis(trackID uint32, r *analysis.Result) {
-	applyAnalysis(s.Library, s.PDB, trackID, r)
+	applyAnalysis(s.Library, trackID, r)
 }
 
 // Start begins listening on both the discovery port (12523) and a
@@ -460,7 +463,6 @@ func (s *Server) handleSession(ctx context.Context, conn net.Conn) {
 
 	handler := &Handler{
 		lib:          s.Library,
-		pdb:          s.PDB,
 		deviceNumber: s.DeviceNumber,
 		exportRoot:   s.ExportRoot,
 		analysis:     s.Analysis,
@@ -474,6 +476,7 @@ func (s *Server) handleSession(ctx context.Context, conn net.Conn) {
 		filters:      &s.filters,
 		mytags:       s.MyTags,
 		transcode:    s.Transcode,
+		exportTree:   s.ExportPlaylists,
 	}
 
 	for {

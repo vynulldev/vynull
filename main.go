@@ -401,25 +401,13 @@ func main() {
 		for i, t := range pdbDB.Tracks {
 			t.FilePath = origPaths[i]
 		}
-		// Populate Keys map from analysis results (original PDB may lack keys).
-		// Always rebuild from detected keys since the export PDB often has
-		// KeyID values but an empty Keys table.
-		var nextKeyID uint32 = 1
-		keyNameToID := make(map[string]uint32)
+		// The decks are served from the library: give it what the analysis
+		// found (a tempo, length or key the export lacks), as the analysis
+		// queue's write-back does for later analyses.
 		for _, t := range pdbDB.Tracks {
-			if t.Key != "" {
-				if id, ok := keyNameToID[t.Key]; ok {
-					t.KeyID = id
-				} else {
-					t.KeyID = nextKeyID
-					keyNameToID[t.Key] = nextKeyID
-					pdbDB.Keys[nextKeyID] = t.Key
-					nextKeyID++
-				}
+			if r := analysisStore.Get(t.ID); r != nil {
+				lib.ApplyAnalysis(t.ID, library.AnalysisFacts{BPM: r.BPM, Duration: int(r.Duration), KeyCamelot: r.KeyCamelot})
 			}
-		}
-		if len(keyNameToID) > 0 {
-			log.Printf("analysis: added %d keys to PDB", len(keyNameToID))
 		}
 
 		// Populate artwork cache from analysis results.
@@ -513,7 +501,6 @@ func main() {
 
 	db := &dbserver.Server{
 		Library:      lib,
-		PDB:          pdbDB,
 		DeviceNumber: cfg.DeviceNumber,
 		ExportRoot:   nfsRoot,
 		Analysis:     analysisStore,
@@ -524,6 +511,9 @@ func main() {
 		Cues:         cueStore,
 		ReplayDir:    cfg.ReplayDir,
 		Transcode:    cfg.Transcode,
+	}
+	if pdbDB != nil {
+		db.ExportPlaylists = pdbDB.PlaylistTree
 	}
 	// Every analysis the queue finishes is written back to its track once,
 	// whoever asked for it (a deck, the web UI, an added track).

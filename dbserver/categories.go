@@ -20,17 +20,10 @@ import (
 
 func (h *Handler) handleGetTracks(msg *proto.DBMessage) []*proto.DBMessage {
 	order := getSortOrder(msg)
-	if h.pdb != nil {
-		h.pendingItems = h.pdbTracksToItems(h.pdb.Tracks)
-	} else {
-		tracks := h.lib.Tracks()
-		h.pendingItems = h.tracksToStdItems(tracks)
-		// The library is ordered by ID; rekordbox's default (sort=0) all-track
-		// list is in title order, which other sorts keep for ties. The PDB
-		// path keeps the export's own order, which rekordbox already wrote
-		// sorted.
-		orderByTitle(h.pendingItems) // sorts keep title order on ties
-	}
+	h.pendingItems = h.tracksToStdItems(h.lib.Tracks())
+	// The library is ordered by ID; rekordbox's default (sort=0) all-track
+	// list is in title order, which other sorts keep for ties.
+	orderByTitle(h.pendingItems) // sorts keep title order on ties
 	h.sortTracks(h.pendingItems, order)
 	h.pendingItems = h.applyTrackFilter(msg, h.pendingItems)
 	dlog.Debugf("dbserver: get tracks returning %d items (sort=%d)", len(h.pendingItems), order)
@@ -38,25 +31,13 @@ func (h *Handler) handleGetTracks(msg *proto.DBMessage) []*proto.DBMessage {
 }
 
 func (h *Handler) handleGetArtists(msg *proto.DBMessage) []*proto.DBMessage {
-	if h.pdb != nil {
-		var items []*menuItem
-		for id, name := range h.pdb.Artists {
-			items = append(items, &menuItem{
-				ID:       id,
-				Label1:   name,
-				ItemType: 0x07, // artist item
-			})
-		}
-		h.pendingItems = items
-	} else {
-		artists := h.lib.Artists()
-		h.pendingItems = make([]*menuItem, len(artists))
-		for i, name := range artists {
-			h.pendingItems[i] = &menuItem{
-				ID:       h.catID("artist", name),
-				Label1:   name,
-				ItemType: 0x07,
-			}
+	artists := h.lib.Artists()
+	h.pendingItems = make([]*menuItem, len(artists))
+	for i, name := range artists {
+		h.pendingItems[i] = &menuItem{
+			ID:       h.catID("artist", name),
+			Label1:   name,
+			ItemType: 0x07,
 		}
 	}
 	sortItems(h.pendingItems, sortTitle) // artists always sorted by name
@@ -65,25 +46,13 @@ func (h *Handler) handleGetArtists(msg *proto.DBMessage) []*proto.DBMessage {
 }
 
 func (h *Handler) handleGetAlbums(msg *proto.DBMessage) []*proto.DBMessage {
-	if h.pdb != nil {
-		var items []*menuItem
-		for id, name := range h.pdb.Albums {
-			items = append(items, &menuItem{
-				ID:       id,
-				Label1:   name,
-				ItemType: 0x02, // album item
-			})
-		}
-		h.pendingItems = items
-	} else {
-		albums := h.lib.Albums()
-		h.pendingItems = make([]*menuItem, len(albums))
-		for i, name := range albums {
-			h.pendingItems[i] = &menuItem{
-				ID:       h.catID("album", name),
-				Label1:   name,
-				ItemType: 0x02,
-			}
+	albums := h.lib.Albums()
+	h.pendingItems = make([]*menuItem, len(albums))
+	for i, name := range albums {
+		h.pendingItems[i] = &menuItem{
+			ID:       h.catID("album", name),
+			Label1:   name,
+			ItemType: 0x02,
 		}
 	}
 	sortItems(h.pendingItems, sortTitle) // albums always sorted by name
@@ -478,30 +447,17 @@ var classicKeyNames = [24]string{
 }
 
 func (h *Handler) handleGetKeys(msg *proto.DBMessage) []*proto.DBMessage {
-	if h.pdb != nil {
-		var items []*menuItem
-		for id, name := range h.pdb.Keys {
-			items = append(items, &menuItem{
-				ID:       id,
-				Label1:   name,
-				ItemType: 0x0f, // key item
-			})
-		}
-		h.pendingItems = items
-		sortItems(h.pendingItems, sortTitle)
-	} else {
-		// rekordbox shows all 24 harmonic positions, in wheel order, not just
-		// the keys present in the library.
-		items := make([]*menuItem, 0, 24)
-		for i, name := range classicKeyNames {
-			items = append(items, &menuItem{
-				ID:       uint32(i + 1),
-				Label1:   name,
-				ItemType: 0x0f,
-			})
-		}
-		h.pendingItems = items
+	// rekordbox shows all 24 harmonic positions, in wheel order, not just
+	// the keys present in the library.
+	items := make([]*menuItem, 0, 24)
+	for i, name := range classicKeyNames {
+		items = append(items, &menuItem{
+			ID:       uint32(i + 1),
+			Label1:   name,
+			ItemType: 0x0f,
+		})
 	}
+	h.pendingItems = items
 	dlog.Debugf("dbserver: get keys returning %d items", len(h.pendingItems))
 	return []*proto.DBMessage{h.successWithCount(msg)}
 }

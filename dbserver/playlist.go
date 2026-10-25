@@ -51,10 +51,10 @@ func (h *Handler) handleGetPlaylist(msg *proto.DBMessage) []*proto.DBMessage {
 	// History folder doesn't count as a user playlist: it has its own
 	// top-level HISTORY menu, and its presence must not hide a served
 	// USB's entire playlist tree.
-	if h.pdb != nil && len(h.pdb.PlaylistTree) > 0 && !h.storeHasUserPlaylists() {
+	if len(h.exportTree) > 0 && !h.storeHasUserPlaylists() {
 		var items []*menuItem
 		if isFolder == 1 {
-			for _, node := range h.pdb.PlaylistTree {
+			for _, node := range h.exportTree {
 				if node.ParentID != folderID {
 					continue
 				}
@@ -70,7 +70,7 @@ func (h *Handler) handleGetPlaylist(msg *proto.DBMessage) []*proto.DBMessage {
 			}
 			dlog.Debugf("dbserver: pdb playlist folder %d returning %d items", folderID, len(items))
 		} else {
-			for _, node := range h.pdb.PlaylistTree {
+			for _, node := range h.exportTree {
 				if node.ID != folderID {
 					continue
 				}
@@ -174,26 +174,11 @@ func (h *Handler) applyPlaylistTrackScope(items []*menuItem, order uint32, smart
 	}
 }
 
-// trackIDsToMenuItems turns an ordered list of track IDs into menu
-// items, looking up metadata from whichever source is available — PDB
-// preferred (gives the full pdb.Track fields), library as the fallback
-// (library mode has no PDB). Without the library fallback, every
-// user-playlist on a library-mode server rendered as EMPTY on the CDJ
-// even when the store had the right track IDs.
+// trackIDsToMenuItems turns an ordered list of track IDs into menu items,
+// skipping IDs the library doesn't have.
 func (h *Handler) trackIDsToMenuItems(trackIDs []uint32) []*menuItem {
 	items := make([]*menuItem, 0, len(trackIDs))
 	for _, tid := range trackIDs {
-		if h.pdb != nil {
-			if t := h.pdb.TrackByID(tid); t != nil {
-				m := h.pdbTrackToStdItem(t)
-				m.sortArtist = t.Artist
-				m.sortAlbum = t.Album
-				m.sortBPM = t.Tempo
-				m.sortKey = t.Key
-				items = append(items, m)
-				continue
-			}
-		}
 		if h.lib != nil {
 			if t := h.lib.Track(tid); t != nil {
 				items = append(items, h.trackToStdItem(t))

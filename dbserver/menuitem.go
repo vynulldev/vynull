@@ -11,7 +11,6 @@ import (
 
 	"github.com/vynulldev/vynull/analysis"
 	"github.com/vynulldev/vynull/library"
-	"github.com/vynulldev/vynull/pdb"
 	"github.com/vynulldev/vynull/proto"
 )
 
@@ -113,40 +112,6 @@ func (h *Handler) catID(kind, name string) uint32 {
 		}
 	}
 	return library.HashID(kind, name)
-}
-
-func (h *Handler) pdbTracksToItems(tracks []*pdb.Track) []*menuItem {
-	items := make([]*menuItem, len(tracks))
-	for i, t := range tracks {
-		m := h.pdbTrackToStdItem(t)
-		m.sortArtist = t.Artist
-		m.sortAlbum = t.Album
-		m.sortBPM = t.Tempo
-		m.sortKey = t.Key
-		items[i] = m
-	}
-	return items
-}
-
-// pdbTrackToStdItem creates a standard track menu item from a PDB track.
-func (h *Handler) pdbTrackToStdItem(t *pdb.Track) *menuItem {
-	m := &menuItem{
-		ID:       t.ID,
-		Label1:   t.Title,
-		ArtID:    t.ArtworkID,
-		FileType: h.servedFileType(h.resolveFileType(t.ID)),
-		ColorID:  uint32(t.ColorID),
-		rating:   uint32(t.Rating),
-		// USB exports carry hot-cue autoload; the compatibility bit and
-		// new-key index fall out of the codec string and Camelot key. The PDB
-		// row has no FileTypeID/sample-rate, so those use the string fallback.
-		autoLoadHotCue: true,
-		newKeyID:       newKeyID(t.Key),
-		sortKey:        t.Key,
-		sv:             pdbSortValues(t),
-	}
-	h.applyTrackDetailFromPDB(m, t)
-	return m
 }
 
 // trackToStdItem creates a standard track menu item in the standard format.
@@ -358,68 +323,6 @@ func (h *Handler) applyTrackDetail(m *menuItem, t *library.Track) {
 		m.ParentID = t.ID
 		if !t.DateAdded.IsZero() {
 			m.Label2 = t.DateAdded.Format("2006-01-02")
-		}
-	}
-}
-
-// applyTrackDetailFromPDB is the PDB-track equivalent — same field
-// dispatch but reads from the pdb.Track shape (no DateAdded, Comment,
-// etc. always populated). Falls back to bpm rendering for fields that
-// the PDB track doesn't carry.
-func (h *Handler) applyTrackDetailFromPDB(m *menuItem, t *pdb.Track) {
-	key := h.trackDetailKey()
-	hi := trackDetailHighByte[key]
-	m.ItemType = (uint32(hi) << 8) | 0x04
-	bpm := float64(t.Tempo) / 100
-	switch key {
-	case "bpm":
-		m.ParentID = t.Tempo
-		m.Label2 = fmt.Sprintf("%.1f bpm", bpm)
-		if t.Key != "" {
-			m.Label2 += " - " + t.Key
-		}
-	case "key":
-		m.ParentID = h.catID("key", t.Key)
-		if t.Key != "" {
-			m.Label2 = fmt.Sprintf("%s - %.1f bpm", t.Key, bpm)
-		}
-	case "artist":
-		m.ParentID = h.catID("artist", t.Artist)
-		m.Label2 = t.Artist
-	case "album":
-		m.ParentID = h.catID("album", t.Album)
-		m.Label2 = t.Album
-	case "genre":
-		m.ParentID = h.catID("genre", t.Genre)
-		m.Label2 = t.Genre
-	case "time":
-		m.ParentID = uint32(t.Duration)
-	case "bitrate":
-		m.ParentID = t.Bitrate
-	case "rating":
-		m.ParentID = uint32(t.Rating)
-	case "color":
-		if t.ColorID >= 1 && t.ColorID <= 8 {
-			m.ParentID = uint32(t.ColorID)
-			m.Label2 = trackColorName(t.ColorID)
-			m.ItemType = (uint32(0x13+uint32(t.ColorID)) << 8) | 0x04
-		} else {
-			m.ParentID = 0x7fffffff
-			m.Label2 = ""
-			m.ItemType = 0x1304
-		}
-	case "comments":
-		m.ParentID = t.ID
-		m.Label2 = t.Comment
-	default:
-		// PDB track doesn't carry remixer/original_artist/date_added/
-		// play_count strings — fall through to BPM rendering so the
-		// row still reads naturally.
-		m.ItemType = 0x0d04
-		m.ParentID = t.Tempo
-		m.Label2 = fmt.Sprintf("%.1f bpm", bpm)
-		if t.Key != "" {
-			m.Label2 += " - " + t.Key
 		}
 	}
 }

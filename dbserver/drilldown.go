@@ -706,26 +706,6 @@ func (h *Handler) handleGetByArtist(msg *proto.DBMessage) []*proto.DBMessage {
 	}
 	artistID := msg.Args[2].Int()
 
-	if h.pdb != nil {
-		// Find albums for this artist from PDB tracks.
-		albumSet := make(map[uint32]bool)
-		items := []*menuItem{{ID: 0xffffffff, Label1: "ALL", ItemType: 0x00a0}}
-		for _, t := range h.pdb.Tracks {
-			if t.ArtistID == artistID && t.AlbumID > 0 && !albumSet[t.AlbumID] {
-				albumSet[t.AlbumID] = true
-				items = append(items, &menuItem{
-					ID:       t.AlbumID,
-					Label1:   t.Album,
-					ItemType: 0x02,
-				})
-			}
-		}
-		sortItems(items[1:], sortTitle)
-		h.pendingItems = items
-		dlog.Debugf("dbserver: get by artist %d returning %d albums (PDB)", artistID, len(items))
-		return []*proto.DBMessage{h.successWithCount(msg)}
-	}
-
 	// Find artist name by hash ID.
 	artistName := ""
 	for _, name := range h.lib.Artists() {
@@ -771,27 +751,7 @@ func (h *Handler) handleGetTracksByAlbum(msg *proto.DBMessage) []*proto.DBMessag
 	artistID := msg.Args[2].Int()
 	albumID := msg.Args[3].Int()
 
-	if h.pdb != nil {
-		var items []*menuItem
-		for _, t := range h.pdb.Tracks {
-			match := false
-			if albumID > 0 && t.AlbumID == albumID {
-				match = true
-			}
-			if artistID > 0 && t.ArtistID != artistID {
-				match = false
-			}
-			if match {
-				items = append(items, h.pdbTrackToStdItem(t))
-			}
-		}
-		h.sortTracks(items, getSortOrder(msg))
-		h.pendingItems = items
-		dlog.Debugf("dbserver: get tracks by album %d (PDB) returning %d tracks", albumID, len(items))
-		return []*proto.DBMessage{h.successWithCount(msg)}
-	}
-
-	// Library: filter by artist and album, honouring the 0xffffffff "ALL"
+	// Filter by artist and album, honouring the 0xffffffff "ALL"
 	// sentinel at either level (e.g. an artist's tracks across all albums).
 	var matchTracks []*library.Track
 	if h.lib != nil {
@@ -827,19 +787,6 @@ func (h *Handler) handleGetByAlbum(msg *proto.DBMessage) []*proto.DBMessage {
 		return []*proto.DBMessage{h.successWithCount(msg)}
 	}
 	albumID := msg.Args[2].Int()
-
-	if h.pdb != nil {
-		var items []*menuItem
-		for _, t := range h.pdb.Tracks {
-			if t.AlbumID == albumID {
-				items = append(items, h.pdbTrackToStdItem(t))
-			}
-		}
-		h.sortTracks(items, getSortOrder(msg))
-		h.pendingItems = items
-		dlog.Debugf("dbserver: get by album %d (PDB) returning %d tracks", albumID, len(items))
-		return []*proto.DBMessage{h.successWithCount(msg)}
-	}
 
 	albumName := ""
 	for _, name := range h.lib.Albums() {
