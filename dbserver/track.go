@@ -38,31 +38,13 @@ func (h *Handler) handleGetMetadata(msg *proto.DBMessage) []*proto.DBMessage {
 	// for subsequent loads and waveform requests.
 	go h.lazyAnalyze(trackID)
 
-	// Look up from PDB first, then library.
 	var title, artist, album, genre, key, comment, dateAdded, label string
 	var tID, artworkID, keyID, duration uint32
 	// Category rows carry the category's ID, as rekordbox's do: the deck's
 	// information jump (TRACK INFO -> ARTIST/ALBUM/...) opens that menu entry
 	// by this ID.
 	var artistID, albumID, genreID, labelID uint32
-	if h.pdb != nil {
-		pt := h.pdb.TrackByID(trackID)
-		if pt != nil {
-			tID = pt.ID
-			title = pt.Title
-			artist = pt.Artist
-			album = pt.Album
-			genre = pt.Genre
-			key = pt.Key
-			comment = pt.Comment
-			dateAdded = pt.DateAdded
-			artworkID = pt.ArtworkID
-			keyID = pt.KeyID
-			artistID, albumID, genreID, labelID = pt.ArtistID, pt.AlbumID, pt.GenreID, pt.LabelID
-			duration = uint32(pt.Duration) * 1000 // seconds to ms
-		}
-	}
-	if title == "" && h.lib != nil {
+	if h.lib != nil {
 		track := h.lib.Track(trackID)
 		if track != nil {
 			tID = track.ID
@@ -94,13 +76,7 @@ func (h *Handler) handleGetMetadata(msg *proto.DBMessage) []*proto.DBMessage {
 	// Metadata items in the standard format.
 	// Item types: 0x000b=duration(secs), 0x000d=BPM(*100), 0x000f=key
 	tempo := uint32(0)
-	if h.pdb != nil {
-		if pt := h.pdb.TrackByID(trackID); pt != nil {
-			tempo = pt.Tempo
-		}
-	}
-	// Fall back to library track BPM
-	if tempo == 0 && h.lib != nil {
+	if h.lib != nil {
 		if t := h.lib.Track(trackID); t != nil && t.BPM > 0 {
 			tempo = uint32(t.BPM * 100)
 		}
@@ -118,16 +94,9 @@ func (h *Handler) handleGetMetadata(msg *proto.DBMessage) []*proto.DBMessage {
 			rating = uint32(t.Rating)
 		}
 	}
-	if h.pdb != nil {
-		if pt := h.pdb.TrackByID(trackID); pt != nil {
-			if colorID == 0 {
-				colorID = uint32(pt.ColorID)
-			}
-		}
-	}
 
-	// Library tracks: the same IDs the category menus list (rekordbox's own
-	// IDs for an imported library, else the hashed name IDs).
+	// The same IDs the category menus list (rekordbox's own IDs for an
+	// imported library or a served export, else the hashed name IDs).
 	catID := func(kind, name string) uint32 {
 		if name == "" {
 			return 0
@@ -163,11 +132,7 @@ func (h *Handler) handleGetMetadata(msg *proto.DBMessage) []*proto.DBMessage {
 	// second column, key and BPM in the extended fields), as rekordbox's is;
 	// the key alone, not the "Key - BPM" composite, as its render reads it.
 	titleRow := &menuItem{ID: tID, Label1: title, ArtID: artworkID, ItemType: 0x0004, ParentID: 1, FileType: fileType}
-	if h.pdb != nil {
-		if pt := h.pdb.TrackByID(trackID); pt != nil {
-			titleRow = h.pdbTrackToStdItem(pt)
-		}
-	} else if h.lib != nil {
+	if h.lib != nil {
 		if t := h.lib.Track(trackID); t != nil {
 			titleRow = h.trackToStdItem(t)
 			titleRow.songInfoTitle = h.newSongInfoTitle(t, 1)
@@ -258,15 +223,9 @@ func (h *Handler) handleGetArtwork(msg *proto.DBMessage) []*proto.DBMessage {
 	artID := msg.Args[1].Int()
 
 	// 0x2103 uses track ID, not artwork ID — resolve to artwork ID.
-	if msg.Type == 0x2103 {
-		if h.pdb != nil {
-			if t := h.pdb.TrackByID(artID); t != nil && t.ArtworkID > 0 {
-				artID = t.ArtworkID
-			}
-		} else if h.lib != nil {
-			if t := h.lib.Track(artID); t != nil && t.ArtID > 0 {
-				artID = t.ArtID
-			}
+	if msg.Type == 0x2103 && h.lib != nil {
+		if t := h.lib.Track(artID); t != nil && t.ArtID > 0 {
+			artID = t.ArtID
 		}
 	}
 
@@ -325,6 +284,23 @@ func (h *Handler) handleGetArtwork(msg *proto.DBMessage) []*proto.DBMessage {
 			proto.ArgBlob(art.Data),
 		},
 	}}
+}
+
+// exportANLZ returns a section of a served USB export's ANLZ .EXT file for
+// the track, as rekordbox wrote it (nil when the track has none).
+func (h *Handler) exportANLZ(trackID uint32, tag string) []byte {
+	if h.lib == nil {
+		return nil
+	}
+	t := h.lib.Track(trackID)
+	if t == nil || t.AnalyzePath == "" {
+		return nil
+	}
+	extPath := strings.Replace(t.AnalyzePath, ".DAT", ".EXT", 1)
+	if h.exportRoot != "" {
+		extPath = h.exportRoot + extPath
+	}
+	return analysis.ReadANLZSection(extPath, tag)
 }
 
 func (h *Handler) handleGetWavePreview(msg *proto.DBMessage) []*proto.DBMessage {
@@ -569,27 +545,18 @@ func (h *Handler) handleGetExtAnalysis(msg *proto.DBMessage) []*proto.DBMessage 
 			switch tagFourCC {
 			case "PWV4": // color waveform preview
 				// Try loading real Pioneer ANLZ data from .EXT file first.
-				if h.pdb != nil {
-					t := h.pdb.TrackByID(trackID)
-					if t != nil && t.AnalyzePath != "" {
-						extPath := strings.Replace(t.AnalyzePath, ".DAT", ".EXT", 1)
-						if h.exportRoot != "" {
-							extPath = h.exportRoot + extPath
-						}
-						if realBlob := analysis.ReadANLZSection(extPath, "PWV4"); realBlob != nil {
-							dlog.Debugf("dbserver: PWV4 for track %d (%d bytes, from ANLZ file)", trackID, len(realBlob))
-							return []*proto.DBMessage{{
-								TxID: msg.TxID, Type: 0x4f02,
-								Args: []proto.DBArg{
-									proto.ArgI32(0x2c04),
-									proto.ArgI32(0),
-									proto.ArgI32(uint32(len(realBlob))),
-									proto.ArgBlob(realBlob),
-									proto.ArgI32(1),
-								},
-							}}
-						}
-					}
+				if realBlob := h.exportANLZ(trackID, "PWV4"); realBlob != nil {
+					dlog.Debugf("dbserver: PWV4 for track %d (%d bytes, from ANLZ file)", trackID, len(realBlob))
+					return []*proto.DBMessage{{
+						TxID: msg.TxID, Type: 0x4f02,
+						Args: []proto.DBArg{
+							proto.ArgI32(0x2c04),
+							proto.ArgI32(0),
+							proto.ArgI32(uint32(len(realBlob))),
+							proto.ArgBlob(realBlob),
+							proto.ArgI32(1),
+						},
+					}}
 				}
 				if len(r.WaveColorPreview) > 0 {
 					blob := analysis.WrapANLZ("PWV4", 6, r.WaveColorPreview)
@@ -606,27 +573,18 @@ func (h *Handler) handleGetExtAnalysis(msg *proto.DBMessage) []*proto.DBMessage 
 					}}
 				}
 			case "PWV5": // color waveform detail (scrolling)
-				if h.pdb != nil {
-					t := h.pdb.TrackByID(trackID)
-					if t != nil && t.AnalyzePath != "" {
-						extPath := strings.Replace(t.AnalyzePath, ".DAT", ".EXT", 1)
-						if h.exportRoot != "" {
-							extPath = h.exportRoot + extPath
-						}
-						if realBlob := analysis.ReadANLZSection(extPath, "PWV5"); realBlob != nil {
-							dlog.Debugf("dbserver: PWV5 for track %d (%d bytes, from ANLZ file)", trackID, len(realBlob))
-							return []*proto.DBMessage{{
-								TxID: msg.TxID, Type: 0x4f02,
-								Args: []proto.DBArg{
-									proto.ArgI32(0x2c04),
-									proto.ArgI32(0),
-									proto.ArgI32(uint32(len(realBlob))),
-									proto.ArgBlob(realBlob),
-									proto.ArgI32(1), // data-valid flag
-								},
-							}}
-						}
-					}
+				if realBlob := h.exportANLZ(trackID, "PWV5"); realBlob != nil {
+					dlog.Debugf("dbserver: PWV5 for track %d (%d bytes, from ANLZ file)", trackID, len(realBlob))
+					return []*proto.DBMessage{{
+						TxID: msg.TxID, Type: 0x4f02,
+						Args: []proto.DBArg{
+							proto.ArgI32(0x2c04),
+							proto.ArgI32(0),
+							proto.ArgI32(uint32(len(realBlob))),
+							proto.ArgBlob(realBlob),
+							proto.ArgI32(1), // data-valid flag
+						},
+					}}
 				}
 				if len(r.WaveDetail) > 0 {
 					blob := analysis.WrapANLZ("PWV5", 2, r.WaveDetail)
@@ -700,27 +658,18 @@ func (h *Handler) handleGetExtAnalysis(msg *proto.DBMessage) []*proto.DBMessage 
 				//
 				// Prefer the real .EXT section (byte-exact); otherwise serve a
 				// generated placeholder so the deck stops falling back to 0x2805.
-				if h.pdb != nil {
-					t := h.pdb.TrackByID(trackID)
-					if t != nil && t.AnalyzePath != "" {
-						extPath := strings.Replace(t.AnalyzePath, ".DAT", ".EXT", 1)
-						if h.exportRoot != "" {
-							extPath = h.exportRoot + extPath
-						}
-						if realBlob := analysis.ReadANLZSection(extPath, "PVB2"); realBlob != nil {
-							dlog.Debugf("dbserver: PVB2 for track %d (%d bytes, from ANLZ file)", trackID, len(realBlob))
-							return []*proto.DBMessage{{
-								TxID: msg.TxID, Type: 0x4f02,
-								Args: []proto.DBArg{
-									proto.ArgI32(0x2c04),
-									proto.ArgI32(0),
-									proto.ArgI32(uint32(len(realBlob))),
-									proto.ArgBlob(realBlob),
-									proto.ArgI32(1), // data-valid flag
-								},
-							}}
-						}
-					}
+				if realBlob := h.exportANLZ(trackID, "PVB2"); realBlob != nil {
+					dlog.Debugf("dbserver: PVB2 for track %d (%d bytes, from ANLZ file)", trackID, len(realBlob))
+					return []*proto.DBMessage{{
+						TxID: msg.TxID, Type: 0x4f02,
+						Args: []proto.DBArg{
+							proto.ArgI32(0x2c04),
+							proto.ArgI32(0),
+							proto.ArgI32(uint32(len(realBlob))),
+							proto.ArgBlob(realBlob),
+							proto.ArgI32(1), // data-valid flag
+						},
+					}}
 				}
 				// No ANLZ file: generate a real seek index from the audio
 				// frames (cached). A correct index (true byte offsets) is what
@@ -758,27 +707,18 @@ func (h *Handler) handleGetExtAnalysis(msg *proto.DBMessage) []*proto.DBMessage 
 				// Try reading real PQT2 from ANLZ .EXT file first — UNLESS the user
 				// manually adjusted the grid, in which case the on-disk file is stale
 				// and we must serve our regenerated blob (r.BeatGridPQT2) below.
-				if h.pdb != nil && !r.GridEdited {
-					t := h.pdb.TrackByID(trackID)
-					if t != nil && t.AnalyzePath != "" {
-						extPath := strings.Replace(t.AnalyzePath, ".DAT", ".EXT", 1)
-						if h.exportRoot != "" {
-							extPath = h.exportRoot + extPath
-						}
-						if realBlob := analysis.ReadANLZSection(extPath, "PQT2"); realBlob != nil {
-							dlog.Debugf("dbserver: PQT2 for track %d (%d bytes, from ANLZ file)", trackID, len(realBlob))
-							return []*proto.DBMessage{{
-								TxID: msg.TxID, Type: 0x4f02,
-								Args: []proto.DBArg{
-									proto.ArgI32(0x2c04),
-									proto.ArgI32(0),
-									proto.ArgI32(uint32(len(realBlob))),
-									proto.ArgBlob(realBlob),
-									proto.ArgI32(1), // data-valid flag
-								},
-							}}
-						}
-					}
+				if realBlob := h.exportANLZ(trackID, "PQT2"); realBlob != nil && !r.GridEdited {
+					dlog.Debugf("dbserver: PQT2 for track %d (%d bytes, from ANLZ file)", trackID, len(realBlob))
+					return []*proto.DBMessage{{
+						TxID: msg.TxID, Type: 0x4f02,
+						Args: []proto.DBArg{
+							proto.ArgI32(0x2c04),
+							proto.ArgI32(0),
+							proto.ArgI32(uint32(len(realBlob))),
+							proto.ArgBlob(realBlob),
+							proto.ArgI32(1), // data-valid flag
+						},
+					}}
 				}
 				if r.BeatGridPQT2 != nil {
 					blob := r.BeatGridPQT2 // complete ANLZ section with 56-byte header
@@ -964,17 +904,9 @@ func (h *Handler) handleGetTrackInfo(msg *proto.DBMessage) []*proto.DBMessage {
 	// Kick off lazy analysis in background — don't block the track info response.
 	go h.lazyAnalyze(trackID)
 
-	// Look up track from PDB or library.
 	var relPath string
 	var tID uint32
-	if h.pdb != nil {
-		pt := h.pdb.TrackByID(trackID)
-		if pt != nil {
-			relPath = pt.FilePath
-			tID = pt.ID
-		}
-	}
-	if relPath == "" {
+	if h.lib != nil {
 		track := h.lib.Track(trackID)
 		if track != nil {
 			relPath = track.FilePath
@@ -1002,35 +934,15 @@ func (h *Handler) handleGetTrackInfo(msg *proto.DBMessage) []*proto.DBMessage {
 	// Look up additional metadata for duration, BPM, key, comment.
 	var duration, tempo, keyID, fileSize uint32
 	var key, comment string
-	if h.pdb != nil {
-		pt := h.pdb.TrackByID(trackID)
-		if pt != nil {
-			duration = uint32(pt.Duration)
-			tempo = pt.Tempo // BPM * 100
-			keyID = pt.KeyID
-			key = pt.Key
-			comment = pt.Comment
-			fileSize = pt.FileSize
-		}
-	}
-	// Fall back to library track metadata (used in lazy-analysis mode without PDB).
-	if (duration == 0 || tempo == 0) && h.lib != nil {
+	if h.lib != nil {
 		if t := h.lib.Track(trackID); t != nil {
-			if duration == 0 && t.Duration > 0 {
+			if t.Duration > 0 {
 				duration = uint32(t.Duration.Seconds())
 			}
-			if tempo == 0 && t.BPM > 0 {
+			if t.BPM > 0 {
 				tempo = uint32(t.BPM * 100)
 			}
-			if key == "" {
-				key = t.Key
-			}
-			if comment == "" {
-				comment = t.Comment
-			}
-			if fileSize == 0 {
-				fileSize = uint32(t.FileSize)
-			}
+			key, comment, fileSize = t.Key, t.Comment, uint32(t.FileSize)
 			// Estimate duration from file size if still unknown.
 			// CDJ rejects tracks with dur=0. Use ~192kbps as estimate.
 			if duration == 0 && t.FileSize > 0 {

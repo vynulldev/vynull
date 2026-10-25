@@ -12,7 +12,6 @@ import (
 
 	"github.com/vynulldev/vynull/internal/dlog"
 	"github.com/vynulldev/vynull/library"
-	"github.com/vynulldev/vynull/pdb"
 	"github.com/vynulldev/vynull/proto"
 	"golang.org/x/text/unicode/norm"
 )
@@ -157,20 +156,6 @@ func libSortValues(t *library.Track) *sortValues {
 	}
 	if !t.DateAdded.IsZero() {
 		v.dateAdded = t.DateAdded.Format("2006-01-02")
-	}
-	return v
-}
-
-func pdbSortValues(t *pdb.Track) *sortValues {
-	v := &sortValues{
-		title: t.Title, artist: t.Artist, album: t.Album, genre: t.Genre,
-		comment: t.Comment, label: t.Label,
-		tempo: int64(t.Tempo), rating: int64(t.Rating),
-		seconds: int64(t.Duration), bitrate: int64(t.Bitrate),
-		color: int64(t.ColorID), plays: int64(t.PlayCount),
-	}
-	if len(t.DateAdded) >= 10 {
-		v.dateAdded = t.DateAdded[:10]
 	}
 	return v
 }

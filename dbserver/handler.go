@@ -4,13 +4,13 @@ package dbserver
 
 import (
 	"fmt"
-	"github.com/vynulldev/vynull/internal/dlog"
 	"log"
 	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/vynulldev/vynull/analysis"
+	"github.com/vynulldev/vynull/internal/dlog"
 	"github.com/vynulldev/vynull/library"
 	"github.com/vynulldev/vynull/pdb"
 	"github.com/vynulldev/vynull/proto"
@@ -31,7 +31,6 @@ type Handler struct {
 	silentRender bool
 
 	lib          *library.Library
-	pdb          *pdb.Database
 	deviceNumber uint8
 	exportRoot   string
 	analysis     *analysis.Store
@@ -41,6 +40,10 @@ type Handler struct {
 	clock        func() time.Time // names a new Link history (nil: time.Now)
 	menu         MenuSource
 	cues         *CueStore
+	// exportTree is a served USB export's playlist tree (its PDB's), which
+	// the PLAYLIST menu serves until the playlist store has playlists of its
+	// own.
+	exportTree []*pdb.FolderNode
 	// transcode is set when the NFS server serves FLAC, WAV and AIFF files
 	// transcoded to MP3 (--transcode); see transcoded.
 	transcode bool
@@ -168,15 +171,6 @@ func (h *Handler) resolveFileType(trackID uint32) string {
 }
 
 func (h *Handler) resolveTrackPath(trackID uint32) string {
-	if h.pdb != nil {
-		if t := h.pdb.TrackByID(trackID); t != nil {
-			filePath := t.FilePath
-			if h.exportRoot != "" && !strings.HasPrefix(filePath, "/") {
-				return h.exportRoot + "/" + filePath
-			}
-			return filePath
-		}
-	}
 	if h.lib != nil {
 		if t := h.lib.Track(trackID); t != nil {
 			return t.FilePath
@@ -186,30 +180,13 @@ func (h *Handler) resolveTrackPath(trackID uint32) string {
 }
 
 func (h *Handler) storeAnalysisResult(trackID uint32, r *analysis.Result) {
-	applyAnalysis(h.lib, h.pdb, trackID, r)
+	applyAnalysis(h.lib, trackID, r)
 }
 
-// applyAnalysis writes an analysis back to its track: the served USB's
-// database row in PDB mode (filling only what it lacks), the library row
-// through the library's write-back (the same one the API uses), and the
-// artwork the analysis found.
-func applyAnalysis(lib *library.Library, db *pdb.Database, trackID uint32, r *analysis.Result) {
-	// Update track metadata from analysis — PDB tracks
-	if db != nil {
-		if t := db.TrackByID(trackID); t != nil {
-			if t.Tempo == 0 && r.BPM > 0 {
-				t.Tempo = uint32(r.BPM * 100)
-			}
-			if t.Duration == 0 && r.Duration > 0 {
-				t.Duration = r.Duration
-			}
-			if t.Key == "" && r.KeyCamelot != "" {
-				t.Key = r.KeyCamelot
-			}
-		}
-	}
-
-	// Library tracks: the library's write-back, the same one the API uses.
+// applyAnalysis writes an analysis back to its track, through the library's
+// write-back (the same one the API uses), and adopts the artwork the analysis
+// found.
+func applyAnalysis(lib *library.Library, trackID uint32, r *analysis.Result) {
 	if lib != nil {
 		lib.ApplyAnalysis(trackID, library.AnalysisFacts{BPM: r.BPM, Duration: int(r.Duration), KeyCamelot: r.KeyCamelot})
 	}

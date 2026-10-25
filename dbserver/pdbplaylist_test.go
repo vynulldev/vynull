@@ -5,6 +5,7 @@ package dbserver
 import (
 	"testing"
 
+	"github.com/vynulldev/vynull/library"
 	"github.com/vynulldev/vynull/pdb"
 	"github.com/vynulldev/vynull/proto"
 )
@@ -27,7 +28,8 @@ func pdbWithPlaylists() *pdb.Database {
 // PDB's tree on the PLAYLIST menu (the tree used to be parsed and then
 // ignored — decks browsing a served USB saw an empty PLAYLIST menu).
 func TestPDBPlaylistsServed(t *testing.T) {
-	h := &Handler{pdb: pdbWithPlaylists()}
+	db := pdbWithPlaylists()
+	h := &Handler{lib: library.FromPDB(db.Tracks, "/usb"), exportTree: db.PlaylistTree}
 
 	// Root listing (0x1005, 2 args): the folder must appear.
 	h.handleGetPlaylist(&proto.DBMessage{Type: 0x1005, Args: []proto.DBArg{proto.ArgI32(0), proto.ArgI32(0)}})
