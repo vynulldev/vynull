@@ -66,3 +66,22 @@ func BenchmarkRenderPage(b *testing.B) {
 		h.Handle(render)
 	}
 }
+
+// BenchmarkKeyTracks measures a deck opening a key's tracks in the KEY menu
+// (0x1214) on a 20k-track library, for 8A exact and its widest group.
+func BenchmarkKeyTracks(b *testing.B) {
+	h := &Handler{lib: benchlib.Library(benchlib.Size)}
+	for _, bc := range []struct {
+		name     string
+		distance uint32
+	}{{"exact", 0}, {"widest", 2}} {
+		b.Run(bc.name, func(b *testing.B) {
+			request := &proto.DBMessage{TxID: 1, Type: 0x1214, Args: []proto.DBArg{
+				proto.ArgI32(trackListCtx), proto.ArgI32(0), proto.ArgI32(15), proto.ArgI32(bc.distance)}}
+			b.ReportAllocs()
+			for b.Loop() {
+				h.Handle(request)
+			}
+		})
+	}
+}
