@@ -551,19 +551,48 @@ func (h *Handler) handleGetTracksByKey(msg *proto.DBMessage) []*proto.DBMessage 
 	keyIndex := msg.Args[2].Int()
 	distance := int(msg.Args[3].Int())
 
-	// rekordbox's KEY track view is not a harmonic filter: it returns the
-	// whole collection, title-sorted, as a scalar leaf (no context type in
-	// arg 7). The key index and distance select the compatibility display in
-	// the deck UI, not the row set.
+	// rekordbox lists the tracks whose key is in the selected key's distance
+	// group, the keys its 0x1114 row names, title-sorted, as a scalar leaf
+	// (no context type in arg 7). On a CDJ-2000NXS2, 1B listed 17 tracks, 1B
+	// and 1A 101, and with 12B and 2B as well 143. When no track's key is in
+	// the group it lists the whole collection: 1A on a library of Am and C
+	// tracks listed them all (link-spec full suite, rekordbox 7.2.19).
 	var tracks []*library.Track
 	if h.lib != nil {
-		tracks = append(tracks, h.lib.Tracks()...)
+		tracks = h.lib.Tracks()
+	}
+	if group := keyGroupIndexes(keyIndex, distance); len(group) > 0 {
+		var inGroup []*library.Track
+		for _, t := range tracks {
+			if group[newKeyID(t.Key)] {
+				inGroup = append(inGroup, t)
+			}
+		}
+		if len(inGroup) > 0 {
+			tracks = inGroup
+		}
 	}
 	items := h.tracksToStdItems(tracks)
 	sortItems(items, sortTitle)
 	h.setPendingAll(msg, items)
 	dlog.Debugf("dbserver: tracks for key index %d dist=%d returning %d tracks", keyIndex, distance, len(items))
 	return []*proto.DBMessage{h.successWithCount(msg)}
+}
+
+// keyGroupIndexes returns the 1-24 key indexes in a key's distance group
+// (camelotDistanceGroups; a distance past 2 is the widest group), or nil for
+// an index that names no key.
+func keyGroupIndexes(keyIndex uint32, distance int) map[uint32]bool {
+	groups := camelotDistanceGroups(keyIndexToCamelot(keyIndex))
+	if len(groups[0]) == 0 {
+		return nil
+	}
+	group := groups[min(max(distance, 0), len(groups)-1)]
+	out := make(map[uint32]bool, len(group))
+	for _, c := range group {
+		out[camelotToKeyIndex(c)] = true
+	}
+	return out
 }
 
 // keyIndexToCamelot maps the 1-24 harmonic index to Camelot notation ("1A" …
