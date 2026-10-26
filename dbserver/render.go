@@ -77,6 +77,14 @@ func (h *Handler) handleRenderMenu(msg *proto.DBMessage) []*proto.DBMessage {
 	if len(pending) == 0 && menu > 12 && len(h.pendingItems) > 0 {
 		pending = h.pendingItems
 	}
+	if h.bankQuery.set {
+		rows, answer := h.bankRender(msg)
+		if !answer {
+			dlog.Debugf("dbserver: render of a Hot Cue Bank list at another location with none left unanswered, as rekordbox does")
+			return nil
+		}
+		pending = rows
+	}
 	dlog.Debugf("dbserver: render menu=%d args=%v pendingItems=%d", menu, argVals, len(pending))
 
 	offset := 0

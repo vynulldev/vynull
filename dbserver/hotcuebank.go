@@ -4,6 +4,7 @@ package dbserver
 
 import (
 	"encoding/binary"
+	"slices"
 	"unicode/utf16"
 
 	"github.com/vynulldev/vynull/internal/dlog"
@@ -30,6 +31,17 @@ const hotCueBankStatusRejected = 50
 // track type 0x01, the only type rekordbox serves banks for.
 func hotCueBankAllowed(msg *proto.DBMessage) bool {
 	return len(msg.Args) > 0 && msg.Args[0].Int()&0xff == 0x01
+}
+
+// bankRender returns the rows a render answering a Hot Cue Bank catalog
+// request reads, and whether it is answered at all. rekordbox keeps a list
+// per context (menu location) and renders the one at the render's own
+// context: the request's own list, even empty, or another context's list
+// only when it holds rows; otherwise no reply (link-spec
+// hot-cue-bank-location-state, -location-cross and -discovery).
+func (h *Handler) bankRender(msg *proto.DBMessage) (rows []*menuItem, answer bool) {
+	rows = h.recentLists().get(dmstContext(msg))
+	return rows, dmstContext(msg) == h.bankQuery.context || len(rows) > 0
 }
 
 // handleGetHotCueBank — opcode 0x2001, the Hot Cue Bank catalog:
@@ -63,15 +75,28 @@ func (h *Handler) handleGetHotCueBank(msg *proto.DBMessage) []*proto.DBMessage {
 		}
 	}
 	h.setPendingAll(msg, items)
+	h.bankQuery.context, h.bankQuery.set = dmstContext(msg), true
 	dlog.Debugf("dbserver: HOT CUE BANK selector=%d mode=%d count=%d returning %d items", selector, mode, count, len(items))
 	return []*proto.DBMessage{h.successWithCount(msg)}
 }
 
 // hotCueBankTreeItems lists the live folders (item type 0x01) and banks
-// (0x2b) under parentID in Seq order, carrying Seq in argument 9.
+// (0x2b) under parentID, carrying Seq in argument 9: the folders first, then
+// the banks, each in Seq order, as rekordbox lists them (link-spec
+// hot-cue-bank-matrix: a folder with Seq 2 before a bank with Seq 1).
 func (h *Handler) hotCueBankTreeItems(parentID uint32) []*menuItem {
+	children := h.lib.HotCueBankChildren(parentID)
+	slices.SortStableFunc(children, func(a, b library.HotCueBank) int {
+		switch {
+		case a.Folder == b.Folder:
+			return 0
+		case a.Folder:
+			return -1
+		}
+		return 1
+	})
 	var items []*menuItem
-	for _, b := range h.lib.HotCueBankChildren(parentID) {
+	for _, b := range children {
 		itemType := uint32(0x2b)
 		if b.Folder {
 			itemType = 0x01
