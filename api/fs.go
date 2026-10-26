@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+
+	"github.com/vynulldev/vynull/internal/filetype"
 )
 
 // fsEntry is one item the file browser can show: a directory to navigate into,
@@ -123,7 +125,8 @@ func (s *Server) handleFSList(w http.ResponseWriter, r *http.Request) {
 			continue // hide dotfiles/dotdirs
 		}
 		isDir := fi.IsDir()
-		audio := !isDir && audioExts[strings.ToLower(filepath.Ext(name))]
+		_, isAudio := filetype.ForPath(name)
+		audio := !isDir && isAudio
 		if !isDir && !audio {
 			continue // only directories and supported audio files
 		}

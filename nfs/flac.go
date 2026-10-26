@@ -7,8 +7,9 @@ import (
 	"fmt"
 	"log"
 	"os/exec"
-	"strings"
 	"sync"
+
+	"github.com/vynulldev/vynull/internal/filetype"
 )
 
 // flacTranscoder lazily transcodes non-MP3 files to MP3 for NFS serving.
@@ -32,14 +33,11 @@ func newFlacTranscoder() *flacTranscoder {
 	}
 }
 
-// NeedsTranscode returns true if the file is a non-MP3 format that needs
-// transcoding to survive the CDJ's NFS read alignment bug.
+// NeedsTranscode returns true if the file is a lossless format (FLAC, WAV,
+// AIFF) that needs transcoding to survive the CDJ's NFS read alignment bug.
 func NeedsTranscode(path string) bool {
-	lower := strings.ToLower(path)
-	return strings.HasSuffix(lower, ".flac") ||
-		strings.HasSuffix(lower, ".wav") ||
-		strings.HasSuffix(lower, ".aiff") ||
-		strings.HasSuffix(lower, ".aif")
+	ft, ok := filetype.ForPath(path)
+	return ok && ft.Lossless
 }
 
 // Size returns the transcoded WAV size for a FLAC file.

@@ -6,11 +6,12 @@ import (
 	"context"
 	"math"
 	"os/exec"
-	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
 	"sync"
+
+	"github.com/vynulldev/vynull/internal/filetype"
 )
 
 // BeatResult holds the detected BPM and actual beat positions.
@@ -1581,22 +1582,19 @@ func HarmonicParity(samples []float32, sampleRate int, beats []float64, downIdx 
 	return harmonicParity(samples, sampleRate, beats, downIdx)
 }
 
-// losslessExts are the container extensions whose codecs carry no encoder delay,
-// so their decoded timeline matches rekordbox's grid reference directly.
-var losslessExts = map[string]bool{".flac": true, ".wav": true, ".aiff": true, ".aif": true}
-
 // EncoderDelayMs returns the encoder-delay latency compensation for a source file:
-// 0 for lossless containers (FLAC/WAV/AIFF). An MP3 with gapless metadata
+// 0 for lossless containers (FLAC/WAV/AIFF), whose codecs carry no encoder
+// delay, so their decoded timeline matches rekordbox's grid reference directly. An MP3 with gapless metadata
 // (LAME/Info tag) has its encoder delay trimmed by ffmpeg but not by rekordbox,
 // so its grid shifts by GaplessMP3DelayMs; an MP3 without it decodes the same
 // in both, and gets UntaggedMP3DelayMs. Other lossy codecs get
 // LossyEncoderDelayMs.
 func EncoderDelayMs(path string) float64 {
-	ext := strings.ToLower(filepath.Ext(path))
+	ft, _ := filetype.ForPath(path)
 	switch {
-	case losslessExts[ext]:
+	case ft.Lossless:
 		return 0
-	case ext == ".mp3":
+	case ft.Name == "mp3":
 		if FFmpegTrimsStart(path) {
 			return GaplessMP3DelayMs
 		}

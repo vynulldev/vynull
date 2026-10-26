@@ -12,6 +12,8 @@ import (
 	"time"
 	"unicode/utf16"
 	"unicode/utf8"
+
+	"github.com/vynulldev/vynull/internal/filetype"
 )
 
 const (
@@ -1101,30 +1103,16 @@ func hash28(id uint32) uint32 {
 // extensions rather than guessing a default — a wrong file_type
 // could trip the CDJ when it tries to load the audio.
 func fileTypeFromPath(path string) uint16 {
-	ext := ""
-	for i := len(path) - 1; i >= 0; i-- {
-		if path[i] == '.' {
-			ext = path[i+1:]
-			break
-		}
-		if path[i] == '/' || path[i] == '\\' {
-			break
-		}
+	if ft, ok := filetype.ForPath(path); ok {
+		return uint16(ft.RekordboxID)
 	}
-	switch strings.ToLower(ext) {
-	case "mp3":
-		return 0x0001
-	case "m4a", "mp4", "aac":
+	// Vynull doesn't serve MP4 or raw AAC files, but an imported track can
+	// be one; they are written as M4A (AAC).
+	switch strings.ToLower(filepath.Ext(path)) {
+	case ".mp4", ".aac":
 		return 0x0004
-	case "flac":
-		return 0x0005
-	case "wav":
-		return 0x000B
-	case "aif", "aiff":
-		return 0x000C
-	default:
-		return 0x0000
 	}
+	return 0x0000
 }
 
 // DeviceSQL string encoding.
