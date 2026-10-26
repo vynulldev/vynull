@@ -80,6 +80,11 @@ func ParseCueBlob(blob []byte, trackID uint32) (*CuePoint, error) {
 		Status: binary.LittleEndian.Uint32(blob[0x18:]),
 		LoopMs: int32(binary.LittleEndian.Uint32(blob[0x20:])),
 	}
+	// A 124-byte record keeps a loop's end at 0x10 (OutMsec, link-spec
+	// HOT_CUE_BANK_ORACLE); the 76-byte form keeps it at 0x20.
+	if out := binary.LittleEndian.Uint32(blob[0x10:]); len(blob) >= 124 && out != 0xffffffff && out != 0 {
+		cue.LoopMs = int32(out)
+	}
 	cue.ColorID = cueColorFromBlob(blob)
 
 	dlog.Debugf("cuestore: parsed cue #%d type=%d time=%dms loop=%d color_id=%d (0x%x) track=%d",
@@ -118,13 +123,13 @@ func MarshalCueBlob(cue *CuePoint) []byte {
 	//   0x06-0x07: type (LE u16: 1=cue, 2=loop)
 	//   0x08-0x09: 0000
 	//   0x0a-0x0b: e803     — constant 1000
-	//   0x0c-0x0f: time ms (LE u32)
-	//   0x10-0x13: ffffffff — constant
+	//   0x0c-0x0f: time ms (LE u32, InMsec)
+	//   0x10-0x13: loop end ms when type==2 (OutMsec), else ffffffff
 	//   0x14-0x1f: zeros
-	//   0x20-0x23: ffffffff (or loop_ms LE u32 when type==2)
-	//   0x24-0x33: zeros
-	//   0x34-0x37: 42000000 — constant "NXS2 picker-coloured cue" marker
-	//                          (the actual colour is at 0x4e-0x51, not here)
+	//   0x20-0x23: ffffffff — constant
+	//   0x24-0x33: zeros (the MPEG frame/offset fields)
+	//   0x34-0x37: 42000000 — the options area's length, 66 (link-spec
+	//                          HOT_CUE_BANK_ORACLE); the colour is at 0x4e-0x51
 	//   0x38-0x49: zeros
 	//   0x4a-0x4d: 2c000000 — constant (44, purpose unknown)
 	//   0x4e:      palette index (1 byte, copy of cue.ColorID)
@@ -144,12 +149,14 @@ func MarshalCueBlob(cue *CuePoint) []byte {
 	binary.LittleEndian.PutUint16(blob[0x06:], cue.Type)
 	binary.LittleEndian.PutUint16(blob[0x0a:], 1000)
 	binary.LittleEndian.PutUint32(blob[0x0c:], cue.TimeMs)
+	// A loop's end goes in OutMsec at 0x10, as rekordbox serves it: with it
+	// at 0x20 (the 76-byte form's place) a deck decoding the track as MP3
+	// gave up loading it at the hot loop (CDJ-2000NXS2; a FLAC still loaded).
 	binary.LittleEndian.PutUint32(blob[0x10:], 0xffffffff)
-	if cue.LoopMs < 0 {
-		binary.LittleEndian.PutUint32(blob[0x20:], 0xffffffff)
-	} else {
-		binary.LittleEndian.PutUint32(blob[0x20:], uint32(cue.LoopMs))
+	if cue.LoopMs >= 0 {
+		binary.LittleEndian.PutUint32(blob[0x10:], uint32(cue.LoopMs))
 	}
+	binary.LittleEndian.PutUint32(blob[0x20:], 0xffffffff)
 	blob[0x34] = 0x42
 	blob[0x4a] = 0x2c
 	// Pre-normalise picker-encoded IDs by stripping the 0x30 offset so

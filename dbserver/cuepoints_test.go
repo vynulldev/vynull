@@ -113,3 +113,42 @@ func TestMarshalCueBlobMemoryWireNumber(t *testing.T) {
 		t.Fatalf("hot cue wire number = %d, want 3", n)
 	}
 }
+
+// A hot loop's end goes in OutMsec at 0x10 of the 124-byte record, as
+// rekordbox serves it (link-spec HOT_CUE_BANK_ORACLE); 0x20 stays -1. With it
+// at 0x20 a CDJ-2000NXS2 decoding the track as MP3 gave up loading it.
+func TestMarshalCueBlobLoop(t *testing.T) {
+	loop := MarshalCueBlob(&CuePoint{Number: 3, Type: 2, TimeMs: 12000, LoopMs: 14000, Status: 1})
+	if got := binary.LittleEndian.Uint32(loop[0x10:]); got != 14000 {
+		t.Errorf("loop end at 0x10 = %d, want 14000", got)
+	}
+	if got := binary.LittleEndian.Uint32(loop[0x20:]); got != 0xffffffff {
+		t.Errorf("0x20 = %#x, want -1", got)
+	}
+	cue := MarshalCueBlob(&CuePoint{Number: 1, Type: 1, TimeMs: 4000, LoopMs: -1, Status: 1})
+	for _, off := range []int{0x10, 0x20} {
+		if got := binary.LittleEndian.Uint32(cue[off:]); got != 0xffffffff {
+			t.Errorf("cue %#x = %#x, want -1", off, got)
+		}
+	}
+}
+
+// Both forms parse back to the loop's end: the 124-byte record's OutMsec at
+// 0x10 and the 76-byte form's at 0x20.
+func TestParseCueBlobLoopEnd(t *testing.T) {
+	long, _ := ParseCueBlob(MarshalCueBlob(&CuePoint{Number: 3, Type: 2, TimeMs: 12000, LoopMs: 14000}), 1)
+	if long.LoopMs != 14000 {
+		t.Errorf("124-byte loop end %d, want 14000", long.LoopMs)
+	}
+	short := make([]byte, 76)
+	binary.LittleEndian.PutUint16(short[0x06:], 2)
+	binary.LittleEndian.PutUint32(short[0x0c:], 30000)
+	binary.LittleEndian.PutUint32(short[0x20:], 34000)
+	if c, _ := ParseCueBlob(short, 1); c.LoopMs != 34000 {
+		t.Errorf("76-byte loop end %d, want 34000", c.LoopMs)
+	}
+	plain, _ := ParseCueBlob(MarshalCueBlob(&CuePoint{Number: 1, Type: 1, TimeMs: 4000, LoopMs: -1}), 1)
+	if plain.LoopMs != -1 {
+		t.Errorf("plain cue loop end %d, want -1", plain.LoopMs)
+	}
+}
