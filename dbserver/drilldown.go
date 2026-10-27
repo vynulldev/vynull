@@ -88,11 +88,7 @@ func (h *Handler) handleNXS2DrillDown(msg *proto.DBMessage) []*proto.DBMessage {
 		}
 	}
 
-	h.setPendingAll(msg, items)
-	return []*proto.DBMessage{{
-		TxID: msg.TxID, Type: proto.DBMsgSuccess,
-		Args: []proto.DBArg{proto.ArgI32(uint32(msg.Type)), proto.ArgI32(uint32(len(items)))},
-	}}
+	return h.countReply(msg, items)
 }
 
 // handleSearch handles the SEARCH category's on-deck text-input flow.
@@ -172,11 +168,7 @@ func (h *Handler) handleSearch(msg *proto.DBMessage) []*proto.DBMessage {
 	items = append(items, albums...)
 	items = append(items, tracks...)
 
-	h.setPendingAll(msg, items)
-	return []*proto.DBMessage{{
-		TxID: msg.TxID, Type: proto.DBMsgSuccess,
-		Args: []proto.DBArg{proto.ArgI32(uint32(msg.Type)), proto.ArgI32(uint32(len(items)))},
-	}}
+	return h.countReply(msg, items)
 }
 
 // searchTokens splits a query the way rekordbox does: on ASCII spaces, with
@@ -238,18 +230,14 @@ func (h *Handler) handleGetColors(msg *proto.DBMessage) []*proto.DBMessage {
 			ItemType: uint32(0x13 + id),
 		})
 	}
-	h.setPendingAll(msg, items)
-	return []*proto.DBMessage{h.successWithCount(msg)}
+	return h.countReply(msg, items)
 }
 
 // handleGetTracksByColor handles opcode 0x110d — the deck drilling
 // into a specific colour's tracks. arg[2] = the colour ID we returned
 // in handleGetColors.
 func (h *Handler) handleGetTracksByColor(msg *proto.DBMessage) []*proto.DBMessage {
-	colorID := uint32(0)
-	if len(msg.Args) >= 3 {
-		colorID = msg.Args[2].Int()
-	}
+	colorID := msgArg(msg, 2)
 	dlog.Debugf("dbserver: COLOR drill (0x110d) color=%d", colorID)
 
 	var matches []*library.Track
@@ -261,8 +249,7 @@ func (h *Handler) handleGetTracksByColor(msg *proto.DBMessage) []*proto.DBMessag
 		}
 	}
 	items := h.tracksToStdItems(matches)
-	h.setPendingAll(msg, items)
-	return []*proto.DBMessage{h.successWithCount(msg)}
+	return h.countReply(msg, items)
 }
 
 // handleUndecodedStub responds to opcodes we recognise the deck
@@ -317,10 +304,7 @@ func decodeASCIIArg(v uint32) string {
 // the LOAD eventually falls back to whatever track was last loaded —
 // which looked like "always loads track 1" from the user's POV.
 func (h *Handler) handleSearchSelect(msg *proto.DBMessage) []*proto.DBMessage {
-	id := uint32(0)
-	if len(msg.Args) >= 3 {
-		id = msg.Args[2].Int()
-	}
+	id := msgArg(msg, 2)
 	dlog.Debugf("dbserver: 0x1200 search-select id=%d", id)
 
 	var items []*menuItem
@@ -329,11 +313,7 @@ func (h *Handler) handleSearchSelect(msg *proto.DBMessage) []*proto.DBMessage {
 			items = []*menuItem{h.searchTrackItem(t)}
 		}
 	}
-	h.setPendingAll(msg, items)
-	return []*proto.DBMessage{{
-		TxID: msg.TxID, Type: proto.DBMsgSuccess,
-		Args: []proto.DBArg{proto.ArgI32(uint32(msg.Type)), proto.ArgI32(uint32(len(items)))},
-	}}
+	return h.countReply(msg, items)
 }
 
 // searchTrackItem builds a track menu item for a selected SEARCH result
@@ -387,36 +367,31 @@ func (h *Handler) getTracksForLabelArtistAlbum(labelID, artistID, albumID uint32
 func (h *Handler) handleGetArtistsForLabel(msg *proto.DBMessage) []*proto.DBMessage {
 	// 0x110a: returns [ALL] + artists for a label.
 	if len(msg.Args) < 3 {
-		h.pendingItems = nil
-		return []*proto.DBMessage{h.successWithCount(msg)}
+		return h.countReply(msg, nil)
 	}
 	labelID := msg.Args[2].Int()
 	items := h.getArtistsForLabelItems(labelID)
-	h.setPendingAll(msg, items)
 	dlog.Debugf("dbserver: artists for label 0x%08x returning %d items", labelID, len(items))
-	return []*proto.DBMessage{h.successWithCount(msg)}
+	return h.countReply(msg, items)
 }
 
 func (h *Handler) handleGetAlbumsForLabel(msg *proto.DBMessage) []*proto.DBMessage {
 	// 0x120a: albums for label + artist.
 	if len(msg.Args) < 4 {
-		h.pendingItems = nil
-		return []*proto.DBMessage{h.successWithCount(msg)}
+		return h.countReply(msg, nil)
 	}
 	labelID := msg.Args[2].Int()
 	artistID := msg.Args[3].Int()
 
 	items := h.getAlbumsForLabelArtist(labelID, artistID)
-	h.setPendingAll(msg, items)
 	dlog.Debugf("dbserver: albums for label 0x%08x artist 0x%08x returning %d items", labelID, artistID, len(items))
-	return []*proto.DBMessage{h.successWithCount(msg)}
+	return h.countReply(msg, items)
 }
 
 func (h *Handler) handleGetTracksByLabel(msg *proto.DBMessage) []*proto.DBMessage {
 	// 0x130a: tracks for label + artist + album.
 	if len(msg.Args) < 4 {
-		h.pendingItems = nil
-		return []*proto.DBMessage{h.successWithCount(msg)}
+		return h.countReply(msg, nil)
 	}
 	labelID := msg.Args[2].Int()
 	artistID := msg.Args[3].Int()
@@ -426,16 +401,14 @@ func (h *Handler) handleGetTracksByLabel(msg *proto.DBMessage) []*proto.DBMessag
 	}
 
 	items := h.getTracksForLabelArtistAlbum(labelID, artistID, albumID)
-	h.setPendingAll(msg, items)
 	dlog.Debugf("dbserver: tracks for label 0x%08x artist 0x%08x returning %d items", labelID, artistID, len(items))
-	return []*proto.DBMessage{h.successWithCount(msg)}
+	return h.countReply(msg, items)
 }
 
 func (h *Handler) handleGetKeyDistances(msg *proto.DBMessage) []*proto.DBMessage {
 	// 0x1114: returns 3 key distance groups for the selected key.
 	if len(msg.Args) < 3 {
-		h.pendingItems = nil
-		return []*proto.DBMessage{h.successWithCount(msg)}
+		return h.countReply(msg, nil)
 	}
 	keyIndex := msg.Args[2].Int()
 
@@ -457,16 +430,14 @@ func (h *Handler) handleGetKeyDistances(msg *proto.DBMessage) []*proto.DBMessage
 			ItemType: 0x0f,
 		})
 	}
-	h.setPendingAll(msg, items)
 	dlog.Debugf("dbserver: key distances for index %d returning %d groups", keyIndex, len(items))
-	return []*proto.DBMessage{h.successWithCount(msg)}
+	return h.countReply(msg, items)
 }
 
 func (h *Handler) handleGetTracksByKey(msg *proto.DBMessage) []*proto.DBMessage {
 	// 0x1214: returns tracks matching key index + distance group.
 	if len(msg.Args) < 4 {
-		h.pendingItems = nil
-		return []*proto.DBMessage{h.successWithCount(msg)}
+		return h.countReply(msg, nil)
 	}
 	keyIndex := msg.Args[2].Int()
 	distance := int(msg.Args[3].Int())
@@ -492,9 +463,8 @@ func (h *Handler) handleGetTracksByKey(msg *proto.DBMessage) []*proto.DBMessage 
 	}
 	items := c.copyRows(idx)
 	sortItems(items, sortTitle)
-	h.setPendingAll(msg, items)
 	dlog.Debugf("dbserver: tracks for key index %d dist=%d returning %d tracks", keyIndex, distance, len(items))
-	return []*proto.DBMessage{h.successWithCount(msg)}
+	return h.countReply(msg, items)
 }
 
 // keyGroupIndexes returns the 1-24 key indexes in a key's distance group
@@ -531,15 +501,13 @@ func keyDistanceGroups(k analysis.Key) [][]analysis.Key {
 func (h *Handler) handleGetByArtist(msg *proto.DBMessage) []*proto.DBMessage {
 	// 0x1102: returns ALBUMS for the selected artist.
 	if len(msg.Args) < 3 {
-		h.pendingItems = nil
-		return []*proto.DBMessage{h.successWithCount(msg)}
+		return h.countReply(msg, nil)
 	}
 	artistID := msg.Args[2].Int()
 
 	artistName := h.trackRows().categoryName("artist", artistID)
 	if artistName == "" {
-		h.pendingItems = nil
-		return []*proto.DBMessage{h.successWithCount(msg)}
+		return h.countReply(msg, nil)
 	}
 	tracks := h.lib.TracksByArtist(artistName)
 	albumSet := make(map[string]bool)
@@ -559,17 +527,15 @@ func (h *Handler) handleGetByArtist(msg *proto.DBMessage) []*proto.DBMessage {
 		}
 	}
 	sortItems(items[1:], sortTitle)
-	h.pendingItems = items
-	dlog.Debugf("dbserver: get by artist %q returning %d albums", artistName, len(h.pendingItems))
-	return []*proto.DBMessage{h.successWithCount(msg)}
+	dlog.Debugf("dbserver: get by artist %q returning %d albums", artistName, len(items))
+	return h.countReply(msg, items)
 }
 
 func (h *Handler) handleGetTracksByAlbum(msg *proto.DBMessage) []*proto.DBMessage {
 	// 0x1202: returns TRACKS within an album (artist→album→track drill-down).
 	// Args: [DMST, sort, artistID, albumID]
 	if len(msg.Args) < 4 {
-		h.pendingItems = nil
-		return []*proto.DBMessage{h.successWithCount(msg)}
+		return h.countReply(msg, nil)
 	}
 	artistID := msg.Args[2].Int()
 	albumID := msg.Args[3].Int()
@@ -590,23 +556,20 @@ func (h *Handler) handleGetTracksByAlbum(msg *proto.DBMessage) []*proto.DBMessag
 	}
 	sortItems(items, sortTitle)
 	markContextType(items, h.ctxTrackType)
-	h.pendingItems = items
-	dlog.Debugf("dbserver: get tracks by album (0x1202) returning %d tracks", len(h.pendingItems))
-	return []*proto.DBMessage{h.successWithCount(msg)}
+	dlog.Debugf("dbserver: get tracks by album (0x1202) returning %d tracks", len(items))
+	return h.countReply(msg, items)
 }
 
 func (h *Handler) handleGetByAlbum(msg *proto.DBMessage) []*proto.DBMessage {
 	// 0x1103: returns TRACKS for the selected album.
 	if len(msg.Args) < 3 {
-		h.pendingItems = nil
-		return []*proto.DBMessage{h.successWithCount(msg)}
+		return h.countReply(msg, nil)
 	}
 	albumID := msg.Args[2].Int()
 
 	albumName := h.trackRows().categoryName("album", albumID)
 	if albumName == "" {
-		h.pendingItems = nil
-		return []*proto.DBMessage{h.successWithCount(msg)}
+		return h.countReply(msg, nil)
 	}
 	tracks := h.lib.TracksByAlbum(albumName)
 	items := h.tracksToStdItems(tracks)
@@ -615,9 +578,8 @@ func (h *Handler) handleGetByAlbum(msg *proto.DBMessage) []*proto.DBMessage {
 	}
 	sortItems(items, sortTitle)
 	markContextType(items, h.ctxTrackType)
-	h.pendingItems = items
-	dlog.Debugf("dbserver: get by album %q returning %d tracks", albumName, len(h.pendingItems))
-	return []*proto.DBMessage{h.successWithCount(msg)}
+	dlog.Debugf("dbserver: get by album %q returning %d tracks", albumName, len(items))
+	return h.countReply(msg, items)
 }
 
 // The GENRE category is a 3-level drill like LABEL: genre -> artist -> album
@@ -653,43 +615,37 @@ func (h *Handler) getTracksForGenreArtistAlbum(genreID, artistID, albumID uint32
 func (h *Handler) handleGetByGenre(msg *proto.DBMessage) []*proto.DBMessage {
 	// 0x1101: [ALL] + artists for a genre.
 	if len(msg.Args) < 3 {
-		h.pendingItems = nil
-		return []*proto.DBMessage{h.successWithCount(msg)}
+		return h.countReply(msg, nil)
 	}
 	genreID := msg.Args[2].Int()
 	items := h.getArtistsForGenreItems(genreID)
-	h.setPendingAll(msg, items)
 	dlog.Debugf("dbserver: artists for genre 0x%08x returning %d items", genreID, len(items))
-	return []*proto.DBMessage{h.successWithCount(msg)}
+	return h.countReply(msg, items)
 }
 
 func (h *Handler) handleGetAlbumsForGenre(msg *proto.DBMessage) []*proto.DBMessage {
 	// 0x1201: [ALL] + albums for a genre + artist.
 	if len(msg.Args) < 4 {
-		h.pendingItems = nil
-		return []*proto.DBMessage{h.successWithCount(msg)}
+		return h.countReply(msg, nil)
 	}
 	genreID := msg.Args[2].Int()
 	artistID := msg.Args[3].Int()
 	items := h.getAlbumsForGenreArtist(genreID, artistID)
-	h.setPendingAll(msg, items)
 	dlog.Debugf("dbserver: albums for genre 0x%08x artist 0x%08x returning %d items", genreID, artistID, len(items))
-	return []*proto.DBMessage{h.successWithCount(msg)}
+	return h.countReply(msg, items)
 }
 
 func (h *Handler) handleGetTracksByGenre(msg *proto.DBMessage) []*proto.DBMessage {
 	// 0x1301: tracks for a genre + artist + album.
 	if len(msg.Args) < 5 {
-		h.pendingItems = nil
-		return []*proto.DBMessage{h.successWithCount(msg)}
+		return h.countReply(msg, nil)
 	}
 	genreID := msg.Args[2].Int()
 	artistID := msg.Args[3].Int()
 	albumID := msg.Args[4].Int()
 	items := h.getTracksForGenreArtistAlbum(genreID, artistID, albumID)
-	h.setPendingAll(msg, items)
 	dlog.Debugf("dbserver: tracks for genre 0x%08x artist 0x%08x album 0x%08x returning %d items", genreID, artistID, albumID, len(items))
-	return []*proto.DBMessage{h.successWithCount(msg)}
+	return h.countReply(msg, items)
 }
 
 // The REMIXER and ORIGINAL ARTIST categories drill like an artist does:
@@ -748,45 +704,37 @@ func matchesID(want, id uint32) bool {
 func (h *Handler) handleGetAlbumsForRemixer(msg *proto.DBMessage) []*proto.DBMessage {
 	// 0x1702: [ALL] + albums for a remixer.
 	if len(msg.Args) < 3 {
-		h.pendingItems = nil
-		return []*proto.DBMessage{h.successWithCount(msg)}
+		return h.countReply(msg, nil)
 	}
 	items := h.albumsForArtistLike(msg.Args[2].Int(), remixerField)
-	h.setPendingAll(msg, items)
-	return []*proto.DBMessage{h.successWithCount(msg)}
+	return h.countReply(msg, items)
 }
 
 func (h *Handler) handleGetTracksByRemixer(msg *proto.DBMessage) []*proto.DBMessage {
 	// 0x1802: tracks for a remixer + album.
 	if len(msg.Args) < 4 {
-		h.pendingItems = nil
-		return []*proto.DBMessage{h.successWithCount(msg)}
+		return h.countReply(msg, nil)
 	}
 	items := h.tracksForArtistLikeAlbum(msg.Args[2].Int(), msg.Args[3].Int(), remixerField)
-	h.setPendingAll(msg, items)
-	return []*proto.DBMessage{h.successWithCount(msg)}
+	return h.countReply(msg, items)
 }
 
 func (h *Handler) handleGetAlbumsForOriginalArtist(msg *proto.DBMessage) []*proto.DBMessage {
 	// 0x1402: [ALL] + albums for an original artist.
 	if len(msg.Args) < 3 {
-		h.pendingItems = nil
-		return []*proto.DBMessage{h.successWithCount(msg)}
+		return h.countReply(msg, nil)
 	}
 	items := h.albumsForArtistLike(msg.Args[2].Int(), origArtistField)
-	h.setPendingAll(msg, items)
-	return []*proto.DBMessage{h.successWithCount(msg)}
+	return h.countReply(msg, items)
 }
 
 func (h *Handler) handleGetTracksByOriginalArtist(msg *proto.DBMessage) []*proto.DBMessage {
 	// 0x1502: tracks for an original artist + album.
 	if len(msg.Args) < 4 {
-		h.pendingItems = nil
-		return []*proto.DBMessage{h.successWithCount(msg)}
+		return h.countReply(msg, nil)
 	}
 	items := h.tracksForArtistLikeAlbum(msg.Args[2].Int(), msg.Args[3].Int(), origArtistField)
-	h.setPendingAll(msg, items)
-	return []*proto.DBMessage{h.successWithCount(msg)}
+	return h.countReply(msg, items)
 }
 
 // matchingFallbackLimit caps the computed MATCHING list for tracks without
@@ -803,8 +751,7 @@ const matchingFallbackLimit = 50
 // rekordbox's pairs are title-sorted.
 func (h *Handler) handleGetMatching(msg *proto.DBMessage) []*proto.DBMessage {
 	if len(msg.Args) < 3 {
-		h.pendingItems = nil
-		return []*proto.DBMessage{h.successWithCount(msg)}
+		return h.countReply(msg, nil)
 	}
 	srcID := msg.Args[2].Int()
 	var tracks []*library.Track
@@ -829,7 +776,6 @@ func (h *Handler) handleGetMatching(msg *proto.DBMessage) []*proto.DBMessage {
 	if !computed {
 		sortItems(items, sortTitle) // rekordbox's pairs, title-sorted as rekordbox serves them
 	} // computed suggestions stay best-first
-	h.setPendingAll(msg, items)
 	dlog.Debugf("dbserver: matching for track %d returning %d tracks", srcID, len(items))
-	return []*proto.DBMessage{h.successWithCount(msg)}
+	return h.countReply(msg, items)
 }

@@ -414,10 +414,7 @@ func (h *Handler) Handle(msg *proto.DBMessage) []*proto.DBMessage {
 	case 0x0100: // teardown — no response needed
 		return nil
 	case 0x2705: // cue point write — blob is the 5th arg (binary)
-		trackID := uint32(0)
-		if len(msg.Args) >= 2 {
-			trackID = msg.Args[1].Int()
-		}
+		trackID := msgArg(msg, 1)
 		log.Printf("dbserver: cue write 0x2705 track=%d args=%d", trackID, len(msg.Args))
 
 		// The 5th arg (index 4) is the binary blob with cue data.

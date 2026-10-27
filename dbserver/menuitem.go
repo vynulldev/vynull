@@ -94,8 +94,14 @@ func sortItems(items []*menuItem, order uint32) {
 
 // getSortOrder extracts the sort order from msg args (typically arg[1]).
 func getSortOrder(msg *proto.DBMessage) uint32 {
-	if len(msg.Args) >= 2 {
-		return msg.Args[1].Int()
+	return msgArg(msg, 1)
+}
+
+// msgArg returns a request's argument i as a number, or 0 when the request
+// is shorter.
+func msgArg(msg *proto.DBMessage, i int) uint32 {
+	if i < len(msg.Args) {
+		return msg.Args[i].Int()
 	}
 	return 0
 }

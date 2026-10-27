@@ -127,13 +127,8 @@ func (h *Handler) handleSortMenu(msg *proto.DBMessage) []*proto.DBMessage {
 	for _, e := range entries {
 		items = append(items, &menuItem{ID: e.ID, Label1: e.Label, ItemType: e.ItemType})
 	}
-	h.setPendingAll(msg, items)
-	var list uint32
-	if len(msg.Args) > 2 {
-		list = msg.Args[2].Int()
-	}
-	dlog.Debugf("dbserver: sort menu (0x1400) for list %#x returning %d sorts", list, len(items))
-	return []*proto.DBMessage{h.successWithCount(msg)}
+	dlog.Debugf("dbserver: sort menu (0x1400) for list %#x returning %d sorts", msgArg(msg, 2), len(items))
+	return h.countReply(msg, items)
 }
 
 // sortValues holds the track fields the sorts read, filled when a track row

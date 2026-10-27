@@ -35,11 +35,8 @@ func (h *Handler) handleGetPlaylist(msg *proto.DBMessage) []*proto.DBMessage {
 	// the user first opens LINK → PLAYLIST. Treated as "list playlists
 	// + folders at root (folderID=0, type=folder)".
 	// 0x1105: PLAYLIST drill-down — [DMST, sort, folderID, type(0=playlist,1=folder)].
-	var folderID uint32
+	folderID := msgArg(msg, 2)
 	isFolder := uint32(1) // default: list folder/playlist tree
-	if len(msg.Args) >= 3 {
-		folderID = msg.Args[2].Int()
-	}
 	if len(msg.Args) >= 4 {
 		isFolder = msg.Args[3].Int()
 	}
@@ -80,8 +77,7 @@ func (h *Handler) handleGetPlaylist(msg *proto.DBMessage) []*proto.DBMessage {
 			h.applyPlaylistTrackScope(items, getSortOrder(msg), false)
 			dlog.Debugf("dbserver: pdb playlist %d returning %d tracks", folderID, len(items))
 		}
-		h.pendingItems = items
-		return []*proto.DBMessage{h.successWithCount(msg)}
+		return h.countReply(msg, items)
 	}
 
 	// User-defined playlists take precedence — when configured, the
@@ -105,16 +101,14 @@ func (h *Handler) handleGetPlaylist(msg *proto.DBMessage) []*proto.DBMessage {
 					trackPos: c.Seq, // rekordbox serves the display sequence in arg 9
 				})
 			}
-			h.pendingItems = items
 			dlog.Debugf("dbserver: user-playlist folder %d returning %d items", folderID, len(items))
-		} else {
-			trackIDs := h.playlists.Tracks(folderID)
-			items := h.trackIDsToMenuItems(trackIDs)
-			h.applyPlaylistTrackScope(items, getSortOrder(msg), h.isSmartPlaylist(folderID))
-			h.pendingItems = items
-			dlog.Debugf("dbserver: user-playlist %d returning %d tracks", folderID, len(items))
+			return h.countReply(msg, items)
 		}
-		return []*proto.DBMessage{h.successWithCount(msg)}
+		trackIDs := h.playlists.Tracks(folderID)
+		items := h.trackIDsToMenuItems(trackIDs)
+		h.applyPlaylistTrackScope(items, getSortOrder(msg), h.isSmartPlaylist(folderID))
+		dlog.Debugf("dbserver: user-playlist %d returning %d tracks", folderID, len(items))
+		return h.countReply(msg, items)
 	}
 
 	// No playlist source configured — fall back to the legacy filesystem
@@ -124,8 +118,7 @@ func (h *Handler) handleGetPlaylist(msg *proto.DBMessage) []*proto.DBMessage {
 		h.rebuildFolders()
 	}
 	if h.folders == nil {
-		h.pendingItems = nil
-		return []*proto.DBMessage{h.successWithCount(msg)}
+		return h.countReply(msg, nil)
 	}
 
 	if isFolder == 1 {
@@ -142,17 +135,14 @@ func (h *Handler) handleGetPlaylist(msg *proto.DBMessage) []*proto.DBMessage {
 				ItemType: itemType,
 			})
 		}
-		h.pendingItems = items
 		dlog.Debugf("dbserver: playlist folder %d returning %d items (filesystem fallback)", folderID, len(items))
-	} else {
-		trackIDs := h.folders.TrackIDs(folderID)
-		items := h.trackIDsToMenuItems(trackIDs)
-		h.sortTracks(items, getSortOrder(msg))
-		h.pendingItems = items
-		dlog.Debugf("dbserver: playlist %d returning %d tracks (filesystem fallback)", folderID, len(items))
+		return h.countReply(msg, items)
 	}
-
-	return []*proto.DBMessage{h.successWithCount(msg)}
+	trackIDs := h.folders.TrackIDs(folderID)
+	items := h.trackIDsToMenuItems(trackIDs)
+	h.sortTracks(items, getSortOrder(msg))
+	dlog.Debugf("dbserver: playlist %d returning %d tracks (filesystem fallback)", folderID, len(items))
+	return h.countReply(msg, items)
 }
 
 // applyPlaylistTrackScope stamps the playlist-track-leaf wire conventions on
@@ -193,10 +183,7 @@ func (h *Handler) handleGetFolder(msg *proto.DBMessage) []*proto.DBMessage {
 	// implicit (root).
 	// 0x2006: FOLDER drill-down by ID — args are [DMST, sort, folderID].
 	// Both funnel through ListDir; folderID 0 means root.
-	var folderID uint32
-	if len(msg.Args) >= 3 {
-		folderID = msg.Args[2].Int()
-	}
+	folderID := msgArg(msg, 2)
 
 	// Rebuild folder lookup from library tracks if needed.
 	if h.folders == nil && h.lib != nil && h.lib.TrackCount() > 0 {
@@ -204,8 +191,7 @@ func (h *Handler) handleGetFolder(msg *proto.DBMessage) []*proto.DBMessage {
 	}
 
 	if h.folders == nil {
-		h.pendingItems = nil
-		return []*proto.DBMessage{h.successWithCount(msg)}
+		return h.countReply(msg, nil)
 	}
 
 	children := h.folders.ListDir(folderID)
@@ -221,9 +207,8 @@ func (h *Handler) handleGetFolder(msg *proto.DBMessage) []*proto.DBMessage {
 			ItemType: itemType,
 		})
 	}
-	h.pendingItems = items
 	dlog.Debugf("dbserver: folder %d returning %d items", folderID, len(items))
-	return []*proto.DBMessage{h.successWithCount(msg)}
+	return h.countReply(msg, items)
 }
 
 // rebuildFolders creates a folder lookup from library tracks.

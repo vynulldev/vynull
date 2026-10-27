@@ -177,15 +177,7 @@ func (h *Handler) handleGetMetadata(msg *proto.DBMessage) []*proto.DBMessage {
 			}
 		}
 	}
-	h.setPendingAll(msg, metaItems)
-
-	return []*proto.DBMessage{{
-		TxID: msg.TxID, Type: proto.DBMsgSuccess,
-		Args: []proto.DBArg{
-			proto.ArgI32(uint32(msg.Type)),
-			proto.ArgI32(uint32(len(metaItems))),
-		},
-	}}
+	return h.countReply(msg, metaItems)
 }
 
 func (h *Handler) handleSetRating(msg *proto.DBMessage) []*proto.DBMessage {
@@ -345,10 +337,7 @@ func (h *Handler) handleGetWavePreview(msg *proto.DBMessage) []*proto.DBMessage 
 
 func (h *Handler) handleGetWaveDetail(msg *proto.DBMessage) []*proto.DBMessage {
 	// 0x2904: waveform detail (scrolling waveform). Response type 0x4a02.
-	var trackID uint32
-	if len(msg.Args) >= 2 {
-		trackID = msg.Args[1].Int()
-	}
+	trackID := msgArg(msg, 1)
 
 	if trackID > 0 {
 		if r := h.lazyAnalyze(trackID); r != nil && len(r.WaveDetailMono) > 0 {
@@ -379,10 +368,7 @@ func (h *Handler) handleGetWaveDetail(msg *proto.DBMessage) []*proto.DBMessage {
 
 func (h *Handler) handleGetBeatGrid(msg *proto.DBMessage) []*proto.DBMessage {
 	// 0x2204: beat grid. The response is type 0x4602.
-	var trackID uint32
-	if len(msg.Args) >= 2 {
-		trackID = msg.Args[1].Int()
-	}
+	trackID := msgArg(msg, 1)
 
 	// Beat grid: always use our generated format (16-byte LE entries with
 	// 20-byte preamble). Raw ANLZ PQTZ data uses a different format
@@ -526,10 +512,7 @@ var extAnalysisTags = []byte{0x06, 0x06, 0x06, 0x03, 0x06}
 
 func (h *Handler) handleGetExtAnalysis(msg *proto.DBMessage) []*proto.DBMessage {
 	// 0x2c04: extended analysis (ANLZ tags like PWV4, PWV5, PVB2, PQT2).
-	var trackID uint32
-	if len(msg.Args) >= 2 {
-		trackID = msg.Args[1].Int()
-	}
+	trackID := msgArg(msg, 1)
 
 	// Decode tag fourcc from arg[2]. The CDJ sends it as a big-endian int32
 	// where the bytes are the reversed ASCII: e.g., 0x34565750 = "4VWP" = PWV4.
@@ -757,10 +740,7 @@ func (h *Handler) handleGetExtAnalysis(msg *proto.DBMessage) []*proto.DBMessage 
 
 func (h *Handler) handleGetSongStructure(msg *proto.DBMessage) []*proto.DBMessage {
 	// 0x2504: song structure / phrase analysis. Response type 0x4502.
-	trackID := uint32(0)
-	if len(msg.Args) >= 2 {
-		trackID = msg.Args[1].Int()
-	}
+	trackID := msgArg(msg, 1)
 	dlog.Debugf("dbserver: song structure track=%d", trackID)
 
 	var data []byte
@@ -809,10 +789,7 @@ func (h *Handler) handleGetSongStructure(msg *proto.DBMessage) []*proto.DBMessag
 // pattern (reply echoing the written blob) using the 0x4f02 PVB2 response the
 // deck already accepts for 0x2c04 reads.
 func (h *Handler) handleWritePVB2(msg *proto.DBMessage) []*proto.DBMessage {
-	var trackID uint32
-	if len(msg.Args) >= 2 {
-		trackID = msg.Args[1].Int()
-	}
+	trackID := msgArg(msg, 1)
 	// The uploaded section is the last (binary) argument.
 	var section []byte
 	for i := len(msg.Args) - 1; i >= 0; i-- {
@@ -863,11 +840,8 @@ func (h *Handler) handleMountInfo(msg *proto.DBMessage) []*proto.DBMessage {
 	// the list they just opened, so it comes up selected. An ID not in the
 	// list answers 0 (the top), as plain mount notifications expect.
 	offset := 0
-	wantID := uint32(0)
+	wantID := msgArg(msg, 1)
 	menu := dmstMenu(msg)
-	if len(msg.Args) >= 2 {
-		wantID = msg.Args[1].Int()
-	}
 	if wantID != 0 {
 		list := h.getPending(menu)
 		if menu == 7 || list == nil {
@@ -981,25 +955,14 @@ func (h *Handler) handleGetTrackInfo(msg *proto.DBMessage) []*proto.DBMessage {
 		{ID: 1, ItemType: 0x002f},                                        // unknown (always 1)
 		{ID: keyID, Label1: key, ItemType: 0x000f},                       // musical key
 	}
-	h.setPendingAll(msg, infoItems)
-
-	return []*proto.DBMessage{{
-		TxID: msg.TxID, Type: proto.DBMsgSuccess,
-		Args: []proto.DBArg{
-			proto.ArgI32(uint32(msg.Type)),
-			proto.ArgI32(uint32(len(infoItems))),
-		},
-	}}
+	return h.countReply(msg, infoItems)
 }
 
 func (h *Handler) handleGetCuePoints(msg *proto.DBMessage) []*proto.DBMessage {
 	// 0x2104: legacy (pre-NXS2) cue points, response type 0x4702.
 	// Saved cues are served via the NXS2 path (0x2b04) instead; this older
 	// format is unsupported, so we return an empty list. Modern players use 0x2b04.
-	var trackID uint32
-	if len(msg.Args) >= 2 {
-		trackID = msg.Args[1].Int()
-	}
+	trackID := msgArg(msg, 1)
 	dlog.Debugf("dbserver: cue points 0x2104 track=%d (empty)", trackID)
 	return []*proto.DBMessage{{
 		TxID: msg.TxID, Type: proto.DBMsgSuccess,
@@ -1009,10 +972,7 @@ func (h *Handler) handleGetCuePoints(msg *proto.DBMessage) []*proto.DBMessage {
 
 func (h *Handler) handleGetNXS2CuePoints(msg *proto.DBMessage) []*proto.DBMessage {
 	// 0x2b04: NXS2 extended cue points. Response type 0x4e02.
-	var trackID uint32
-	if len(msg.Args) >= 2 {
-		trackID = msg.Args[1].Int()
-	}
+	trackID := msgArg(msg, 1)
 
 	// A served rekordbox USB's cues are imported as a side effect of its
 	// ANLZ analysis import; make sure that has happened before reading the
