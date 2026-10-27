@@ -152,7 +152,7 @@ func (h *Handler) handleGetMetadata(msg *proto.DBMessage) []*proto.DBMessage {
 		{ID: rating, ItemType: 0x000a, ParentID: 1},                                    // rating
 		// Colour: the ID is the colour (0 = none, 1 = Pink ... 8 = Purple) and
 		// the type is 0x13 + that ID, as in the COLOUR menu (0x14 = Pink).
-		{ID: colorID, Label1: trackColorName(uint8(colorID)), ItemType: 0x13 + colorID&0xff, ParentID: 1},
+		{ID: colorID, Label1: library.TrackColorName(uint8(colorID)), ItemType: 0x13 + colorID&0xff, ParentID: 1},
 		{ID: genreID, Label1: genre, ItemType: 0x0006, ParentID: 1},                                      // genre
 		{ID: tID, Label1: dateAdded, ItemType: 0x002e},                                                   // date added
 		{ID: tID, Label1: comment, ItemType: 0x0023},                                                     // comment

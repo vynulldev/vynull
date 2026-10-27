@@ -60,7 +60,7 @@ func (h *Handler) newSongInfoTitle(t *library.Track, plainArg0 uint32) *songInfo
 		12: {id("key", t.Key), t.Key, 0x0f},
 		13: {uint32(t.Bitrate), "", 0x10},
 		14: {0, "", 0x00},
-		15: {color, trackColorName(uint8(color)), 0x13 + color&0xff},
+		15: {color, library.TrackColorName(uint8(color)), 0x13 + color&0xff},
 		16: {uint32(t.PlayCount), "", 0x2a},
 		17: {t.ID, date, 0x2e},
 	}}

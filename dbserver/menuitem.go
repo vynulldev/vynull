@@ -203,26 +203,56 @@ func (h *Handler) trackDetailKey() string {
 	return "bpm"
 }
 
-// trackDetailHighByte maps a detail key to its ItemType high byte.
-// Inlined here rather than imported from api/ to keep dbserver
-// independent of the api package; the map mirrors api.TrackDetailFields.
-var trackDetailHighByte = map[string]uint8{
-	"bpm":             0x0d,
-	"artist":          0x07,
-	"album":           0x02,
-	"genre":           0x06,
-	"key":             0x0f,
-	"rating":          0x0a,
-	"time":            0x0b,
-	"label":           0x0e,
-	"bitrate":         0x10,
-	"color":           0x17,
-	"comments":        0x23,
-	"original_artist": 0x28,
-	"remixer":         0x29,
-	"dj_play_count":   0x2a,
-	"date_added":      0x2e,
-	"not_specified":   0x00,
+// TrackDetailField is a track-detail column the CDJ knows how to render in
+// the second column of a track list. It maps a stable key (used in the API +
+// persistence) to the on-the-wire ItemType high byte and a human label for
+// the UI dropdown.
+//
+// Wire-format mapping:
+// ItemType = (highByte << 8) | 0x04, ParentID carries the
+// raw value (hash, count, ID, BPM*100), Label2 carries the display
+// string (CDJ renders some fields from raw value alone).
+type TrackDetailField struct {
+	Key      string `json:"key"`
+	Label    string `json:"label"`
+	HighByte uint8  `json:"high_byte"`
+}
+
+// TrackDetailFields lists every track-detail column, in the order the web
+// UI offers them. applyTrackDetail serves the configured one.
+var TrackDetailFields = []TrackDetailField{
+	{Key: "bpm", Label: "BPM", HighByte: 0x0d},
+	{Key: "artist", Label: "Artist", HighByte: 0x07},
+	{Key: "album", Label: "Album", HighByte: 0x02},
+	{Key: "genre", Label: "Genre", HighByte: 0x06},
+	{Key: "key", Label: "Key", HighByte: 0x0f},
+	{Key: "rating", Label: "Rating", HighByte: 0x0a},
+	{Key: "time", Label: "Time", HighByte: 0x0b},
+	{Key: "label", Label: "Record label", HighByte: 0x0e},
+	{Key: "bitrate", Label: "Bitrate", HighByte: 0x10},
+	{Key: "color", Label: "Track colour", HighByte: 0x17},
+	{Key: "comments", Label: "Comment", HighByte: 0x23},
+	{Key: "original_artist", Label: "Original artist", HighByte: 0x28},
+	{Key: "remixer", Label: "Remixer", HighByte: 0x29},
+	{Key: "dj_play_count", Label: "Play count", HighByte: 0x2a},
+	{Key: "date_added", Label: "Date added", HighByte: 0x2e},
+	{Key: "not_specified", Label: "(none)", HighByte: 0x00},
+}
+
+// trackDetailHighBytes maps each TrackDetailFields key to its high byte.
+var trackDetailHighBytes = func() map[string]uint8 {
+	m := make(map[string]uint8, len(TrackDetailFields))
+	for _, f := range TrackDetailFields {
+		m[f.Key] = f.HighByte
+	}
+	return m
+}()
+
+// TrackDetailHighByte returns a detail column's ItemType high byte, and
+// whether key is one of TrackDetailFields.
+func TrackDetailHighByte(key string) (uint8, bool) {
+	hi, ok := trackDetailHighBytes[key]
+	return hi, ok
 }
 
 // applyTrackDetail sets ItemType / ParentID / Label2 on m based on the
@@ -230,7 +260,7 @@ var trackDetailHighByte = map[string]uint8{
 // for the exact per-field wire shape.
 func (h *Handler) applyTrackDetail(m *menuItem, t *library.Track) {
 	key := h.trackDetailKey()
-	hi := trackDetailHighByte[key]
+	hi, _ := TrackDetailHighByte(key)
 	m.ItemType = (uint32(hi) << 8) | 0x04
 	tempo := uint32(t.BPM * 100)
 	switch key {
@@ -285,7 +315,7 @@ func (h *Handler) applyTrackDetail(m *menuItem, t *library.Track) {
 		//   Label2 = colour name string, empty for no-colour.
 		if t.ColorID >= 1 && t.ColorID <= 8 {
 			m.ParentID = uint32(t.ColorID)
-			m.Label2 = trackColorName(t.ColorID)
+			m.Label2 = library.TrackColorName(t.ColorID)
 			m.ItemType = (uint32(0x13+t.ColorID) << 8) | 0x04
 		} else {
 			m.ParentID = 0x7fffffff
@@ -301,30 +331,6 @@ func (h *Handler) applyTrackDetail(m *menuItem, t *library.Track) {
 			m.Label2 = t.DateAdded.Format("2006-01-02")
 		}
 	}
-}
-
-// trackColorName mirrors the 8-entry rekordbox palette name list used
-// in the api package. Defined here to avoid cross-package import.
-func trackColorName(id uint8) string {
-	switch id {
-	case 1:
-		return "Pink"
-	case 2:
-		return "Red"
-	case 3:
-		return "Orange"
-	case 4:
-		return "Yellow"
-	case 5:
-		return "Green"
-	case 6:
-		return "Aqua"
-	case 7:
-		return "Blue"
-	case 8:
-		return "Purple"
-	}
-	return ""
 }
 
 // markContextType stamps the packed context track type (TT) on every item, so
