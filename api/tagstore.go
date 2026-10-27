@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"slices"
 	"sync"
+	"sync/atomic"
 
 	"github.com/vynulldev/vynull/internal/fsutil"
 	"github.com/vynulldev/vynull/internal/saver"
@@ -59,7 +60,8 @@ type TagStore struct {
 	trackTags  map[uint32][]uint32 // trackID → tag IDs; a track's slice is replaced, never edited
 	nextCatID  uint32
 	nextTagID  uint32
-	saver      *saver.Saver // writes tags.json and track_tags.json in the background
+	saver      *saver.Saver  // writes tags.json and track_tags.json in the background
+	rev        atomic.Uint64 // moves on every change (Rev)
 }
 
 // NewTagStore creates a tag store that persists to the given directory.
@@ -357,10 +359,17 @@ type storeFileData struct {
 	Tags       []TagInfo         `json:"tags"`
 }
 
-// changed records a change for the background writer. Callers hold ts.mu.
+// changed records a change: it moves the revision and marks the store for
+// the background writer. Callers hold ts.mu.
 func (ts *TagStore) changed() {
+	ts.rev.Add(1)
 	ts.saver.Mark()
 }
+
+// Rev returns the store's revision, which moves on every change to tags,
+// categories or assignments, so a smart playlist result that read tags knows
+// to match again.
+func (ts *TagStore) Rev() uint64 { return ts.rev.Load() }
 
 // Flush writes the tag files now if they have unsaved changes.
 func (ts *TagStore) Flush() error {

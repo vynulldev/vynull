@@ -20,7 +20,9 @@ import (
 // BenchmarkSmartPlaylist measures resolving a smart playlist's tracks on a
 // 20k-track library, which happens on every open and sort, for one rule of
 // each kind and for a typical combination. Rules are decoded from JSON, as
-// they arrive from the web UI or an import.
+// they arrive from the web UI or an import. "open" resolves it again with
+// nothing changed; "changed" after every library change (a play count, a
+// rating, an analysis result), which the next open must reflect.
 func BenchmarkSmartPlaylist(b *testing.B) {
 	// The store logs each playlist it creates, which would split the result
 	// lines benchstat reads.
@@ -40,24 +42,29 @@ func BenchmarkSmartPlaylist(b *testing.B) {
 				{"field":"genre","operator":"contains","value":"techno"}]}},
 			{"field":"date_added","operator":"in_last_months","value":24}]}`},
 	} {
-		b.Run(bc.name, func(b *testing.B) {
-			var rules SmartRules
-			if err := json.Unmarshal([]byte(bc.rules), &rules); err != nil {
-				b.Fatal(err)
-			}
-			ps := NewPlaylistStore(b.TempDir())
-			pl, err := ps.CreateSmart(bc.name, 0, &rules)
-			if err != nil {
-				b.Fatal(err)
-			}
-			if n := len(ps.TracksFor(pl.ID, lib, nil)); n == 0 || n == benchlib.Size {
-				b.Fatalf("rules matched %d of %d tracks; the benchmark wants a selective rule", n, benchlib.Size)
-			}
-			b.ReportAllocs()
-			for b.Loop() {
-				ps.TracksFor(pl.ID, lib, nil)
-			}
-		})
+		var rules SmartRules
+		if err := json.Unmarshal([]byte(bc.rules), &rules); err != nil {
+			b.Fatal(err)
+		}
+		ps := NewPlaylistStore(b.TempDir())
+		pl, err := ps.CreateSmart(bc.name, 0, &rules)
+		if err != nil {
+			b.Fatal(err)
+		}
+		if n := len(ps.TracksFor(pl.ID, lib, nil)); n == 0 || n == benchlib.Size {
+			b.Fatalf("rules matched %d of %d tracks; the benchmark wants a selective rule", n, benchlib.Size)
+		}
+		for _, changed := range []bool{false, true} {
+			b.Run(bc.name+map[bool]string{false: "/open", true: "/changed"}[changed], func(b *testing.B) {
+				b.ReportAllocs()
+				for b.Loop() {
+					if changed {
+						lib.Touch()
+					}
+					ps.TracksFor(pl.ID, lib, nil)
+				}
+			})
+		}
 	}
 }
 
