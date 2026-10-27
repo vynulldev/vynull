@@ -51,6 +51,7 @@ type PlaylistStore struct {
 	playlists []*PlaylistInfo
 	nextID    uint32
 	saver     *saver.Saver // writes playlists.json in the background
+	smart     smartCache   // smart playlists' results (smart_cache.go)
 }
 
 // NewPlaylistStore creates a store backed by dir/playlists.json.
@@ -164,6 +165,7 @@ func (ps *PlaylistStore) SetRules(id uint32, rules *SmartRules) error {
 		return fmt.Errorf("playlist %d is not a smart playlist", id)
 	}
 	p.Rules = rules
+	ps.smart.forget(id)
 	ps.changed()
 	return nil
 }
@@ -246,6 +248,9 @@ func (ps *PlaylistStore) Delete(id uint32) error {
 		}
 	}
 	ps.playlists = kept
+	for id := range toRemove {
+		ps.smart.forget(id)
+	}
 	ps.changed()
 	log.Printf("api: deleted playlist %d (%d removed including descendants)", id, len(toRemove))
 	return nil
@@ -339,23 +344,16 @@ func (ps *PlaylistStore) TracksFor(id uint32, lib *library.Library, tags TagLook
 	rules := p.Rules
 	ps.mu.RUnlock()
 
-	return matchingTracks(rules, lib, tags, time.Now())
+	return ps.smart.tracks(id, rules, lib, tags, time.Now())
 }
 
 // matchingTracks returns the IDs of the library tracks a smart playlist's
-// rules select, in library order.
+// rules select, in library order, matched afresh.
 func matchingTracks(rules *SmartRules, lib *library.Library, tags TagLookup, now time.Time) []uint32 {
 	if lib == nil || rules == nil {
 		return nil
 	}
-	all := lib.Tracks()
-	out := make([]uint32, 0, len(all))
-	for _, t := range all {
-		if rules.Match(t, tags, now) {
-			out = append(out, t.ID)
-		}
-	}
-	return out
+	return matchTracks(rules, lib.Tracks(), tags, now)
 }
 
 // Children returns immediate children of parentID (0 = root) sorted by
