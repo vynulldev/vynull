@@ -3,6 +3,7 @@
 package library
 
 import (
+	"crypto/rand"
 	"crypto/sha256"
 	"encoding/binary"
 	"encoding/json"
@@ -82,12 +83,23 @@ type Library struct {
 	// list when it moves, instead of diffing the whole library every tick.
 	// Bumped by Save() (every persisted mutation) and by Touch() (in-place
 	// edits that persist elsewhere, e.g. tag/colour/rating stores).
-	rev atomic.Uint64
+	rev         atomic.Uint64
+	sessionOnce sync.Once
+	sessionID   string
 }
 
 // Rev returns the current library revision. It changes whenever track data
 // changes; callers compare it to skip redundant full-list fetches.
 func (l *Library) Rev() uint64 { return l.rev.Load() }
+
+// SessionID identifies this loaded library, not its on-disk location. It stays
+// fixed across edits and reconnects, and changes when the library is rebuilt
+// (each start of the daemon), after which a track ID may name another track.
+// Clients must scope numeric track IDs and revision validators to this value.
+func (l *Library) SessionID() string {
+	l.sessionOnce.Do(func() { l.sessionID = rand.Text() })
+	return l.sessionID
+}
 
 // Touch bumps the revision without writing to disk — for callers that
 // mutate track data in place (or in a side store) without a Save().

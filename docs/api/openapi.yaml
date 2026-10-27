@@ -150,9 +150,18 @@ paths:
   /api/tracks/rev:
     get:
       tags: [Library]
-      summary: The track list's revision (poll to detect changes). It moves when the library or the tags change, since each row carries its tags' names.
+      summary: The track list's revision and the library's session (poll to detect changes). The revision moves when the library or the tags change, since each row carries its tags' names.
+      description: |
+        library_session is opaque and stays the same across edits, but changes
+        when Vynull restarts and rebuilds its library, after which a track ID
+        may name a different track. Scope track IDs and ETags to it. Every
+        response also carries X-Vynull-Library-Session, and a client may send
+        that header on later requests as a precondition: on a mismatch the
+        request is refused with 409 before it's handled. This checks identity;
+        it is not authentication. Servers without it return only rev. The
+        revision doesn't cover playlists, which still need their own polling.
       responses:
-        "200": { description: OK, content: { application/json: { schema: { type: object, properties: { rev: { type: integer, format: int64 } } } } } }
+        "200": { description: OK, content: { application/json: { schema: { type: object, required: [rev], properties: { rev: { type: integer, format: int64 }, library_session: { type: string } } } } } }
 
   /api/tracks/color:
     put:
