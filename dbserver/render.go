@@ -347,17 +347,18 @@ func (h *Handler) success(msg *proto.DBMessage) *proto.DBMessage {
 	}
 }
 
-func (h *Handler) successWithCount(msg *proto.DBMessage) *proto.DBMessage {
-	// Store pending items by both menu key and txid for later render lookup.
-	h.setPendingAll(msg, h.pendingItems)
-	return &proto.DBMessage{
+// countReply answers a list query: it keeps the list for the renders that
+// follow (setPendingAll) and replies with [request kind, item count].
+func (h *Handler) countReply(msg *proto.DBMessage, items []*menuItem) []*proto.DBMessage {
+	h.setPendingAll(msg, items)
+	return []*proto.DBMessage{{
 		TxID: msg.TxID,
 		Type: proto.DBMsgSuccess,
 		Args: []proto.DBArg{
 			proto.ArgI32(uint32(msg.Type)),
-			proto.ArgI32(uint32(len(h.pendingItems))),
+			proto.ArgI32(uint32(len(items))),
 		},
-	}
+	}}
 }
 
 func (h *Handler) populateGenres(menu uint8) {

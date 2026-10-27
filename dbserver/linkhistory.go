@@ -131,37 +131,30 @@ func (h *Handler) now() time.Time {
 
 // handleGetLinkHistory serves the HISTORY menu, 0x1012 [ctx, sort].
 func (h *Handler) handleGetLinkHistory(msg *proto.DBMessage) []*proto.DBMessage {
-	h.pendingItems = nil
+	var items []*menuItem
 	if id, name := h.linkHistory().current(); id != 0 {
-		h.pendingItems = []*menuItem{{ID: id, Label1: name, ItemType: historyItemType}}
+		items = []*menuItem{{ID: id, Label1: name, ItemType: historyItemType}}
 	}
-	dlog.Debugf("dbserver: HISTORY (0x1012) returning %d histories", len(h.pendingItems))
-	return []*proto.DBMessage{h.successWithCount(msg)}
+	dlog.Debugf("dbserver: HISTORY (0x1012) returning %d histories", len(items))
+	return h.countReply(msg, items)
 }
 
 // handleGetLinkHistoryTracks serves a history's tracks, 0x1112 [ctx, sort,
 // history ID].
 func (h *Handler) handleGetLinkHistoryTracks(msg *proto.DBMessage) []*proto.DBMessage {
-	var id uint32
-	if len(msg.Args) > 2 {
-		id = msg.Args[2].Int()
-	}
+	id := msgArg(msg, 2)
 	items := h.trackIDsToMenuItems(h.linkHistory().tracksOf(id))
 	for i, m := range items {
 		m.trackPos = uint32(i + 1)
 	}
 	h.sortTracks(items, getSortOrder(msg))
-	h.pendingItems = items
 	dlog.Debugf("dbserver: HISTORY %d (0x1112) returning %d tracks", id, len(items))
-	return []*proto.DBMessage{h.successWithCount(msg)}
+	return h.countReply(msg, items)
 }
 
 // handleInsertHistory handles 0x3001 [ctx, track ID]. No reply.
 func (h *Handler) handleInsertHistory(msg *proto.DBMessage) []*proto.DBMessage {
-	var trackID uint32
-	if len(msg.Args) > 1 {
-		trackID = msg.Args[1].Int()
-	}
+	trackID := msgArg(msg, 1)
 	if trackID != 0 {
 		h.linkHistory().insert(trackID, h.now())
 	}
@@ -172,10 +165,7 @@ func (h *Handler) handleInsertHistory(msg *proto.DBMessage) []*proto.DBMessage {
 // handleDeleteHistoryTrack handles 0x3401 [ctx, track ID], answered 0x4000
 // [0x3401, 0].
 func (h *Handler) handleDeleteHistoryTrack(msg *proto.DBMessage) []*proto.DBMessage {
-	var trackID uint32
-	if len(msg.Args) > 1 {
-		trackID = msg.Args[1].Int()
-	}
+	trackID := msgArg(msg, 1)
 	h.linkHistory().remove(trackID)
 	dlog.Debugf("dbserver: Link history remove (0x3401) track=%d", trackID)
 	return []*proto.DBMessage{{
@@ -186,10 +176,7 @@ func (h *Handler) handleDeleteHistoryTrack(msg *proto.DBMessage) []*proto.DBMess
 
 // handleDeleteHistory handles 0x3101 [ctx, history ID]. No reply.
 func (h *Handler) handleDeleteHistory(msg *proto.DBMessage) []*proto.DBMessage {
-	var id uint32
-	if len(msg.Args) > 1 {
-		id = msg.Args[1].Int()
-	}
+	id := msgArg(msg, 1)
 	h.linkHistory().delete(id)
 	dlog.Debugf("dbserver: Link history delete (0x3101) history=%d", id)
 	return nil
@@ -197,10 +184,7 @@ func (h *Handler) handleDeleteHistory(msg *proto.DBMessage) []*proto.DBMessage {
 
 // handleGetPlayState handles 0x3b03 [ctx, track ID].
 func (h *Handler) handleGetPlayState(msg *proto.DBMessage) []*proto.DBMessage {
-	var trackID uint32
-	if len(msg.Args) > 1 {
-		trackID = msg.Args[1].Int()
-	}
+	trackID := msgArg(msg, 1)
 	var state uint32
 	if h.linkHistory().played(trackID) {
 		state = playStatePlayed

@@ -120,13 +120,6 @@ func filterAck(msg *proto.DBMessage) []*proto.DBMessage {
 	}}
 }
 
-func msgArg(msg *proto.DBMessage, i int) uint32 {
-	if len(msg.Args) > i {
-		return msg.Args[i].Int()
-	}
-	return 0
-}
-
 // handleSetFilterOnOff handles 0x3007 [ctx, on]: TRACK FILTER on (1) or off
 // (0). Decks send it with 0 before opening the root menu, too.
 func (h *Handler) handleSetFilterOnOff(msg *proto.DBMessage) []*proto.DBMessage {
@@ -265,9 +258,8 @@ func (h *Handler) handleGetFilterMyTags(msg *proto.DBMessage) []*proto.DBMessage
 		}
 		h.filters.mu.Unlock()
 	}
-	h.setPendingAll(msg, items)
 	dlog.Debugf("dbserver: track filter MyTag list (0x1015) parent=%d returning %d rows", parent, len(items))
-	return []*proto.DBMessage{h.successWithCount(msg)}
+	return h.countReply(msg, items)
 }
 
 // tickType is the MyTag screen row type: 0x4b ticked, 0x4a not.

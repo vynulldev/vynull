@@ -57,13 +57,7 @@ func (h *Handler) handleGetHotCueBank(msg *proto.DBMessage) []*proto.DBMessage {
 			Args: []proto.DBArg{proto.ArgI32(uint32(msg.Type)), proto.ArgI32(hotCueBankStatusRejected)},
 		}}
 	}
-	arg := func(i int) uint32 {
-		if len(msg.Args) > i {
-			return msg.Args[i].Int()
-		}
-		return 0
-	}
-	selector, mode, count := arg(1), arg(2), arg(3)
+	selector, mode, count := msgArg(msg, 1), msgArg(msg, 2), msgArg(msg, 3)
 
 	var items []*menuItem
 	if h.lib != nil {
@@ -74,10 +68,9 @@ func (h *Handler) handleGetHotCueBank(msg *proto.DBMessage) []*proto.DBMessage {
 			items = h.hotCueBankTrackItems(selector, count)
 		}
 	}
-	h.setPendingAll(msg, items)
 	h.bankQuery.context, h.bankQuery.set = dmstContext(msg), true
 	dlog.Debugf("dbserver: HOT CUE BANK selector=%d mode=%d count=%d returning %d items", selector, mode, count, len(items))
-	return []*proto.DBMessage{h.successWithCount(msg)}
+	return h.countReply(msg, items)
 }
 
 // hotCueBankTreeItems lists the live folders (item type 0x01) and banks

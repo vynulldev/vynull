@@ -21,10 +21,7 @@ import (
 // reused list storage), which decks don't depend on since every row is typed.
 // A track we don't have gets a zero-row menu.
 func (h *Handler) handleGetDeliveryInfo(msg *proto.DBMessage) []*proto.DBMessage {
-	var trackID uint32
-	if len(msg.Args) >= 2 {
-		trackID = msg.Args[1].Int()
-	}
+	trackID := msgArg(msg, 1)
 	var items []*menuItem
 	if h.lib != nil {
 		if t := h.lib.Track(trackID); t != nil {
@@ -60,7 +57,6 @@ func (h *Handler) handleGetDeliveryInfo(msg *proto.DBMessage) []*proto.DBMessage
 			}
 		}
 	}
-	h.setPendingAll(msg, items)
 	dlog.Debugf("dbserver: delivery info 0x2602 track=%d returning %d rows", trackID, len(items))
-	return []*proto.DBMessage{h.successWithCount(msg)}
+	return h.countReply(msg, items)
 }
