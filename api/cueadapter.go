@@ -87,3 +87,7 @@ func (a *CueStoreAdapter) DeleteAllForTrack(trackID uint32) {
 
 // Rev returns the cue store's revision.
 func (a *CueStoreAdapter) Rev() uint64 { return a.Store.Rev() }
+
+// Flush confirms persistence for API edits. Deck-originated saves retain the
+// existing coalesced background write path.
+func (a *CueStoreAdapter) Flush() error { return a.Store.Flush() }
