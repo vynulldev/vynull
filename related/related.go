@@ -13,7 +13,6 @@ import (
 	"fmt"
 	"math"
 	"sort"
-	"strconv"
 	"strings"
 
 	"github.com/vynulldev/vynull/analysis"
@@ -67,7 +66,7 @@ func Find(lib *library.Library, seedID uint32, o Options) []Match {
 	for _, id := range lib.Related(seedID) {
 		pairs[id] = true
 	}
-	seedKey := camelot(seed.Key)
+	seedKey, seedHasKey := analysis.ParseKey(seed.Key)
 
 	var out []Match
 	for _, c := range lib.Tracks() {
@@ -82,15 +81,15 @@ func Find(lib *library.Library, seedID uint32, o Options) []Match {
 		}
 
 		keyOK := false
-		if ck := camelot(c.Key); seedKey != "" && ck != "" {
+		if ck, ok := analysis.ParseKey(c.Key); seedHasKey && ok {
 			switch rel := keyRelation(seedKey, ck); rel {
 			case "same":
 				m.Score += weightSameKey
-				m.Reasons = append(m.Reasons, "same key ("+ck+")")
+				m.Reasons = append(m.Reasons, "same key ("+ck.Camelot()+")")
 				keyOK = true
 			case "relative", "adjacent":
 				m.Score += weightNearKey
-				m.Reasons = append(m.Reasons, fmt.Sprintf("%s key (%s to %s)", rel, seedKey, ck))
+				m.Reasons = append(m.Reasons, fmt.Sprintf("%s key (%s to %s)", rel, seedKey.Camelot(), ck.Camelot()))
 				keyOK = true
 			}
 		}
@@ -151,50 +150,15 @@ func sameSong(a, b *library.Track) bool {
 		strings.EqualFold(strings.TrimSpace(a.Artist), strings.TrimSpace(b.Artist))
 }
 
-// camelot returns a key in Camelot notation ("8A"), from either notation, or
-// "" when it is unknown.
-func camelot(key string) string {
-	key = strings.TrimSpace(key)
-	if key == "" {
-		return ""
-	}
-	if _, _, ok := parseCamelot(key); ok {
-		return strings.ToUpper(key)
-	}
-	c, _ := analysis.KeyNamesFrom(key)
-	return c
-}
-
-func parseCamelot(s string) (int, byte, bool) {
-	s = strings.ToUpper(strings.TrimSpace(s))
-	if len(s) < 2 || len(s) > 3 {
-		return 0, 0, false
-	}
-	letter := s[len(s)-1]
-	if letter != 'A' && letter != 'B' {
-		return 0, 0, false
-	}
-	n, err := strconv.Atoi(s[:len(s)-1])
-	if err != nil || n < 1 || n > 12 {
-		return 0, 0, false
-	}
-	return n, letter, true
-}
-
-// keyRelation classifies two Camelot keys: "same", "relative" (same number,
-// other letter), "adjacent" (one step on the wheel, same letter), or "".
-func keyRelation(a, b string) string {
-	an, al, ok1 := parseCamelot(a)
-	bn, bl, ok2 := parseCamelot(b)
-	if !ok1 || !ok2 {
-		return ""
-	}
-	switch {
-	case an == bn && al == bl:
+// keyRelation classifies two keys: "same", "relative" (same number, other
+// letter), "adjacent" (one step on the wheel, same letter), or "".
+func keyRelation(a, b analysis.Key) string {
+	switch b {
+	case a:
 		return "same"
-	case an == bn:
+	case a.Relative():
 		return "relative"
-	case al == bl && ((an-bn+12)%12 == 1 || (bn-an+12)%12 == 1):
+	case a.Step(1), a.Step(-1):
 		return "adjacent"
 	}
 	return ""
