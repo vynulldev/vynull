@@ -11,6 +11,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"slices"
 	"sync"
 	"sync/atomic"
 
@@ -113,6 +114,19 @@ type Result struct {
 	// re-analyzes affected tracks instead of serving BPMs from the old range.
 	TempoMinBPM float64
 	TempoMaxBPM float64
+}
+
+// CopyForEdit returns a copy of r whose beats and phrases can be edited without
+// changing r: a stored result is shared with whoever is reading it (a deck
+// being served its grid, another request), and they must see the old grid or
+// the new one, never one half-way through an edit. The blobs are shared too,
+// so an edit replaces them rather than writing into them. Store the copy with
+// Set.
+func (r *Result) CopyForEdit() *Result {
+	c := *r
+	c.Beats = slices.Clone(r.Beats)
+	c.Phrases = slices.Clone(r.Phrases)
+	return &c
 }
 
 // gridCarry is a user-edited beat grid rescued from a stale-version cache
