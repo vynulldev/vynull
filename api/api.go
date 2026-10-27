@@ -2144,7 +2144,9 @@ func (s *Server) handleAnalysis(w http.ResponseWriter, r *http.Request) {
 				phase = result.Beats[0]
 			}
 			durationMs := float64(result.Duration) * 1000
-			effectiveBeats = effectiveBeats[:0]
+			// A response must not reuse the stored result's backing array:
+			// decks and concurrent grid edits still hold that immutable grid.
+			effectiveBeats = nil
 			for tt := phase; tt < durationMs; tt += interval {
 				effectiveBeats = append(effectiveBeats, tt)
 			}
