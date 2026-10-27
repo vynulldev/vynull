@@ -314,8 +314,11 @@ func (h *Handler) handleGetWavePreview(msg *proto.DBMessage) []*proto.DBMessage 
 	}
 
 	if trackID > 0 {
-		if r := h.lazyAnalyze(trackID); r != nil && len(r.WavePreview) > 0 {
-			blob := r.WavePreview
+		var blob []byte
+		if r := h.lazyAnalyze(trackID); r != nil {
+			blob = prolink.DeckPreview(r)
+		}
+		if len(blob) > 0 {
 			dlog.Debugf("dbserver: wave preview for track %d (%d bytes)", trackID, len(blob))
 			return []*proto.DBMessage{{
 				TxID: msg.TxID, Type: 0x4402,

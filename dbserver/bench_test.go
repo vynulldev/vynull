@@ -5,6 +5,7 @@ package dbserver
 import (
 	"testing"
 
+	"github.com/vynulldev/vynull/analysis"
 	"github.com/vynulldev/vynull/internal/benchlib"
 	"github.com/vynulldev/vynull/proto"
 )
@@ -78,6 +79,29 @@ func BenchmarkKeyTracks(b *testing.B) {
 		b.Run(bc.name, func(b *testing.B) {
 			request := &proto.DBMessage{TxID: 1, Type: 0x1214, Args: []proto.DBArg{
 				proto.ArgI32(trackListCtx), proto.ArgI32(0), proto.ArgI32(15), proto.ArgI32(bc.distance)}}
+			b.ReportAllocs()
+			for b.Loop() {
+				h.Handle(request)
+			}
+		})
+	}
+}
+
+// BenchmarkWavePreview measures a deck's 0x2004 preview request for a track
+// Vynull analysed, which carries its preview, and for an imported one, whose
+// preview is built from its .DAT previews.
+func BenchmarkWavePreview(b *testing.B) {
+	store := analysis.NewStore()
+	store.Set(1, &analysis.Result{WavePreview: make([]byte, 904)})
+	store.Set(2, &analysis.Result{Imported: true, WavePreviewANLZ: make([]byte, 400), WaveTinyANLZ: make([]byte, 100)})
+	h := &Handler{analysis: store}
+	for _, bc := range []struct {
+		name  string
+		track uint32
+	}{{"analysed", 1}, {"imported", 2}} {
+		b.Run(bc.name, func(b *testing.B) {
+			request := &proto.DBMessage{TxID: 1, Type: proto.DBMsgGetWavePreview,
+				Args: []proto.DBArg{proto.ArgI32(0x01080401), proto.ArgI32(4), proto.ArgI32(bc.track), proto.ArgI32(0)}}
 			b.ReportAllocs()
 			for b.Loop() {
 				h.Handle(request)
