@@ -28,6 +28,13 @@ type Handler struct {
 	// silentRender makes the next render request go unanswered, as rekordbox
 	// leaves the render after a rejected Hot Cue Bank catalog request.
 	silentRender bool
+	// bankQuery is the context of a Hot Cue Bank catalog request (0x2001),
+	// set while renders follow it: they read only the list at their own
+	// context (see bankRender). Any other request clears it.
+	bankQuery struct {
+		context uint32
+		set     bool
+	}
 
 	lib          *library.Library
 	deviceNumber uint8
@@ -203,6 +210,7 @@ func (h *Handler) Handle(msg *proto.DBMessage) []*proto.DBMessage {
 
 	if msg.Type != proto.DBMsgRenderMenu {
 		h.silentRender = false
+		h.bankQuery.set = false
 	}
 
 	switch msg.Type {

@@ -82,6 +82,7 @@ func hotCueBankFixture() *Handler {
 		{ID: 9003, Seq: 3, Name: "Root Bank"},
 		{ID: 9031, ParentID: 9002, Seq: 1, Name: "Deleted Bank", Deleted: true},
 		{ID: 9032, ParentID: 9002, Seq: 2, Name: "Beta Bank"},
+		{ID: 9011, ParentID: 9001, Seq: 2, Name: "Deep Folder", Folder: true},
 		{ID: 9012, ParentID: 9001, Seq: 1, Name: "Alpha Bank"},
 		{ID: 9021, ParentID: 9011, Seq: 1, Name: "Deep Bank"},
 	}, []library.HotCueBankMember{
@@ -209,4 +210,74 @@ func TestHotCueBankSkipsMissingFiles(t *testing.T) {
 	if n := ext.Args[4].Int(); n != 2 {
 		t.Errorf("extended record count = %d, want 2", n)
 	}
+}
+
+// rekordbox lists a level's folders before its banks, each in Seq order
+// (link-spec hot-cue-bank-matrix): Deep Folder (Seq 2) before Alpha Bank
+// (Seq 1).
+func TestHotCueBankFoldersFirst(t *testing.T) {
+	h := hotCueBankFixture()
+	var got []uint32
+	for _, it := range h.hotCueBankTreeItems(9001) {
+		got = append(got, it.ID)
+	}
+	if !slices.Equal(got, []uint32{9011, 9012}) {
+		t.Errorf("Alpha Folder = %v, want Deep Folder then Alpha Bank", got)
+	}
+}
+
+// A render answering a bank catalog request reads the list at its own
+// location: the request's own list, even empty, or another location's list
+// only when it has rows; otherwise rekordbox doesn't answer (link-spec
+// hot-cue-bank-location-state, -location-cross and -discovery).
+func TestHotCueBankRenderLocations(t *testing.T) {
+	h := hotCueBankFixture()
+	const loc1, loc2, loc3, loc7 = 0x01010101, 0x01010201, 0x01010301, 0x01010701
+	tx := uint32(0)
+	query := func(ctx, selector, mode uint32) {
+		tx++
+		h.Handle(&proto.DBMessage{TxID: tx, Type: 0x2001, Args: []proto.DBArg{
+			proto.ArgI32(ctx), proto.ArgI32(selector), proto.ArgI32(mode), proto.ArgI32(0)}})
+	}
+	// render returns the rows' IDs, or nil and false when there is no reply.
+	render := func(ctx, count uint32) ([]uint32, bool) {
+		tx++
+		resp := h.Handle(&proto.DBMessage{TxID: tx, Type: proto.DBMsgRenderMenu, Args: []proto.DBArg{
+			proto.ArgI32(ctx), proto.ArgI32(0), proto.ArgI32(count), proto.ArgI32(0), proto.ArgI32(count), proto.ArgI32(0)}})
+		if resp == nil {
+			return nil, false
+		}
+		var ids []uint32
+		for _, m := range resp {
+			if m.Type == proto.DBMsgMenuItem {
+				ids = append(ids, m.Args[1].Int())
+			}
+		}
+		return ids, true
+	}
+	check := func(name string, ids []uint32, answered bool, want []uint32, wantAnswer bool) {
+		t.Helper()
+		if answered != wantAnswer || !slices.Equal(ids, want) {
+			t.Errorf("%s: rows %v answered %v, want %v answered %v", name, ids, answered, want, wantAnswer)
+		}
+	}
+
+	query(loc1, 0, 1) // the root tree at location 1
+	ids, ok := render(loc2, 3)
+	check("location 1 query, location 2 render", ids, ok, nil, false)
+	ids, ok = render(loc1, 3)
+	check("location 1 render", ids, ok, []uint32{9002, 9001, 9003}, true)
+
+	query(loc2, 9002, 1) // Beta Folder at location 2
+	ids, ok = render(loc1, 1)
+	check("location 2 query, location 1 render", ids, ok, []uint32{9002}, true)
+	ids, ok = render(loc2, 1)
+	check("location 2 render", ids, ok, []uint32{9032}, true)
+
+	query(loc3, 9032, 1) // a bank as a folder: an empty list at location 3
+	ids, ok = render(loc3, 1)
+	check("empty list at its own location", ids, ok, nil, true)
+	query(loc7, 9012, 0) // Alpha Bank's tracks at location 7
+	ids, ok = render(loc3, 1)
+	check("empty list at another location", ids, ok, nil, false)
 }
