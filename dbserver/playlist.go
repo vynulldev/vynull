@@ -177,15 +177,14 @@ func (h *Handler) applyPlaylistTrackScope(items []*menuItem, order uint32, smart
 // trackIDsToMenuItems turns an ordered list of track IDs into menu items,
 // skipping IDs the library doesn't have.
 func (h *Handler) trackIDsToMenuItems(trackIDs []uint32) []*menuItem {
-	items := make([]*menuItem, 0, len(trackIDs))
+	c := h.trackRows()
+	idx := make([]int32, 0, len(trackIDs))
 	for _, tid := range trackIDs {
-		if h.lib != nil {
-			if t := h.lib.Track(tid); t != nil {
-				items = append(items, h.trackToStdItem(t))
-			}
+		if p, ok := c.pos[tid]; ok {
+			idx = append(idx, p)
 		}
 	}
-	return items
+	return c.copyRows(idx)
 }
 
 func (h *Handler) handleGetFolder(msg *proto.DBMessage) []*proto.DBMessage {

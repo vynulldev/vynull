@@ -2368,11 +2368,8 @@ func (s *Server) handleArtwork(w http.ResponseWriter, r *http.Request) {
 		if data != nil {
 			artID = s.Library.Artwork.Add("image/jpeg", data)
 		}
-		s.Library.SetArtwork(trackID, artID)
+		s.Library.SetArtwork(trackID, artID) // saves the library
 		s.artInFlight.Delete(trackID)
-		// The library coalesces these saves, so scrolling the ART column
-		// doesn't rewrite library.json per row.
-		s.Library.Save()
 	}
 	if t.ArtID == 0 {
 		http.NotFound(w, r)

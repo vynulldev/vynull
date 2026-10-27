@@ -106,8 +106,13 @@ func getSortOrder(msg *proto.DBMessage) uint32 {
 // matching route through this helper, so the IDs we serve and the IDs decks
 // send back when drilling in stay in lockstep.
 func (h *Handler) catID(kind, name string) uint32 {
-	if h.lib != nil {
-		if id := h.lib.CategoryID(kind, name); id != 0 {
+	return categoryID(h.lib, kind, name)
+}
+
+// categoryID is catID for a library, which may be nil.
+func categoryID(lib *library.Library, kind, name string) uint32 {
+	if lib != nil {
+		if id := lib.CategoryID(kind, name); id != 0 {
 			return id
 		}
 	}
@@ -117,9 +122,26 @@ func (h *Handler) catID(kind, name string) uint32 {
 // trackToStdItem creates a standard track menu item in the standard format.
 // Detail column is governed by h.menu.TrackDetail() (default "bpm"),
 // producing "BPM - Key" in Label2 + BPM*100 in ParentID + ItemType
-// 0x0d04 for that classic look.
+// 0x0d04 for that classic look. It builds the row on its own; a list of
+// tracks copies the library's prebuilt rows (tracksToStdItems).
 func (h *Handler) trackToStdItem(t *library.Track) *menuItem {
-	m := &menuItem{
+	m := new(menuItem)
+	h.newTrackRow(m, t)
+	return m
+}
+
+// newTrackRow fills m with a track's row, built on its own rather than
+// copied from the library's rows (trackrows.go).
+func (h *Handler) newTrackRow(m *menuItem, t *library.Track) {
+	ids := trackCatIDs(t, h.catID)
+	sv := libSortValues(t)
+	h.fillTrackRow(m, t, &ids, &sv)
+}
+
+// fillTrackRow fills m with a track's row, given its category IDs and sort
+// values (which the row keeps).
+func (h *Handler) fillTrackRow(m *menuItem, t *library.Track, ids *catIDs, sv *sortValues) {
+	*m = menuItem{
 		ID:             t.ID,
 		Label1:         t.Title,
 		ArtID:          t.ArtID,
@@ -135,7 +157,7 @@ func (h *Handler) trackToStdItem(t *library.Track) *menuItem {
 		fileTypeID:     t.FileTypeID,
 		sampleRate:     t.SampleRate,
 		newKeyID:       newKeyID(t.Key),
-		sv:             libSortValues(t),
+		sv:             sv,
 	}
 	if h.transcoded(t.FileType) {
 		// rekordbox's file type is the original file's; the deck reads an
@@ -145,10 +167,9 @@ func (h *Handler) trackToStdItem(t *library.Track) *menuItem {
 	// keyID feeds the extended-row key argument; leave it 0 for keyless
 	// tracks rather than hashing an empty string.
 	if t.Key != "" {
-		m.keyID = h.catID("key", t.Key)
+		m.keyID = ids.key
 	}
-	h.applyTrackDetail(m, t)
-	return m
+	h.applyTrackDetail(m, t, ids)
 }
 
 // newKeyID computes rekordbox's 1-24 "new key" index for a track's key. The
@@ -258,7 +279,7 @@ func TrackDetailHighByte(key string) (uint8, bool) {
 // applyTrackDetail sets ItemType / ParentID / Label2 on m based on the
 // configured detail column. Refer to track_detail_fields.md in memory
 // for the exact per-field wire shape.
-func (h *Handler) applyTrackDetail(m *menuItem, t *library.Track) {
+func (h *Handler) applyTrackDetail(m *menuItem, t *library.Track, ids *catIDs) {
 	key := h.trackDetailKey()
 	hi, _ := TrackDetailHighByte(key)
 	m.ItemType = (uint32(hi) << 8) | 0x04
@@ -275,28 +296,28 @@ func (h *Handler) applyTrackDetail(m *menuItem, t *library.Track) {
 		// shows the key alone when the tempo is zero, and a stored negative
 		// tempo by its magnitude (link-spec smart-numeric-boundaries,
 		// rekordbox 7.2.19).
-		m.ParentID = h.trackKeyID(t)
+		m.ParentID = trackKeyID(t, ids)
 		m.Label2 = t.Key
 		if raw := math.Round(t.BPM * 100); raw != 0 {
 			m.Label2 = fmt.Sprintf("%s - %.1f bpm", t.Key, math.Abs(raw)/100)
 		}
 	case "artist":
-		m.ParentID = h.catID("artist", t.Artist)
+		m.ParentID = ids.artist
 		m.Label2 = t.Artist
 	case "album":
-		m.ParentID = h.catID("album", t.Album)
+		m.ParentID = ids.album
 		m.Label2 = t.Album
 	case "genre":
-		m.ParentID = h.catID("genre", t.Genre)
+		m.ParentID = ids.genre
 		m.Label2 = t.Genre
 	case "label":
-		m.ParentID = h.catID("label", t.Label)
+		m.ParentID = ids.label
 		m.Label2 = t.Label
 	case "remixer":
-		m.ParentID = h.catID("remixer", t.Remixer)
+		m.ParentID = ids.remixer
 		m.Label2 = t.Remixer
 	case "original_artist":
-		m.ParentID = h.catID("origartist", t.OriginalArtist) // the ORIGINAL ARTIST menu's IDs
+		m.ParentID = ids.origArtist // the ORIGINAL ARTIST menu's IDs
 		m.Label2 = t.OriginalArtist
 	case "time":
 		m.ParentID = uint32(t.Duration.Seconds())
@@ -344,11 +365,20 @@ func markContextType(items []*menuItem, tt uint32) {
 	}
 }
 
-// tracksToStdItems converts library tracks to standard menu items (0x0d04 format).
+// tracksToStdItems returns the tracks' rows (0x0d04 format by default):
+// copies of the library's prebuilt rows, in one allocation, and a row built
+// on its own for a track they don't hold.
 func (h *Handler) tracksToStdItems(tracks []*library.Track) []*menuItem {
+	c := h.trackRows()
+	rows := make([]menuItem, len(tracks))
 	items := make([]*menuItem, len(tracks))
 	for i, t := range tracks {
-		items[i] = h.trackToStdItem(t)
+		if p, ok := c.position(t); ok {
+			rows[i] = c.rows[p]
+		} else {
+			h.newTrackRow(&rows[i], t)
+		}
+		items[i] = &rows[i]
 	}
 	return items
 }
@@ -374,14 +404,14 @@ func trackInfoTitleID(fileType string) uint32 {
 // trackKeyID is a track's key ID as rekordbox serves it: the imported key row
 // ID (which an empty-named key also has), else the KEY menu's ID for the key's
 // name, and 0 for a track with no key.
-func (h *Handler) trackKeyID(t *library.Track) uint32 {
+func trackKeyID(t *library.Track, ids *catIDs) uint32 {
 	if t.KeyID != 0 {
 		return t.KeyID
 	}
 	if t.Key == "" {
 		return 0
 	}
-	return h.catID("key", t.Key)
+	return ids.key
 }
 
 // looseKeyName reduces a key name to the part rekordbox reads (see

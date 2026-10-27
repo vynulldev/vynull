@@ -5,7 +5,6 @@ package dbserver
 import (
 	"github.com/vynulldev/vynull/internal/dlog"
 	"sort"
-	"strings"
 
 	"github.com/vynulldev/vynull/library"
 	"github.com/vynulldev/vynull/proto"
@@ -20,11 +19,13 @@ import (
 
 func (h *Handler) handleGetTracks(msg *proto.DBMessage) []*proto.DBMessage {
 	order := getSortOrder(msg)
-	h.pendingItems = h.tracksToStdItems(h.lib.Tracks())
-	// The library is ordered by ID; rekordbox's default (sort=0) all-track
-	// list is in title order, which other sorts keep for ties.
-	orderByTitle(h.pendingItems) // sorts keep title order on ties
-	h.sortTracks(h.pendingItems, order)
+	// rekordbox's default (sort=0) all-track list is in title order, which
+	// other sorts keep for ties. The library's rows hold each sort's order.
+	c := h.trackRows()
+	h.pendingItems = c.copyRows(c.trackOrder(order))
+	if spec, ok := sortSpecFor(order); ok {
+		h.applySortColumns(c, h.pendingItems, order, spec)
+	}
 	h.pendingItems = h.applyTrackFilter(msg, h.pendingItems)
 	dlog.Debugf("dbserver: get tracks returning %d items (sort=%d)", len(h.pendingItems), order)
 	return []*proto.DBMessage{h.successWithCount(msg)}
@@ -416,20 +417,13 @@ func (h *Handler) handleGetBitrate(msg *proto.DBMessage) []*proto.DBMessage {
 // FilePath. Selecting one loads the track via the standard
 // metadata fetch flow.
 func (h *Handler) handleGetFilename(msg *proto.DBMessage) []*proto.DBMessage {
-	var items []*menuItem
-	if h.lib != nil {
-		for _, t := range h.lib.Tracks() {
-			name := t.FilePath
-			if i := strings.LastIndex(name, "/"); i >= 0 {
-				name = name[i+1:]
-			}
-			// A full track row (detail column + wire flags), labelled with the
-			// file name instead of the title. Not a hierarchy leaf, so no
-			// context track type in arg 7.
-			m := h.trackToStdItem(t)
-			m.Label1 = name
-			items = append(items, m)
-		}
+	c := h.trackRows()
+	items := c.copyRows(c.libraryOrder())
+	for i, m := range items {
+		// A full track row (detail column + wire flags), labelled with the
+		// file name instead of the title. Not a hierarchy leaf, so no
+		// context track type in arg 7.
+		m.Label1 = baseName(c.tracks[i].FilePath)
 	}
 	sort.Slice(items, func(i, j int) bool { return items[i].Label1 < items[j].Label1 })
 	h.setPendingAll(msg, items)

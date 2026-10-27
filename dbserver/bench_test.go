@@ -7,6 +7,7 @@ import (
 
 	"github.com/vynulldev/vynull/analysis"
 	"github.com/vynulldev/vynull/internal/benchlib"
+	"github.com/vynulldev/vynull/library"
 	"github.com/vynulldev/vynull/proto"
 )
 
@@ -18,12 +19,15 @@ const trackListCtx = 0x01010301
 // the 0x1004 request (which builds, sorts and filters the whole list) and
 // the render of its first page of 12 rows. It runs once per sort a deck
 // commonly picks: the default title order, a text sort and a numeric one.
+// The "changed" case opens it after every library change (a play count, a
+// rating, an analysis result), which the next request's rows must reflect.
 func BenchmarkTrackList(b *testing.B) {
 	lib := benchlib.Library(benchlib.Size)
 	for _, bc := range []struct {
-		name string
-		sort uint32
-	}{{"default", 0}, {"artist", 2}, {"bpm", 4}} {
+		name    string
+		sort    uint32
+		changed bool
+	}{{"default", 0, false}, {"artist", 2, false}, {"bpm", 4, false}, {"changed", 0, true}} {
 		b.Run(bc.name, func(b *testing.B) {
 			h := &Handler{lib: lib}
 			request := &proto.DBMessage{TxID: 1, Type: proto.DBMsgGetTracks,
@@ -37,6 +41,9 @@ func BenchmarkTrackList(b *testing.B) {
 			}
 			b.ReportAllocs()
 			for b.Loop() {
+				if bc.changed {
+					lib.Touch()
+				}
 				h.Handle(request)
 				h.Handle(render)
 			}
@@ -105,6 +112,53 @@ func BenchmarkWavePreview(b *testing.B) {
 			b.ReportAllocs()
 			for b.Loop() {
 				h.Handle(request)
+			}
+		})
+	}
+}
+
+// BenchmarkSearch measures one SEARCH request (0x1300) on a 20k-track
+// library, which a deck sends again with every letter typed: one letter, a
+// word, and two words.
+func BenchmarkSearch(b *testing.B) {
+	h := &Handler{lib: benchlib.Library(benchlib.Size)}
+	for _, bc := range []struct{ name, query string }{
+		{"letter", "n"}, {"word", "night"}, {"words", "night dr"},
+	} {
+		b.Run(bc.name, func(b *testing.B) {
+			query := make([]byte, 0, 2*len(bc.query)+2) // UTF-16BE, NUL-terminated
+			for _, c := range bc.query + "\x00" {
+				query = append(query, 0, byte(c))
+			}
+			request := &proto.DBMessage{TxID: 1, Type: 0x1300, Args: []proto.DBArg{
+				proto.ArgI32(trackListCtx), proto.ArgI32(0), proto.ArgI32(uint32(len(query))), proto.ArgStr(string(query))}}
+			b.ReportAllocs()
+			for b.Loop() {
+				h.Handle(request)
+			}
+		})
+	}
+}
+
+// BenchmarkGenre measures a deck drilling into a genre on a 20k-track
+// library: its artists (0x1101), and all its tracks (0x1301 with [ALL] for
+// artist and album).
+func BenchmarkGenre(b *testing.B) {
+	h := &Handler{lib: benchlib.Library(benchlib.Size)}
+	genre := library.HashID("genre", "House")
+	for _, bc := range []struct {
+		name string
+		msg  *proto.DBMessage
+	}{
+		{"artists", &proto.DBMessage{TxID: 1, Type: 0x1101, Args: []proto.DBArg{
+			proto.ArgI32(trackListCtx), proto.ArgI32(0), proto.ArgI32(genre)}}},
+		{"tracks", &proto.DBMessage{TxID: 1, Type: 0x1301, Args: []proto.DBArg{
+			proto.ArgI32(trackListCtx), proto.ArgI32(0), proto.ArgI32(genre), proto.ArgI32(0xffffffff), proto.ArgI32(0xffffffff)}}},
+	} {
+		b.Run(bc.name, func(b *testing.B) {
+			b.ReportAllocs()
+			for b.Loop() {
+				h.Handle(bc.msg)
 			}
 		})
 	}

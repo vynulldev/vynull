@@ -70,6 +70,10 @@ type Handler struct {
 	// into colour list" view shows the right rows.
 	recent *recentLists
 
+	// rowCache holds the library's prebuilt track rows, shared by the
+	// server's sessions (trackrows.go).
+	rowCache *rowCache
+
 	// Context from the last 0x2705 cue write request.
 	lastCueTrackID uint32
 	lastCueTxID    uint32
