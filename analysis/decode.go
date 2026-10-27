@@ -9,7 +9,8 @@ import (
 	"fmt"
 	"io"
 	"math"
-	"os/exec"
+
+	"github.com/vynulldev/vynull/internal/ffmpeg"
 )
 
 // DecodePCM decodes an audio file to mono float32 samples at the given sample rate.
@@ -21,12 +22,11 @@ func DecodePCM(filePath string, sampleRate int) ([]float32, error) {
 // DecodePCMContext is DecodePCM, killing ffmpeg and returning ctx's error
 // when ctx ends first.
 func DecodePCMContext(ctx context.Context, filePath string, sampleRate int) ([]float32, error) {
-	cmd := exec.CommandContext(ctx, "ffmpeg",
+	cmd := ffmpeg.Command(ctx,
 		"-i", filePath,
 		"-f", "f32le",
 		"-ac", "1",
 		"-ar", fmt.Sprintf("%d", sampleRate),
-		"-loglevel", "error",
 		"-",
 	)
 

@@ -5,12 +5,14 @@ package analysis
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"encoding/binary"
 	"fmt"
-	"os/exec"
 	"strconv"
 	"strings"
 	"sync"
+
+	"github.com/vynulldev/vynull/internal/ffmpeg"
 )
 
 // PVB2 (extended VBR seek index) maps decoded sample positions to byte offsets
@@ -114,14 +116,7 @@ func generateVBRSeekIndex(filePath string) ([]byte, error) {
 // single ffprobe pass. ffprobe emits key=value lines; we parse by key so we're
 // robust to field ordering.
 func probeFrames(filePath string) (pts, pos []int64, err error) {
-	cmd := exec.Command("ffprobe",
-		"-v", "error",
-		"-select_streams", "a:0",
-		"-show_entries", "packet=pts,pos",
-		"-of", "default=nokey=0:noprint_wrappers=1",
-		filePath,
-	)
-	out, err := cmd.Output()
+	out, err := ffmpeg.Probe(context.Background(), filePath, "packet=pts,pos", "default=nokey=0:noprint_wrappers=1")
 	if err != nil {
 		return nil, nil, fmt.Errorf("pvb2: ffprobe packets: %w", err)
 	}
@@ -158,13 +153,7 @@ func probeFrames(filePath string) (pts, pos []int64, err error) {
 // if it can't be determined), the stream time base as num/den, and the sample
 // rate. Cheap — no per-packet enumeration.
 func probeStream(filePath string) (totalSamples, tbNum, tbDen, rate int64) {
-	out, err := exec.Command("ffprobe",
-		"-v", "error",
-		"-select_streams", "a:0",
-		"-show_entries", "stream=duration,sample_rate,time_base",
-		"-of", "default=nokey=0:noprint_wrappers=1",
-		filePath,
-	).Output()
+	out, err := ffmpeg.Probe(context.Background(), filePath, "stream=duration,sample_rate,time_base", "default=nokey=0:noprint_wrappers=1")
 	if err != nil {
 		return 0, 0, 0, 0
 	}

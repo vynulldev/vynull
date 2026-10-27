@@ -5,12 +5,12 @@ package analysis
 import (
 	"context"
 	"math"
-	"os/exec"
 	"sort"
 	"strconv"
 	"strings"
 	"sync"
 
+	"github.com/vynulldev/vynull/internal/ffmpeg"
 	"github.com/vynulldev/vynull/internal/filetype"
 )
 
@@ -1613,8 +1613,7 @@ func FFmpegTrimsStart(path string) bool {
 	if v, ok := trimCache.Load(path); ok {
 		return v.(bool)
 	}
-	out, err := exec.Command("ffprobe", "-v", "error", "-select_streams", "a:0",
-		"-show_entries", "stream=start_time", "-of", "csv=p=0", path).Output()
+	out, err := ffmpeg.Probe(context.Background(), path, "stream=start_time", "csv=p=0")
 	trims := true
 	if err == nil {
 		if st, perr := strconv.ParseFloat(strings.TrimSpace(string(out)), 64); perr == nil {
