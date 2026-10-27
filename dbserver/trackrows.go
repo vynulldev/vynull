@@ -184,7 +184,7 @@ func (c *trackRows) filter(keep func(t *library.Track, ids *catIDs) bool) []int3
 
 // namesWithAll returns an [ALL] row, then a row of itemType for each name
 // (and its ID) that field gives the tracks at idx, empty names left out, in
-// name order (sortItems' title order).
+// name order (orderByName).
 func (c *trackRows) namesWithAll(idx []int32, field func(*library.Track, *catIDs) (string, uint32), itemType uint32) []*menuItem {
 	names := make(map[string]uint32)
 	for _, p := range idx {
@@ -196,7 +196,7 @@ func (c *trackRows) namesWithAll(idx []int32, field func(*library.Track, *catIDs
 	for name, id := range names {
 		items = append(items, &menuItem{ID: id, Label1: name, ItemType: itemType})
 	}
-	sortItems(items[1:], sortTitle)
+	orderByName(items[1:])
 	return items
 }
 

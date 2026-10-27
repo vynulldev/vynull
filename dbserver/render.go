@@ -367,6 +367,7 @@ func (h *Handler) populateGenres(menu uint8) {
 	for i, name := range genres {
 		items[i] = &menuItem{ID: h.catID("genre", name), Label1: name, ItemType: 0x06}
 	}
+	orderByName(items)
 	h.setPending(menu, items)
 }
 
@@ -417,7 +418,7 @@ func (h *Handler) populateLabels(menu uint8) {
 	for name := range labelSet {
 		items = append(items, &menuItem{ID: h.catID("label", name), Label1: name, ItemType: 0x0e})
 	}
-	sortItems(items, sortTitle)
+	orderByName(items)
 	h.setPending(menu, items)
 }
 
@@ -434,7 +435,7 @@ func (h *Handler) populateKeys(menu uint8) {
 	for name := range keySet {
 		items = append(items, &menuItem{ID: h.catID("key", name), Label1: name, ItemType: 0x0f})
 	}
-	sortItems(items, sortTitle)
+	orderByName(items)
 	h.setPending(menu, items)
 }
 

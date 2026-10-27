@@ -9,7 +9,6 @@ import (
 	"slices"
 	"strings"
 	"unicode"
-	"unicode/utf8"
 
 	"github.com/vynulldev/vynull/internal/dlog"
 	"github.com/vynulldev/vynull/library"
@@ -196,34 +195,64 @@ func (v *sortValues) number(id uint32) int64 {
 	return 0
 }
 
-// sortCollationKey orders text as rekordbox's sorts do, checked against a
-// real library's sorted positions: text that doesn't start with a letter (a
-// digit, a symbol, even a space) sorts after all text that does; within each
-// group case and accents are ignored, spaces and punctuation don't count, and
-// digits come after every letter, so "A380" sorts after "About".
+// sortCollationKey orders text as rekordbox's sorts and lists do, checked
+// against a real rekordbox's lists and the deck's cursor positions in its
+// sorted TRACK lists: case and accents are ignored, letters come first, then
+// digits ("A380" after "About"), then every other character, spaces and
+// punctuation included, by its code point (so a space sorts before a comma).
+// So text starting with a digit sorts after text starting with a letter, and
+// text starting with a space or a symbol after both.
 func sortCollationKey(s string) string {
-	if s == "" {
-		return ""
-	}
 	var b strings.Builder
-	if first, _ := utf8.DecodeRuneInString(s); !unicode.IsLetter(first) {
-		b.WriteRune(0x10FFFE) // after every letter-initial key
-	}
 	for _, r := range norm.NFKD.String(s) {
 		switch {
 		case unicode.Is(unicode.Mn, r):
 		case unicode.IsLetter(r):
 			b.WriteRune(unicode.ToLower(r))
-		case unicode.IsDigit(r):
-			// Past every letter, keeping the digits' order.
-			if d := unicode.ToLower(r) - '0'; d >= 0 && d <= 9 {
-				b.WriteRune(0x10FF00 + d)
-			} else {
-				b.WriteRune(0x10FFF0)
-			}
+		case r >= '0' && r <= '9':
+			b.WriteRune(0x10FF00 + r - '0') // past every letter, in order
+		default:
+			b.WriteRune(0x10FFF0) // past every digit, then by the character
+			b.WriteRune(r)
 		}
 	}
 	return b.String()
+}
+
+// orderByName sorts category rows (artists, albums, labels and the like) by
+// name in rekordbox's collation (sortCollationKey); names that collate equal
+// keep ID order.
+func orderByName(items []*menuItem) {
+	type named struct {
+		m   *menuItem
+		key string
+	}
+	ns := make([]named, len(items))
+	for i, m := range items {
+		ns[i] = named{m, sortCollationKey(m.Label1)}
+	}
+	slices.SortFunc(ns, func(a, b named) int {
+		if c := strings.Compare(a.key, b.key); c != 0 {
+			return c
+		}
+		return cmp.Compare(a.m.ID, b.m.ID)
+	})
+	for i := range ns {
+		items[i] = ns[i].m
+	}
+}
+
+// orderByTitle sorts track rows by title in rekordbox's collation, rows whose
+// titles collate equal keeping their order.
+func (h *Handler) orderByTitle(items []*menuItem) {
+	sortRows(h.trackRows(), items, sortTitle, sortSpecs[sortTitle])
+}
+
+// orderByTrackNumber sorts an album's track rows by their track number
+// (argument 9), then title, as rekordbox lists an album's tracks.
+func (h *Handler) orderByTrackNumber(items []*menuItem) {
+	h.orderByTitle(items)
+	slices.SortStableFunc(items, func(a, b *menuItem) int { return cmp.Compare(a.trackPos, b.trackPos) })
 }
 
 // sortSpecFor returns the spec of a sort ID that reorders a track list, or

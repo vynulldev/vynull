@@ -5,8 +5,6 @@ package dbserver
 import (
 	"fmt"
 	"math"
-	"sort"
-	"strings"
 
 	"github.com/vynulldev/vynull/analysis"
 	"github.com/vynulldev/vynull/internal/filetype"
@@ -32,12 +30,10 @@ type menuItem struct {
 	rating    uint32 // track rating (0-5 stars), for the TRACK FILTER
 
 	// Sort metadata (for tracks).
-	sortArtist string
-	sortAlbum  string
-	sortBPM    uint32 // BPM * 100
-	sortKey    string
-	keyID      uint32      // djmdContent.KeyID — extended-row arg 12
-	sv         *sortValues // the fields the deck's sorts read (sortmenu.go)
+	sortBPM uint32 // BPM * 100
+	sortKey string
+	keyID   uint32      // djmdContent.KeyID — extended-row arg 12
+	sv      *sortValues // the fields the deck's sorts read (sortmenu.go)
 
 	// Track-row wire-flag inputs (see render.go's flag assembly).
 	contextTrackType uint32 // packed context track type — arg 7 high byte (TT<<24) on hierarchy track leaves
@@ -53,44 +49,11 @@ type menuItem struct {
 	newKeyID       uint32 // converted (Camelot 1-24) key index — arg 11
 }
 
-// Sort order constants from CDJ protocol.
+// The sort IDs the dbserver names; sortmenu.go's sortSpecs has them all.
 const (
 	sortDefault = 0x00
 	sortTitle   = 0x01
-	sortArtist  = 0x02
-	sortAlbum   = 0x03
-	sortBPM     = 0x04
-	sortRating  = 0x05
-	sortKey     = 0x0c
 )
-
-// sortItems sorts menu items by the given sort order.
-func sortItems(items []*menuItem, order uint32) {
-	switch order {
-	case sortTitle:
-		sort.Slice(items, func(i, j int) bool {
-			return strings.ToLower(items[i].Label1) < strings.ToLower(items[j].Label1)
-		})
-	case sortArtist:
-		sort.Slice(items, func(i, j int) bool {
-			return strings.ToLower(items[i].sortArtist) < strings.ToLower(items[j].sortArtist)
-		})
-	case sortAlbum:
-		sort.Slice(items, func(i, j int) bool {
-			return strings.ToLower(items[i].sortAlbum) < strings.ToLower(items[j].sortAlbum)
-		})
-	case sortBPM:
-		sort.Slice(items, func(i, j int) bool {
-			return items[i].sortBPM < items[j].sortBPM
-		})
-	case sortKey:
-		sort.Slice(items, func(i, j int) bool {
-			return items[i].sortKey < items[j].sortKey
-		})
-	default:
-		// Default: preserve PDB/database order (matches CDJ behavior).
-	}
-}
 
 // getSortOrder extracts the sort order from msg args (typically arg[1]).
 func getSortOrder(msg *proto.DBMessage) uint32 {
@@ -154,8 +117,6 @@ func (h *Handler) fillTrackRow(m *menuItem, t *library.Track, ids *catIDs, sv *s
 		FileType:       h.servedFileType(t.FileType),
 		ColorID:        uint32(t.ColorID),
 		rating:         uint32(t.Rating),
-		sortArtist:     t.Artist,
-		sortAlbum:      t.Album,
 		sortBPM:        uint32(math.Round(t.BPM * 100)), // exact for range checks (TRACK FILTER)
 		sortKey:        t.Key,
 		hasSongTag:     h.lib != nil && h.lib.HasSongTag(t.ID),
