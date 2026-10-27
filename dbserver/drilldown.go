@@ -117,52 +117,48 @@ func (h *Handler) handleSearch(msg *proto.DBMessage) []*proto.DBMessage {
 	dlog.Debugf("dbserver: SEARCH query=%q tokens=%v", query, tokens)
 
 	var artists, albums, tracks []*menuItem
-	if h.lib != nil && len(tokens) > 0 {
+	if len(tokens) > 0 {
+		c := h.trackRows()
+		texts := c.searchTexts()
 		// Artist domain spans every djmdArtist name: the track artist, its
 		// remixer, and its original artist. rekordbox lists matching artists
 		// and albums ahead of matching content rows.
 		seenArtist := make(map[uint32]bool)
-		addArtist := func(kind, name string) {
-			if name == "" || !searchMatch(name, tokens) {
-				return
-			}
-			id := h.catID(kind, name)
-			if seenArtist[id] {
+		addArtist := func(name, folded string, id uint32) {
+			if name == "" || !searchMatch(folded, tokens) || seenArtist[id] {
 				return
 			}
 			seenArtist[id] = true
 			artists = append(artists, &menuItem{ID: id, Label1: name, ItemType: 0x07})
 		}
 		seenAlbum := make(map[uint32]bool)
-		for _, t := range h.lib.Tracks() {
-			addArtist("artist", t.Artist)
-			addArtist("remixer", t.Remixer)
-			addArtist("origartist", t.OriginalArtist)
-			if t.Album != "" && searchMatch(t.Album, tokens) {
-				id := h.catID("album", t.Album)
-				if !seenAlbum[id] {
-					seenAlbum[id] = true
-					albums = append(albums, &menuItem{ID: id, Label1: t.Album, ItemType: 0x02})
-				}
+		var matches []int32
+		var labels []string
+		for i, t := range c.tracks {
+			text, ids := &texts[i], &c.ids[i]
+			addArtist(t.Artist, text.artist, ids.artist)
+			addArtist(t.Remixer, text.remixer, ids.remixer)
+			addArtist(t.OriginalArtist, text.origArtist, ids.origArtist)
+			if t.Album != "" && searchMatch(text.album, tokens) && !seenAlbum[ids.album] {
+				seenAlbum[ids.album] = true
+				albums = append(albums, &menuItem{ID: ids.album, Label1: t.Album, ItemType: 0x02})
 			}
 			// A content row matches on either Title or file name, and is
-			// labelled with whichever matched (title takes precedence). It is a
-			// standard track row with the Key secondary column showing the key
-			// alone, not the "key - bpm" composite.
-			label := ""
-			if searchMatch(t.Title, tokens) {
-				label = t.Title
-			} else if fn := baseName(t.FilePath); searchMatch(fn, tokens) {
-				label = fn
+			// labelled with whichever matched (title takes precedence).
+			if searchMatch(text.title, tokens) {
+				matches, labels = append(matches, int32(i)), append(labels, t.Title)
+			} else if searchMatch(text.file, tokens) {
+				matches, labels = append(matches, int32(i)), append(labels, baseName(t.FilePath))
 			}
-			if label != "" {
-				m := h.trackToStdItem(t)
-				m.ItemType = 0x0f04
-				m.ParentID = m.keyID
-				m.Label1 = label
-				m.Label2 = t.Key
-				tracks = append(tracks, m)
-			}
+		}
+		// A content row is a standard track row with the Key secondary
+		// column showing the key alone, not the "key - bpm" composite.
+		tracks = c.copyRows(matches)
+		for i, m := range tracks {
+			m.ItemType = 0x0f04
+			m.ParentID = m.keyID
+			m.Label1 = labels[i]
+			m.Label2 = c.tracks[matches[i]].Key
 		}
 		sortByID := func(s []*menuItem) {
 			sort.Slice(s, func(i, j int) bool { return s[i].ID < s[j].ID })
@@ -194,12 +190,11 @@ func searchTokens(query string) []string {
 	return tokens
 }
 
-// searchMatch reports whether every token occurs as a substring of value
-// (ASCII-folded). Token order is irrelevant.
-func searchMatch(value string, tokens []string) bool {
-	v := asciiUpper(value)
+// searchMatch reports whether every token occurs as a substring of a value
+// folded by asciiUpper. Token order is irrelevant.
+func searchMatch(folded string, tokens []string) bool {
 	for _, tok := range tokens {
-		if !strings.Contains(v, tok) {
+		if !strings.Contains(folded, tok) {
 			return false
 		}
 	}
@@ -364,74 +359,26 @@ func (h *Handler) searchTrackItem(t *library.Track) *menuItem {
 
 // getArtistsForLabelItems returns [ALL] + artists for a label.
 func (h *Handler) getArtistsForLabelItems(labelID uint32) []*menuItem {
-	artistSet := make(map[string]bool)
-	if h.lib != nil {
-		for _, t := range h.lib.Tracks() {
-			if t.Label != "" && h.catID("label", t.Label) == labelID && t.Artist != "" {
-				artistSet[t.Artist] = true
-			}
-		}
-	}
-	var items []*menuItem
-	items = append(items, &menuItem{
-		ID: 0xffffffff, Label1: "ALL", ItemType: 0x00a0,
-	})
-	for name := range artistSet {
-		items = append(items, &menuItem{
-			ID: h.catID("artist", name), Label1: name, ItemType: 0x07,
-		})
-	}
-	sortItems(items[1:], sortTitle)
-	return items
+	c := h.trackRows()
+	return c.namesWithAll(c.filter(func(t *library.Track, ids *catIDs) bool {
+		return t.Label != "" && ids.label == labelID
+	}), artistName, 0x07)
 }
 
 // getAlbumsForLabelArtist returns [ALL] + albums for a label + artist.
 func (h *Handler) getAlbumsForLabelArtist(labelID, artistID uint32) []*menuItem {
-	albumSet := make(map[string]bool)
-	if h.lib != nil {
-		for _, t := range h.lib.Tracks() {
-			if t.Label == "" || h.catID("label", t.Label) != labelID {
-				continue
-			}
-			if artistID != 0xffffffff && h.catID("artist", t.Artist) != artistID {
-				continue
-			}
-			if t.Album != "" {
-				albumSet[t.Album] = true
-			}
-		}
-	}
-	var items []*menuItem
-	items = append(items, &menuItem{
-		ID: 0xffffffff, Label1: "ALL", ItemType: 0x00a0,
-	})
-	for name := range albumSet {
-		items = append(items, &menuItem{
-			ID: h.catID("album", name), Label1: name, ItemType: 0x02,
-		})
-	}
-	sortItems(items[1:], sortTitle)
-	return items
+	c := h.trackRows()
+	return c.namesWithAll(c.filter(func(t *library.Track, ids *catIDs) bool {
+		return t.Label != "" && ids.label == labelID && matchesID(artistID, ids.artist)
+	}), albumName, 0x02)
 }
 
 // getTracksForLabelArtistAlbum returns tracks matching label + artist + album.
 func (h *Handler) getTracksForLabelArtistAlbum(labelID, artistID, albumID uint32) []*menuItem {
-	var tracks []*library.Track
-	if h.lib != nil {
-		for _, t := range h.lib.Tracks() {
-			if t.Label == "" || h.catID("label", t.Label) != labelID {
-				continue
-			}
-			if artistID != 0xffffffff && h.catID("artist", t.Artist) != artistID {
-				continue
-			}
-			if albumID != 0xffffffff && h.catID("album", t.Album) != albumID {
-				continue
-			}
-			tracks = append(tracks, t)
-		}
-	}
-	items := h.tracksToStdItems(tracks)
+	c := h.trackRows()
+	items := c.copyRows(c.filter(func(t *library.Track, ids *catIDs) bool {
+		return t.Label != "" && ids.label == labelID && matchesID(artistID, ids.artist) && matchesID(albumID, ids.album)
+	}))
 	sortItems(items, sortTitle)
 	markContextType(items, h.ctxTrackType)
 	return items
@@ -444,35 +391,7 @@ func (h *Handler) handleGetArtistsForLabel(msg *proto.DBMessage) []*proto.DBMess
 		return []*proto.DBMessage{h.successWithCount(msg)}
 	}
 	labelID := msg.Args[2].Int()
-
-	// Find all artists that have tracks with this label.
-	artistSet := make(map[string]bool)
-	if h.lib != nil {
-		for _, t := range h.lib.Tracks() {
-			if t.Label != "" && h.catID("label", t.Label) == labelID && t.Artist != "" {
-				artistSet[t.Artist] = true
-			}
-		}
-	}
-
-	// First item: [ALL] (shows all tracks for this label).
-	var items []*menuItem
-	items = append(items, &menuItem{
-		ID:       0xffffffff,
-		Label1:   "ALL",
-		ItemType: 0x00a0,
-	})
-
-	// Then artist items.
-	for name := range artistSet {
-		items = append(items, &menuItem{
-			ID:       h.catID("artist", name),
-			Label1:   name,
-			ItemType: 0x07, // artist
-		})
-	}
-	sortItems(items[1:], sortTitle) // sort artists, keep [ALL] first
-
+	items := h.getArtistsForLabelItems(labelID)
 	h.setPendingAll(msg, items)
 	dlog.Debugf("dbserver: artists for label 0x%08x returning %d items", labelID, len(items))
 	return []*proto.DBMessage{h.successWithCount(msg)}
@@ -558,22 +477,20 @@ func (h *Handler) handleGetTracksByKey(msg *proto.DBMessage) []*proto.DBMessage 
 	// and 1A 101, and with 12B and 2B as well 143. When no track's key is in
 	// the group it lists the whole collection: 1A on a library of Am and C
 	// tracks listed them all (link-spec full suite, rekordbox 7.2.19).
-	var tracks []*library.Track
-	if h.lib != nil {
-		tracks = h.lib.Tracks()
-	}
+	c := h.trackRows()
+	idx := c.libraryOrder()
 	if group := keyGroupIndexes(keyIndex, distance); len(group) > 0 {
-		var inGroup []*library.Track
-		for _, t := range tracks {
-			if group[newKeyID(t.Key)] {
-				inGroup = append(inGroup, t)
+		var inGroup []int32
+		for i := range c.rows {
+			if group[c.rows[i].newKeyID] {
+				inGroup = append(inGroup, int32(i))
 			}
 		}
 		if len(inGroup) > 0 {
-			tracks = inGroup
+			idx = inGroup
 		}
 	}
-	items := h.tracksToStdItems(tracks)
+	items := c.copyRows(idx)
 	sortItems(items, sortTitle)
 	h.setPendingAll(msg, items)
 	dlog.Debugf("dbserver: tracks for key index %d dist=%d returning %d tracks", keyIndex, distance, len(items))
@@ -619,14 +536,7 @@ func (h *Handler) handleGetByArtist(msg *proto.DBMessage) []*proto.DBMessage {
 	}
 	artistID := msg.Args[2].Int()
 
-	// Find artist name by hash ID.
-	artistName := ""
-	for _, name := range h.lib.Artists() {
-		if h.catID("artist", name) == artistID {
-			artistName = name
-			break
-		}
-	}
+	artistName := h.trackRows().categoryName("artist", artistID)
 	if artistName == "" {
 		h.pendingItems = nil
 		return []*proto.DBMessage{h.successWithCount(msg)}
@@ -666,24 +576,16 @@ func (h *Handler) handleGetTracksByAlbum(msg *proto.DBMessage) []*proto.DBMessag
 
 	// Filter by artist and album, honouring the 0xffffffff "ALL"
 	// sentinel at either level (e.g. an artist's tracks across all albums).
-	var matchTracks []*library.Track
-	if h.lib != nil {
-		for _, t := range h.lib.Tracks() {
-			if artistID != 0xffffffff && h.catID("artist", t.Artist) != artistID {
-				continue
-			}
-			if albumID != 0xffffffff && h.catID("album", t.Album) != albumID {
-				continue
-			}
-			matchTracks = append(matchTracks, t)
-		}
-	}
-	items := h.tracksToStdItems(matchTracks)
+	c := h.trackRows()
+	idx := c.filter(func(_ *library.Track, ids *catIDs) bool {
+		return matchesID(artistID, ids.artist) && matchesID(albumID, ids.album)
+	})
+	items := c.copyRows(idx)
 	// A specific album is album scope (track number in arg 9); spanning all
 	// albums is artist scope (arg 9 stays 0).
 	if albumID != 0xffffffff {
-		for i, t := range matchTracks {
-			items[i].trackPos = uint32(t.TrackNum)
+		for i, p := range idx {
+			items[i].trackPos = uint32(c.tracks[p].TrackNum)
 		}
 	}
 	sortItems(items, sortTitle)
@@ -701,13 +603,7 @@ func (h *Handler) handleGetByAlbum(msg *proto.DBMessage) []*proto.DBMessage {
 	}
 	albumID := msg.Args[2].Int()
 
-	albumName := ""
-	for _, name := range h.lib.Albums() {
-		if h.catID("album", name) == albumID {
-			albumName = name
-			break
-		}
-	}
+	albumName := h.trackRows().categoryName("album", albumID)
 	if albumName == "" {
 		h.pendingItems = nil
 		return []*proto.DBMessage{h.successWithCount(msg)}
@@ -731,62 +627,24 @@ func (h *Handler) handleGetByAlbum(msg *proto.DBMessage) []*proto.DBMessage {
 // "ALL" at that level.
 
 func (h *Handler) getArtistsForGenreItems(genreID uint32) []*menuItem {
-	artistSet := make(map[string]bool)
-	if h.lib != nil {
-		for _, t := range h.lib.Tracks() {
-			if t.Genre != "" && h.catID("genre", t.Genre) == genreID && t.Artist != "" {
-				artistSet[t.Artist] = true
-			}
-		}
-	}
-	items := []*menuItem{{ID: 0xffffffff, Label1: "ALL", ItemType: 0x00a0}}
-	for name := range artistSet {
-		items = append(items, &menuItem{ID: h.catID("artist", name), Label1: name, ItemType: 0x07})
-	}
-	sortItems(items[1:], sortTitle)
-	return items
+	c := h.trackRows()
+	return c.namesWithAll(c.filter(func(t *library.Track, ids *catIDs) bool {
+		return t.Genre != "" && ids.genre == genreID
+	}), artistName, 0x07)
 }
 
 func (h *Handler) getAlbumsForGenreArtist(genreID, artistID uint32) []*menuItem {
-	albumSet := make(map[string]bool)
-	if h.lib != nil {
-		for _, t := range h.lib.Tracks() {
-			if t.Genre == "" || h.catID("genre", t.Genre) != genreID {
-				continue
-			}
-			if artistID != 0xffffffff && h.catID("artist", t.Artist) != artistID {
-				continue
-			}
-			if t.Album != "" {
-				albumSet[t.Album] = true
-			}
-		}
-	}
-	items := []*menuItem{{ID: 0xffffffff, Label1: "ALL", ItemType: 0x00a0}}
-	for name := range albumSet {
-		items = append(items, &menuItem{ID: h.catID("album", name), Label1: name, ItemType: 0x02})
-	}
-	sortItems(items[1:], sortTitle)
-	return items
+	c := h.trackRows()
+	return c.namesWithAll(c.filter(func(t *library.Track, ids *catIDs) bool {
+		return t.Genre != "" && ids.genre == genreID && matchesID(artistID, ids.artist)
+	}), albumName, 0x02)
 }
 
 func (h *Handler) getTracksForGenreArtistAlbum(genreID, artistID, albumID uint32) []*menuItem {
-	var tracks []*library.Track
-	if h.lib != nil {
-		for _, t := range h.lib.Tracks() {
-			if t.Genre == "" || h.catID("genre", t.Genre) != genreID {
-				continue
-			}
-			if artistID != 0xffffffff && h.catID("artist", t.Artist) != artistID {
-				continue
-			}
-			if albumID != 0xffffffff && h.catID("album", t.Album) != albumID {
-				continue
-			}
-			tracks = append(tracks, t)
-		}
-	}
-	items := h.tracksToStdItems(tracks)
+	c := h.trackRows()
+	items := c.copyRows(c.filter(func(t *library.Track, ids *catIDs) bool {
+		return t.Genre != "" && ids.genre == genreID && matchesID(artistID, ids.artist) && matchesID(albumID, ids.album)
+	}))
 	sortItems(items, sortTitle)
 	markContextType(items, h.ctxTrackType)
 	return items
@@ -843,46 +701,27 @@ func (h *Handler) handleGetTracksByGenre(msg *proto.DBMessage) []*proto.DBMessag
 
 // albumsForArtistLike returns [ALL] + albums whose tracks have the given
 // remixer/original-artist (selected by field) matching id.
-func (h *Handler) albumsForArtistLike(kind string, id uint32, field func(*library.Track) string) []*menuItem {
-	albumSet := make(map[string]bool)
-	if h.lib != nil {
-		for _, t := range h.lib.Tracks() {
-			if v := field(t); v == "" || h.catID(kind, v) != id {
-				continue
-			}
-			if t.Album != "" {
-				albumSet[t.Album] = true
-			}
-		}
-	}
-	items := []*menuItem{{ID: 0xffffffff, Label1: "ALL", ItemType: 0x00a0}}
-	for name := range albumSet {
-		items = append(items, &menuItem{ID: h.catID("album", name), Label1: name, ItemType: 0x02})
-	}
-	sortItems(items[1:], sortTitle)
-	return items
+func (h *Handler) albumsForArtistLike(id uint32, field func(*library.Track, *catIDs) (string, uint32)) []*menuItem {
+	c := h.trackRows()
+	return c.namesWithAll(c.filter(func(t *library.Track, ids *catIDs) bool {
+		name, nameID := field(t, ids)
+		return name != "" && nameID == id
+	}), albumName, 0x02)
 }
 
 // tracksForArtistLikeAlbum returns tracks with the given remixer/original
 // artist, optionally narrowed to one album (0xffffffff = all albums). A
 // specific album is album scope (track number in arg 9); all albums is not.
-func (h *Handler) tracksForArtistLikeAlbum(kind string, id, albumID uint32, field func(*library.Track) string) []*menuItem {
-	var tracks []*library.Track
-	if h.lib != nil {
-		for _, t := range h.lib.Tracks() {
-			if v := field(t); v == "" || h.catID(kind, v) != id {
-				continue
-			}
-			if albumID != 0xffffffff && h.catID("album", t.Album) != albumID {
-				continue
-			}
-			tracks = append(tracks, t)
-		}
-	}
-	items := h.tracksToStdItems(tracks)
+func (h *Handler) tracksForArtistLikeAlbum(id, albumID uint32, field func(*library.Track, *catIDs) (string, uint32)) []*menuItem {
+	c := h.trackRows()
+	idx := c.filter(func(t *library.Track, ids *catIDs) bool {
+		name, nameID := field(t, ids)
+		return name != "" && nameID == id && matchesID(albumID, ids.album)
+	})
+	items := c.copyRows(idx)
 	if albumID != 0xffffffff {
-		for i, t := range tracks {
-			items[i].trackPos = uint32(t.TrackNum)
+		for i, p := range idx {
+			items[i].trackPos = uint32(c.tracks[p].TrackNum)
 		}
 	}
 	sortItems(items, sortTitle)
@@ -890,8 +729,21 @@ func (h *Handler) tracksForArtistLikeAlbum(kind string, id, albumID uint32, fiel
 	return items
 }
 
-func remixerField(t *library.Track) string    { return t.Remixer }
-func origArtistField(t *library.Track) string { return t.OriginalArtist }
+// The name fields the drill-downs list, each with its category ID.
+func artistName(t *library.Track, ids *catIDs) (string, uint32) { return t.Artist, ids.artist }
+func albumName(t *library.Track, ids *catIDs) (string, uint32)  { return t.Album, ids.album }
+func remixerField(t *library.Track, ids *catIDs) (string, uint32) {
+	return t.Remixer, ids.remixer
+}
+func origArtistField(t *library.Track, ids *catIDs) (string, uint32) {
+	return t.OriginalArtist, ids.origArtist
+}
+
+// matchesID reports whether a category ID is the one a drill-down asks for,
+// where 0xffffffff is the [ALL] row, which matches any.
+func matchesID(want, id uint32) bool {
+	return want == 0xffffffff || id == want
+}
 
 func (h *Handler) handleGetAlbumsForRemixer(msg *proto.DBMessage) []*proto.DBMessage {
 	// 0x1702: [ALL] + albums for a remixer.
@@ -899,7 +751,7 @@ func (h *Handler) handleGetAlbumsForRemixer(msg *proto.DBMessage) []*proto.DBMes
 		h.pendingItems = nil
 		return []*proto.DBMessage{h.successWithCount(msg)}
 	}
-	items := h.albumsForArtistLike("remixer", msg.Args[2].Int(), remixerField)
+	items := h.albumsForArtistLike(msg.Args[2].Int(), remixerField)
 	h.setPendingAll(msg, items)
 	return []*proto.DBMessage{h.successWithCount(msg)}
 }
@@ -910,7 +762,7 @@ func (h *Handler) handleGetTracksByRemixer(msg *proto.DBMessage) []*proto.DBMess
 		h.pendingItems = nil
 		return []*proto.DBMessage{h.successWithCount(msg)}
 	}
-	items := h.tracksForArtistLikeAlbum("remixer", msg.Args[2].Int(), msg.Args[3].Int(), remixerField)
+	items := h.tracksForArtistLikeAlbum(msg.Args[2].Int(), msg.Args[3].Int(), remixerField)
 	h.setPendingAll(msg, items)
 	return []*proto.DBMessage{h.successWithCount(msg)}
 }
@@ -921,7 +773,7 @@ func (h *Handler) handleGetAlbumsForOriginalArtist(msg *proto.DBMessage) []*prot
 		h.pendingItems = nil
 		return []*proto.DBMessage{h.successWithCount(msg)}
 	}
-	items := h.albumsForArtistLike("origartist", msg.Args[2].Int(), origArtistField)
+	items := h.albumsForArtistLike(msg.Args[2].Int(), origArtistField)
 	h.setPendingAll(msg, items)
 	return []*proto.DBMessage{h.successWithCount(msg)}
 }
@@ -932,7 +784,7 @@ func (h *Handler) handleGetTracksByOriginalArtist(msg *proto.DBMessage) []*proto
 		h.pendingItems = nil
 		return []*proto.DBMessage{h.successWithCount(msg)}
 	}
-	items := h.tracksForArtistLikeAlbum("origartist", msg.Args[2].Int(), msg.Args[3].Int(), origArtistField)
+	items := h.tracksForArtistLikeAlbum(msg.Args[2].Int(), msg.Args[3].Int(), origArtistField)
 	h.setPendingAll(msg, items)
 	return []*proto.DBMessage{h.successWithCount(msg)}
 }

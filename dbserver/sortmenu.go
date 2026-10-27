@@ -3,9 +3,10 @@
 package dbserver
 
 import (
+	"cmp"
 	"fmt"
 	"math"
-	"sort"
+	"slices"
 	"strings"
 	"unicode"
 	"unicode/utf8"
@@ -143,10 +144,14 @@ type sortValues struct {
 	rating                                                           int64
 	seconds, bitrate, color, plays                                   int64
 	dateAdded                                                        string // YYYY-MM-DD, "" when undated
+
+	// pos is the values' index in the library's prebuilt rows, when they
+	// hold them (trackRows.holds).
+	pos int32
 }
 
-func libSortValues(t *library.Track) *sortValues {
-	v := &sortValues{
+func libSortValues(t *library.Track) sortValues {
+	v := sortValues{
 		title: t.Title, artist: t.Artist, album: t.Album, genre: t.Genre,
 		comment: t.Comment, remixer: t.Remixer, label: t.Label, origArtist: t.OriginalArtist,
 		tempo:   int64(math.Round(t.BPM * 100)),
@@ -226,102 +231,135 @@ func sortCollationKey(s string) string {
 	return b.String()
 }
 
-// orderByTitle sorts tracks by title as rekordbox's TRACK list orders them.
-func orderByTitle(items []*menuItem) {
-	keys := make(map[*menuItem]string, len(items))
-	for _, m := range items {
-		keys[m] = sortCollationKey(m.Label1)
+// sortSpecFor returns the spec of a sort ID that reorders a track list, or
+// false for DEFAULT and the IDs that keep the list's own order and column (14
+// and anything beyond 17).
+func sortSpecFor(order uint32) (sortSpec, bool) {
+	if order == sortDefault {
+		return sortSpec{}, false
 	}
-	sort.SliceStable(items, func(i, j int) bool { return keys[items[i]] < keys[items[j]] })
+	spec, ok := sortSpecs[order]
+	return spec, ok
 }
 
 // sortTracks orders a track list by a deck-requested sort ID and gives its
 // rows that sort's second column; sort 0 (DEFAULT) leaves the list and its
 // configured column alone. Tracks the sort ranks equal keep the list's own
 // order (title order for TRACK, playlist order for a playlist), as
-// rekordbox's do. Sorted rows carry the request's context track type in
-// argument 7, as rekordbox's do.
+// rekordbox's do.
 func (h *Handler) sortTracks(items []*menuItem, order uint32) {
-	if order == sortDefault {
+	spec, ok := sortSpecFor(order)
+	if !ok {
 		return
 	}
-	spec, ok := sortSpecs[order]
-	if !ok {
-		return // ID 14 and anything beyond 17: the list's order and column
+	c := h.trackRows()
+	sortRows(c, items, order, spec)
+	h.applySortColumns(c, items, order, spec)
+}
+
+// sortEntry is a row being sorted: its collation key, for the sorts that
+// order by text, and its position before the sort.
+type sortEntry struct {
+	m   *menuItem
+	key string
+	pos int
+}
+
+// sortRows orders rows by a sort's own field, rows the sort ranks equal
+// keeping their order. Each row's collation key is looked up once (from c's
+// prebuilt keys for the rows c holds), and ties are broken by position, which
+// makes the unstable sort stable.
+func sortRows(c *trackRows, items []*menuItem, order uint32, spec sortSpec) {
+	text := spec.kind == sortText || spec.kind == sortTitleOrd
+	if spec.kind == sortTitleOrd {
+		order = sortTitle
 	}
-	texts := make(map[*menuItem]string, len(items))
-	for _, m := range items {
-		switch {
-		case spec.kind == sortTitleOrd:
-			texts[m] = sortCollationKey(m.Label1)
-		case m.sv != nil && spec.kind == sortText:
-			texts[m] = sortCollationKey(m.sv.text(order))
+	var keys []string
+	if text {
+		keys = c.collationKeys(order)
+	}
+	entries := make([]sortEntry, len(items))
+	for i, m := range items {
+		entries[i] = sortEntry{m: m, pos: i}
+		switch v := m.sv; {
+		case !text || v == nil:
+		case c.holds(v):
+			entries[i].key = keys[v.pos]
+		default:
+			entries[i].key = sortCollationKey(v.text(order))
 		}
-		h.applySortColumn(m, order, spec)
+	}
+	slices.SortFunc(entries, func(a, b sortEntry) int {
+		if c := compareRows(&a, &b, order, spec); c != 0 {
+			return c
+		}
+		return cmp.Compare(a.pos, b.pos)
+	})
+	for i := range entries {
+		items[i] = entries[i].m
+	}
+}
+
+// applySortColumns gives sorted rows the sort's second column and the
+// request's context track type in argument 7, as rekordbox's sorted rows
+// carry.
+func (h *Handler) applySortColumns(c *trackRows, items []*menuItem, order uint32, spec sortSpec) {
+	for _, m := range items {
+		applySortColumn(c, m, order, spec)
 	}
 	markContextType(items, h.ctxTrackType)
+}
 
-	// less orders two rows by the sort's own field, reporting whether it
-	// decided (false, false when the field ties).
-	less := func(a, b *menuItem) (bool, bool) {
-		va, vb := a.sv, b.sv
-		if va == nil || vb == nil {
-			return false, false
-		}
-		switch spec.kind {
-		case sortTitleOrd:
-			if texts[a] != texts[b] {
-				return texts[a] < texts[b], true
-			}
-		case sortText:
-			ta, tb := texts[a], texts[b]
-			if (ta == "") != (tb == "") {
-				return tb == "", true // empty last
-			}
-			if ta != tb {
-				return ta < tb, true
-			}
-		case sortNumber:
-			na, nb := va.number(order), vb.number(order)
-			if order == 15 && (na == 0) != (nb == 0) {
-				return nb == 0, true // uncoloured last
-			}
-			if na != nb {
-				if spec.desc {
-					return na > nb, true
-				}
-				return na < nb, true
-			}
-		case sortTempo:
-			if (va.tempo == 0) != (vb.tempo == 0) {
-				return vb.tempo == 0, true // no tempo last
-			}
-			if va.tempo != vb.tempo {
-				return va.tempo < vb.tempo, true
-			}
-		case sortTone:
-			if a.newKeyID != b.newKeyID {
-				return a.newKeyID < b.newKeyID, true // keyless (0) first
-			}
-		case sortDate:
-			if (va.dateAdded == "") != (vb.dateAdded == "") {
-				return vb.dateAdded == "", true // undated last
-			}
-			if va.dateAdded != vb.dateAdded {
-				return va.dateAdded > vb.dateAdded, true
-			}
-		}
-		return false, false
+// compareRows orders two rows by a sort's own field: negative when a comes
+// first, positive when b does, and 0 when the field ties.
+func compareRows(a, b *sortEntry, order uint32, spec sortSpec) int {
+	va, vb := a.m.sv, b.m.sv
+	if va == nil || vb == nil {
+		return 0
 	}
-	sort.SliceStable(items, func(i, j int) bool {
-		l, _ := less(items[i], items[j])
-		return l
-	})
+	// last orders a row whose field is missing after one whose isn't.
+	last := func(aMissing bool) int {
+		if aMissing {
+			return 1
+		}
+		return -1
+	}
+	switch spec.kind {
+	case sortTitleOrd:
+		return strings.Compare(a.key, b.key)
+	case sortText:
+		if (a.key == "") != (b.key == "") {
+			return last(a.key == "") // empty last
+		}
+		return strings.Compare(a.key, b.key)
+	case sortNumber:
+		na, nb := va.number(order), vb.number(order)
+		if order == 15 && (na == 0) != (nb == 0) {
+			return last(na == 0) // uncoloured last
+		}
+		if spec.desc {
+			return cmp.Compare(nb, na)
+		}
+		return cmp.Compare(na, nb)
+	case sortTempo:
+		if (va.tempo == 0) != (vb.tempo == 0) {
+			return last(va.tempo == 0) // no tempo last
+		}
+		return cmp.Compare(va.tempo, vb.tempo)
+	case sortTone:
+		return cmp.Compare(a.m.newKeyID, b.m.newKeyID) // keyless (0) first
+	case sortDate:
+		if (va.dateAdded == "") != (vb.dateAdded == "") {
+			return last(va.dateAdded == "") // undated last
+		}
+		return strings.Compare(vb.dateAdded, va.dateAdded) // newest first
+	}
+	return 0
 }
 
 // applySortColumn gives a sorted row the sort's second column: its type,
 // label, and argument 0 (the sort's number, or 0 for text and dates).
-func (h *Handler) applySortColumn(m *menuItem, order uint32, spec sortSpec) {
+func applySortColumn(c *trackRows, m *menuItem, order uint32, spec sortSpec) {
 	v := m.sv
 	if v == nil {
 		return
@@ -341,19 +379,31 @@ func (h *Handler) applySortColumn(m *menuItem, order uint32, spec sortSpec) {
 		}
 	case sortTempo:
 		m.ParentID = uint32(v.tempo)
-		m.Label2 = fmt.Sprintf("%.1f bpm", float64(v.tempo)/100)
-		if key := m.sortKey; key != "" {
-			m.Label2 += " - " + key
-		}
+		m.Label2 = c.tempoLabel(m)
 	case sortTone:
 		if m.newKeyID > 0 {
 			m.ParentID = m.newKeyID - 1
 		}
-		m.Label2 = m.sortKey
-		if v.tempo != 0 {
-			m.Label2 = fmt.Sprintf("%s - %.1f bpm", m.sortKey, math.Abs(float64(v.tempo))/100)
-		}
+		m.Label2 = c.toneLabel(m)
 	case sortDate:
 		m.Label2 = v.dateAdded
 	}
+}
+
+// formatTempoLabel formats a row's BPM-sort label, "<bpm> bpm - <key>".
+func formatTempoLabel(m *menuItem) string {
+	label := fmt.Sprintf("%.1f bpm", float64(m.sv.tempo)/100)
+	if key := m.sortKey; key != "" {
+		label += " - " + key
+	}
+	return label
+}
+
+// formatToneLabel formats a row's KEY-sort label, "<key> - <bpm> bpm", or
+// the key alone for a track with no tempo.
+func formatToneLabel(m *menuItem) string {
+	if m.sv.tempo == 0 {
+		return m.sortKey
+	}
+	return fmt.Sprintf("%s - %.1f bpm", m.sortKey, math.Abs(float64(m.sv.tempo))/100)
 }

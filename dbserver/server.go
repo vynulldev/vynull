@@ -142,6 +142,8 @@ type Server struct {
 	// recent holds the list each request context last queried, which
 	// rekordbox keeps for the whole server (recentlists.go).
 	recent recentLists
+	// rows holds the library's prebuilt track rows (trackrows.go).
+	rows rowCache
 	// Clock names a new Link history after its day (optional; nil uses
 	// time.Now). The conformance server pins it.
 	Clock        func() time.Time
@@ -470,6 +472,7 @@ func (s *Server) handleSession(ctx context.Context, conn net.Conn) {
 		playlists:    s.Playlists,
 		history:      &s.history,
 		recent:       &s.recent,
+		rowCache:     &s.rows,
 		clock:        s.Clock,
 		menu:         s.Menu,
 		cues:         s.Cues,

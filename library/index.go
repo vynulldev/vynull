@@ -488,17 +488,22 @@ func (l *Library) AdoptArtwork(trackID uint32, mimeType string, data []byte) {
 
 // SetArtwork records an extracted artwork ID for a track and marks it checked,
 // under the library lock — so lazy artwork extraction (which runs on request
-// goroutines) doesn't race the Save() that marshals the track list.
+// goroutines) doesn't race the Save() that marshals the track list. It then
+// saves the library, which moves the revision, so the rows the dbserver
+// prebuilds pick up the artwork. The saves are coalesced, so scrolling the
+// web UI's ART column doesn't rewrite library.json per row.
 func (l *Library) SetArtwork(trackID, artID uint32) {
 	l.mu.Lock()
-	defer l.mu.Unlock()
 	t := l.byID[trackID]
-	if t == nil {
-		return
+	if t != nil {
+		t.ArtChecked = true
+		if artID != 0 {
+			t.ArtID = artID
+		}
 	}
-	t.ArtChecked = true
-	if artID != 0 {
-		t.ArtID = artID
+	l.mu.Unlock()
+	if t != nil {
+		l.Save()
 	}
 }
 
