@@ -7,6 +7,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"io"
 	"log"
 	"net"
 	"os"
@@ -658,7 +659,9 @@ func (s *Server) nfsRead(hdr *rpcHeader) []byte {
 
 	data := make([]byte, count)
 	n, err := f.ReadAt(data, int64(offset))
-	if n == 0 && err != nil {
+	// A read at or past the end of the file is answered with no data, as NFS
+	// servers do: a deck reads exactly at the end of a WAV.
+	if n == 0 && err != nil && err != io.EOF {
 		log.Printf("nfs: READ %s offset=%d count=%d error=%v", path, offset, count, err)
 		w := buildRPCReply(hdr.XID)
 		w.putU32(nfsIO)

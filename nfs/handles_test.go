@@ -72,3 +72,53 @@ func TestReadAfterFileReplaced(t *testing.T) {
 		t.Errorf("read after replacing: %d bytes, %v; want the new file's %d", len(got), err, len(second))
 	}
 }
+
+// TestReadAtEndOfFile reads at and past the end of a file, as a deck does at
+// the end of a WAV: the reply is success with no data, not an I/O error, and
+// a read crossing the end returns the bytes before it.
+func TestReadAtEndOfFile(t *testing.T) {
+	root := t.TempDir()
+	content := bytes.Repeat([]byte("wav "), 1000)
+	if err := os.WriteFile(filepath.Join(root, "track.wav"), content, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	srv := NewServer(root)
+	c := newClient(net.IPv4(127, 0, 0, 1), time.Second)
+	c.transport = serverTransport(t, srv, &Portmapper{mountPort: mountPortNum, nfsPort: nfsPortNum})
+	if err := c.resolvePorts(); err != nil {
+		t.Fatal(err)
+	}
+	dir, err := c.mount("/C/")
+	if err != nil {
+		t.Fatal(err)
+	}
+	fh, attr, err := c.lookup(dir, "track.wav")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, off := range []uint32{attr.Size, attr.Size + 100} {
+		if got, err := c.read(fh, off, 2048); err != nil || len(got) != 0 {
+			t.Errorf("read at %d of a %d-byte file: %d bytes, %v; want none, no error", off, attr.Size, len(got), err)
+		}
+	}
+	if got, err := c.read(fh, attr.Size-10, 2048); err != nil || !bytes.Equal(got, content[len(content)-10:]) {
+		t.Errorf("read crossing the end: %q, %v; want the last 10 bytes", got, err)
+	}
+}
+
+// TestTranscodedReadAtEnd checks a read at or past the end of a transcoded
+// file gets no data rather than an error.
+func TestTranscodedReadAtEnd(t *testing.T) {
+	tc := newFlacTranscoder()
+	w := tc.getOrCreate("/music/track.flac")
+	w.once.Do(func() {}) // transcoded already
+	w.data = []byte("mp3 data")
+	for _, off := range []uint32{8, 20} {
+		if got, err := tc.ReadAt("/music/track.flac", off, 2048); err != nil || len(got) != 0 {
+			t.Errorf("read at %d of 8 bytes: %q, %v; want none, no error", off, got, err)
+		}
+	}
+	if got, err := tc.ReadAt("/music/track.flac", 4, 2048); err != nil || string(got) != "data" {
+		t.Errorf("read crossing the end: %q, %v; want \"data\"", got, err)
+	}
+}
