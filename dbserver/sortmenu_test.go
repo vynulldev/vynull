@@ -125,15 +125,21 @@ func TestSortMenuRows(t *testing.T) {
 	}
 }
 
-// Text sorts ignore case, accents, spaces and punctuation, and put digits
-// after letters; text not starting with a letter (a digit, a symbol or a
-// space) sorts after all text that does, as rekordbox's do.
+// Text sorts ignore case and accents and put letters first, then digits, then
+// every other character, spaces and punctuation included, by code point. The
+// runs below follow the patterns of the ARTIST, GENRE and LABEL lists a
+// CDJ-2000NXS2 got from rekordbox 7, with made-up names.
 func TestSortCollationKey(t *testing.T) {
-	ordered := []string{"ABC", "About Damn Time", "A380 (Extended)", "Café", "cafe z", "Zebra", " HTE Recordings", "(What's the Story)", "2mysoul"}
-	for i := 1; i < len(ordered); i++ {
-		a, b := sortCollationKey(ordered[i-1]), sortCollationKey(ordered[i])
-		if a > b {
-			t.Errorf("%q sorts after %q", ordered[i-1], ordered[i])
+	for _, ordered := range [][]string{
+		{"Rio & Vale", "Rio & Vale ft Ama Sol", "Rio & Vale with Nell", "Rio & Vale, Kade, Lumen", "Rio & Vale, Mara Quill"},
+		{"Afro Funk", "Ambient", "Ambient & Drone", "A Side", "Breaks", "Breaks Jazz"},
+		{"Axis Deep", "A sound of Mars", "1999", "2nd Street", "45 Degrees", " Aurora (Sublabel)", " Kite Records"},
+		{"ABC", "About Nothing", "A380 (Extended)", "Café", "cafe z", "Zebra", "2 Step", "(Untitled)"},
+	} {
+		for i := 1; i < len(ordered); i++ {
+			if a, b := sortCollationKey(ordered[i-1]), sortCollationKey(ordered[i]); a > b {
+				t.Errorf("%q sorts after %q", ordered[i-1], ordered[i])
+			}
 		}
 	}
 }

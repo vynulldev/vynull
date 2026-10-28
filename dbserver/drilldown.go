@@ -359,7 +359,7 @@ func (h *Handler) getTracksForLabelArtistAlbum(labelID, artistID, albumID uint32
 	items := c.copyRows(c.filter(func(t *library.Track, ids *catIDs) bool {
 		return t.Label != "" && ids.label == labelID && matchesID(artistID, ids.artist) && matchesID(albumID, ids.album)
 	}))
-	sortItems(items, sortTitle)
+	h.orderByTitle(items)
 	markContextType(items, h.ctxTrackType)
 	return items
 }
@@ -462,7 +462,7 @@ func (h *Handler) handleGetTracksByKey(msg *proto.DBMessage) []*proto.DBMessage 
 		}
 	}
 	items := c.copyRows(idx)
-	sortItems(items, sortTitle)
+	h.orderByTitle(items)
 	dlog.Debugf("dbserver: tracks for key index %d dist=%d returning %d tracks", keyIndex, distance, len(items))
 	return h.countReply(msg, items)
 }
@@ -526,7 +526,7 @@ func (h *Handler) handleGetByArtist(msg *proto.DBMessage) []*proto.DBMessage {
 			})
 		}
 	}
-	sortItems(items[1:], sortTitle)
+	orderByName(items[1:])
 	dlog.Debugf("dbserver: get by artist %q returning %d albums", artistName, len(items))
 	return h.countReply(msg, items)
 }
@@ -547,14 +547,17 @@ func (h *Handler) handleGetTracksByAlbum(msg *proto.DBMessage) []*proto.DBMessag
 		return matchesID(artistID, ids.artist) && matchesID(albumID, ids.album)
 	})
 	items := c.copyRows(idx)
-	// A specific album is album scope (track number in arg 9); spanning all
-	// albums is artist scope (arg 9 stays 0).
+	// A specific album is album scope: track number in arg 9, and tracks in
+	// track-number order, as rekordbox lists an album. Spanning all albums is
+	// artist scope (arg 9 stays 0, title order).
 	if albumID != 0xffffffff {
 		for i, p := range idx {
 			items[i].trackPos = uint32(c.tracks[p].TrackNum)
 		}
+		h.orderByTrackNumber(items)
+	} else {
+		h.orderByTitle(items)
 	}
-	sortItems(items, sortTitle)
 	markContextType(items, h.ctxTrackType)
 	dlog.Debugf("dbserver: get tracks by album (0x1202) returning %d tracks", len(items))
 	return h.countReply(msg, items)
@@ -573,10 +576,13 @@ func (h *Handler) handleGetByAlbum(msg *proto.DBMessage) []*proto.DBMessage {
 	}
 	tracks := h.lib.TracksByAlbum(albumName)
 	items := h.tracksToStdItems(tracks)
-	for i, t := range tracks { // album scope puts the track number in arg 9
+	// Album scope: the track number in arg 9, and tracks in track-number
+	// order, as rekordbox lists an album (checked against a real rekordbox's
+	// ALBUM lists).
+	for i, t := range tracks {
 		items[i].trackPos = uint32(t.TrackNum)
 	}
-	sortItems(items, sortTitle)
+	h.orderByTrackNumber(items)
 	markContextType(items, h.ctxTrackType)
 	dlog.Debugf("dbserver: get by album %q returning %d tracks", albumName, len(items))
 	return h.countReply(msg, items)
@@ -607,7 +613,7 @@ func (h *Handler) getTracksForGenreArtistAlbum(genreID, artistID, albumID uint32
 	items := c.copyRows(c.filter(func(t *library.Track, ids *catIDs) bool {
 		return t.Genre != "" && ids.genre == genreID && matchesID(artistID, ids.artist) && matchesID(albumID, ids.album)
 	}))
-	sortItems(items, sortTitle)
+	h.orderByTitle(items)
 	markContextType(items, h.ctxTrackType)
 	return items
 }
@@ -667,7 +673,8 @@ func (h *Handler) albumsForArtistLike(id uint32, field func(*library.Track, *cat
 
 // tracksForArtistLikeAlbum returns tracks with the given remixer/original
 // artist, optionally narrowed to one album (0xffffffff = all albums). A
-// specific album is album scope (track number in arg 9); all albums is not.
+// specific album is album scope (track number in arg 9, track-number order);
+// all albums is not (title order).
 func (h *Handler) tracksForArtistLikeAlbum(id, albumID uint32, field func(*library.Track, *catIDs) (string, uint32)) []*menuItem {
 	c := h.trackRows()
 	idx := c.filter(func(t *library.Track, ids *catIDs) bool {
@@ -679,8 +686,10 @@ func (h *Handler) tracksForArtistLikeAlbum(id, albumID uint32, field func(*libra
 		for i, p := range idx {
 			items[i].trackPos = uint32(c.tracks[p].TrackNum)
 		}
+		h.orderByTrackNumber(items)
+	} else {
+		h.orderByTitle(items)
 	}
-	sortItems(items, sortTitle)
 	markContextType(items, h.ctxTrackType)
 	return items
 }
@@ -774,7 +783,7 @@ func (h *Handler) handleGetMatching(msg *proto.DBMessage) []*proto.DBMessage {
 		items[i].trackPos = uint32(t.TrackNum)
 	}
 	if !computed {
-		sortItems(items, sortTitle) // rekordbox's pairs, title-sorted as rekordbox serves them
+		h.orderByTitle(items) // rekordbox's pairs, title-sorted as rekordbox serves them
 	} // computed suggestions stay best-first
 	dlog.Debugf("dbserver: matching for track %d returning %d tracks", srcID, len(items))
 	return h.countReply(msg, items)

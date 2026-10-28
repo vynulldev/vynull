@@ -41,7 +41,7 @@ func (h *Handler) handleGetArtists(msg *proto.DBMessage) []*proto.DBMessage {
 			ItemType: 0x07,
 		}
 	}
-	sortItems(items, sortTitle) // artists always sorted by name
+	orderByName(items)
 	dlog.Debugf("dbserver: get artists returning %d items", len(items))
 	return h.countReply(msg, items)
 }
@@ -56,7 +56,7 @@ func (h *Handler) handleGetAlbums(msg *proto.DBMessage) []*proto.DBMessage {
 			ItemType: 0x02,
 		}
 	}
-	sortItems(items, sortTitle) // albums always sorted by name
+	orderByName(items)
 	dlog.Debugf("dbserver: get albums returning %d items", len(items))
 	return h.countReply(msg, items)
 }
@@ -71,6 +71,7 @@ func (h *Handler) handleGetGenres(msg *proto.DBMessage) []*proto.DBMessage {
 			ItemType: 0x06, // genre
 		}
 	}
+	orderByName(items)
 	dlog.Debugf("dbserver: get genres returning %d items", len(items))
 	return h.countReply(msg, items)
 }
@@ -400,7 +401,7 @@ func (h *Handler) handleGetFilename(msg *proto.DBMessage) []*proto.DBMessage {
 		// context track type in arg 7.
 		m.Label1 = baseName(c.tracks[i].FilePath)
 	}
-	sort.Slice(items, func(i, j int) bool { return items[i].Label1 < items[j].Label1 })
+	orderByName(items)
 	dlog.Debugf("dbserver: FILENAME list returning %d items", len(items))
 	return h.countReply(msg, items)
 }
@@ -444,7 +445,7 @@ func (h *Handler) handleGetLabels(msg *proto.DBMessage) []*proto.DBMessage {
 			})
 		}
 	}
-	sortItems(items, sortTitle)
+	orderByName(items)
 	dlog.Debugf("dbserver: get labels returning %d items", len(items))
 	return h.countReply(msg, items)
 }
@@ -465,7 +466,7 @@ func (h *Handler) handleGetRemixers(msg *proto.DBMessage) []*proto.DBMessage {
 			ID: h.catID("remixer", name), Label1: name, ItemType: 0x29,
 		})
 	}
-	sortItems(items, sortTitle)
+	orderByName(items)
 	dlog.Debugf("dbserver: get remixers returning %d items", len(items))
 	return h.countReply(msg, items)
 }
@@ -486,7 +487,7 @@ func (h *Handler) handleGetOriginalArtists(msg *proto.DBMessage) []*proto.DBMess
 			ID: h.catID("origartist", name), Label1: name, ItemType: 0x28,
 		})
 	}
-	sortItems(items, sortTitle)
+	orderByName(items)
 	dlog.Debugf("dbserver: get original artists returning %d items", len(items))
 	return h.countReply(msg, items)
 }
