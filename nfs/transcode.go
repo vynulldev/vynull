@@ -146,10 +146,16 @@ func (t *mp3Transcoder) evictLocked(keep *mp3File) {
 	}
 }
 
-// ffmpegToMP3 converts a file to a 320 kbps MP3.
+// ffmpegToMP3 converts a file to a 320 kbps MP3. Cover art is left out
+// (-vn): written to a pipe, ffmpeg can't go back to fill in the size of an
+// ID3 tag holding a picture, so the tag claimed to be empty while megabytes
+// of picture came before the audio, which a deck reads through 2 KB at a
+// time before it can play (3 to 5 s on a load). Decks get the art from the
+// dbserver.
 func ffmpegToMP3(path string) ([]byte, error) {
 	return ffmpeg.Run(context.Background(),
 		"-i", path,
+		"-vn",
 		"-f", "mp3",
 		"-acodec", "libmp3lame",
 		"-b:a", "320k",

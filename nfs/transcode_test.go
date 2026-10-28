@@ -8,12 +8,15 @@ import (
 	"errors"
 	"net"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/vynulldev/vynull/internal/ffmpeg"
 )
 
 // fakeTranscoder is an mp3Transcoder whose conversions return size bytes of
@@ -242,6 +245,41 @@ func TestTranscodeDoesNotHoldUpReads(t *testing.T) {
 	releaseOnce.Do(func() { close(release) })
 	if r := <-looked; r.err != nil || r.size != 5000 {
 		t.Errorf("lookup after the conversion: size %d, %v; want the MP3's 5000", r.size, r.err)
+	}
+}
+
+// TestMP3LeavesOutCoverArt converts a FLAC with cover art: the MP3's ID3 tag
+// must say how long it is, with the audio right after it, and carry no
+// picture. Without -vn the tag claims to be empty and the picture follows.
+func TestMP3LeavesOutCoverArt(t *testing.T) {
+	if _, err := exec.LookPath("ffmpeg"); err != nil {
+		t.Skip("ffmpeg not on PATH")
+	}
+	dir := t.TempDir()
+	cover, flac := filepath.Join(dir, "cover.jpg"), filepath.Join(dir, "track.flac")
+	ctx := context.Background()
+	if _, err := ffmpeg.Run(ctx, "-f", "lavfi", "-i", "color=c=red:s=600x600:d=0.04", "-frames:v", "1", cover); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ffmpeg.Run(ctx, "-f", "lavfi", "-i", "sine=frequency=440:duration=2", "-i", cover,
+		"-map", "0:a", "-map", "1:v", "-c:a", "flac", "-c:v", "copy", "-disposition:v", "attached_pic", flac); err != nil {
+		t.Fatal(err)
+	}
+
+	mp3, err := ffmpegToMP3(flac)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(mp3) < 10 || string(mp3[:3]) != "ID3" {
+		t.Fatalf("MP3 starts %x; want an ID3 tag", mp3[:min(len(mp3), 10)])
+	}
+	s := mp3[6:10] // syncsafe size, after the 10-byte header
+	audio := 10 + (int(s[0])<<21 | int(s[1])<<14 | int(s[2])<<7 | int(s[3]))
+	if audio+2 > len(mp3) || mp3[audio] != 0xff || mp3[audio+1]&0xe0 != 0xe0 {
+		t.Errorf("no MPEG frame right after the %d-byte tag (%x)", audio, mp3[audio:min(len(mp3), audio+4)])
+	}
+	if bytes.Contains(mp3, []byte("APIC")) {
+		t.Error("the MP3 carries the cover art")
 	}
 }
 
