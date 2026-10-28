@@ -794,8 +794,8 @@ func (s *Server) putFAttr(w *xdrWriter, info os.FileInfo, path string) {
 		// Transcoded file: no os.FileInfo, get size from transcoder.
 		ftype = nfTypeReg
 		mode = 0x8000
-		if mp3Size, err := s.transcoder.Size(path); err == nil {
-			fileSize = mp3Size
+		if size, err := s.transcoder.Size(path); err == nil {
+			fileSize = size
 		}
 	} else if info == nil {
 		// No info and no transcode — try stat directly.
@@ -816,8 +816,8 @@ func (s *Server) putFAttr(w *xdrWriter, info os.FileInfo, path string) {
 		fileSize = info.Size()
 		mtime = uint32(info.ModTime().Unix())
 		if !noTranscode && NeedsTranscode(path) {
-			if mp3Size, err := s.transcoder.Size(path); err == nil {
-				fileSize = mp3Size
+			if size, err := s.transcoder.Size(path); err == nil {
+				fileSize = size
 			}
 		}
 	}

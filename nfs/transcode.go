@@ -4,7 +4,11 @@ package nfs
 
 import (
 	"context"
+	"fmt"
+	"io"
 	"log"
+	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -17,6 +21,12 @@ import (
 // with --transcode (Server.Transcode). The CDJ's NFS client has a 4-byte read
 // alignment bug at 2048-byte read sizes that corrupts lossless streams; MP3
 // tolerates it, since its decoder can resync on frame boundaries.
+//
+// A file is converted in the background from its first LOOKUP. The MP3's
+// size is known before the conversion starts (mp3Size), so the LOOKUP is
+// answered at once and each READ waits only for the bytes it asks for. A
+// deck gives up on a file it has had no answer about for 25 s, and an hour
+// of FLAC takes about 36 s to convert, where its first bytes take 50 ms.
 
 // maxTranscodedBytes bounds the MP3s kept in memory. A 320 kbps MP3 takes
 // 2.4 MB a minute, so this holds well over an hour of music. The least
@@ -28,34 +38,41 @@ const maxTranscodedBytes = 256 << 20
 // would wait for it to be converted again (minutes, for a long mix).
 const keepReadFor = 30 * time.Minute
 
-// mp3Transcoder converts files to MP3, once each, and keeps the results
-// within a byte budget.
+// mp3Transcoder converts files to MP3 in the background, once each, and
+// keeps the results within a byte budget.
 type mp3Transcoder struct {
-	convert func(path string) ([]byte, error) // ffmpegToMP3, or a test's
-	now     func() time.Time                  // time.Now, or a test's
-	max     int                               // byte budget (maxTranscodedBytes)
-	keepFor time.Duration                     // keepReadFor
+	start   func(path string) (size int, mp3 io.ReadCloser, err error) // startMP3, or a test's
+	now     func() time.Time                                           // time.Now, or a test's
+	max     int                                                        // byte budget (maxTranscodedBytes)
+	keepFor time.Duration                                              // keepReadFor
 
-	mu    sync.Mutex
-	files map[string]*mp3File
-	total int    // bytes of converted MP3s held
-	seq   uint64 // read counter, for least-recently-read eviction
+	mu      sync.Mutex
+	files   map[string]*mp3File
+	total   int            // bytes of converted MP3s held
+	seq     uint64         // read counter, for least-recently-read eviction
+	running sync.WaitGroup // conversions running (tests wait for them)
 }
 
-// mp3File is a file's MP3, converted on first use. Once converted, data is
-// never changed, so a reader holding the file can keep reading it after the
-// transcoder has dropped it.
+// mp3File is a file's MP3, converted in the background. Once written, a
+// byte is never changed, so a reader can keep the bytes it was given while
+// the conversion goes on, or after the transcoder has dropped the file.
 type mp3File struct {
-	once     sync.Once
-	data     []byte
-	err      error
+	// Guarded by the transcoder's mu.
 	lastRead uint64    // t.seq at the last read
 	readAt   time.Time // t.now() at the last read
+	held     int       // bytes counted in t.total, once converted
+
+	mu   sync.Mutex
+	cond sync.Cond // on mu: broadcast as the MP3 grows, its size is known, or it ends
+	size int       // the MP3's size: -1 until known
+	data []byte    // the MP3 so far
+	done bool
+	err  error
 }
 
 func newMP3Transcoder() *mp3Transcoder {
 	return &mp3Transcoder{
-		convert: ffmpegToMP3,
+		start:   startMP3,
 		now:     time.Now,
 		max:     maxTranscodedBytes,
 		keepFor: keepReadFor,
@@ -70,58 +87,150 @@ func NeedsTranscode(path string) bool {
 	return ok && ft.Lossless
 }
 
-// Size returns the size of a file's MP3, converting it if need be.
+// Size returns the size of a file's MP3, starting its conversion if need be.
+// It waits only until the size is known: at once for a file that says how
+// many samples it holds, at the end of the conversion for one that doesn't.
 func (t *mp3Transcoder) Size(path string) (int64, error) {
-	data, err := t.mp3(path)
-	return int64(len(data)), err
+	f := t.file(path)
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for f.size < 0 && !f.done {
+		f.cond.Wait()
+	}
+	if f.size < 0 {
+		return 0, f.err
+	}
+	return int64(f.size), nil
 }
 
-// ReadAt reads from a file's MP3, converting it if need be. A read at or past
-// the end gets no data, as for any file.
+// ReadAt reads from a file's MP3, starting its conversion if need be and
+// waiting for it to reach the bytes asked for. A read at or past the end gets
+// no data, as for any file.
 func (t *mp3Transcoder) ReadAt(path string, offset, count uint32) ([]byte, error) {
-	data, err := t.mp3(path)
-	if err != nil {
-		return nil, err
+	f := t.file(path)
+	start, end := int64(offset), int64(offset)+int64(count)
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for {
+		if f.size >= 0 {
+			size, have := int64(f.size), int64(len(f.data))
+			if start >= size {
+				return nil, nil
+			}
+			if have >= min(end, size) {
+				return f.data[start:min(end, have)], nil
+			}
+		}
+		if f.done {
+			return nil, f.err
+		}
+		f.cond.Wait()
 	}
-	if int(offset) >= len(data) {
-		return nil, nil
-	}
-	end := min(int(offset)+int(count), len(data))
-	return data[offset:end], nil
 }
 
-// mp3 returns a file's MP3, converting it on first use: reads that arrive
-// while it converts wait for that one conversion. A failed conversion isn't
-// kept, so the next read tries again.
-func (t *mp3Transcoder) mp3(path string) ([]byte, error) {
+// file returns path's MP3, starting its conversion if it has none, and
+// counts a read of it.
+func (t *mp3Transcoder) file(path string) *mp3File {
 	t.mu.Lock()
+	defer t.mu.Unlock()
 	f := t.files[path]
 	if f == nil {
-		f = &mp3File{}
+		f = &mp3File{size: -1}
+		f.cond.L = &f.mu
 		t.files[path] = f
+		t.running.Add(1)
+		go t.convert(path, f)
 	}
 	t.seq++
 	f.lastRead, f.readAt = t.seq, t.now()
-	t.mu.Unlock()
+	return f
+}
 
-	f.once.Do(func() {
-		log.Printf("nfs: transcoding to MP3: %s", path)
-		data, err := t.convert(path)
-		t.mu.Lock()
-		defer t.mu.Unlock()
-		f.data, f.err = data, err // under t.mu, which evictLocked reads them under
-		if f.err != nil {
-			log.Printf("nfs: transcode error: %s: %v", path, f.err)
-			if t.files[path] == f {
-				delete(t.files, path)
-			}
-			return
+// convert fills f with path's MP3, then counts it against the budget, or
+// forgets it if the conversion failed, so the next read tries again.
+func (t *mp3Transcoder) convert(path string, f *mp3File) {
+	defer t.running.Done()
+	log.Printf("nfs: transcoding to MP3: %s", path)
+	err := f.fill(t.start, path)
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if err != nil {
+		log.Printf("nfs: transcode error: %s: %v", path, err)
+		if t.files[path] == f {
+			delete(t.files, path)
 		}
-		log.Printf("nfs: transcode complete: %s -> MP3 (%d bytes)", path, len(f.data))
-		t.total += len(f.data)
-		t.evictLocked(f)
-	})
-	return f.data, f.err
+		return
+	}
+	f.held = f.size // fill set it, on this goroutine, and it no longer changes
+	log.Printf("nfs: transcode complete: %s -> MP3 (%d bytes)", path, f.held)
+	t.total += f.held
+	t.evictLocked(f)
+}
+
+// fill starts path's conversion and copies the MP3 into f as it comes,
+// waking the readers waiting for it. An MP3 that comes out longer or shorter
+// than the size predicted is cut or padded with zeros to it, so the size a
+// deck was given stays true.
+func (f *mp3File) fill(start func(string) (int, io.ReadCloser, error), path string) error {
+	size, r, err := start(path)
+	if err != nil {
+		f.finish(err)
+		return err
+	}
+	f.mu.Lock()
+	f.size = size
+	if size >= 0 {
+		f.data = make([]byte, 0, size) // never grown, so bytes handed out stay put
+	}
+	f.cond.Broadcast()
+	f.mu.Unlock()
+
+	extra := 0
+	buf := make([]byte, 64<<10)
+	for {
+		n, rerr := r.Read(buf)
+		if n > 0 {
+			f.mu.Lock()
+			chunk := buf[:n]
+			if size >= 0 {
+				keep := min(n, size-len(f.data))
+				extra += n - keep
+				chunk = chunk[:keep]
+			}
+			f.data = append(f.data, chunk...)
+			f.cond.Broadcast()
+			f.mu.Unlock()
+		}
+		if rerr != nil {
+			if rerr != io.EOF {
+				err = rerr
+			}
+			break
+		}
+	}
+	if cerr := r.Close(); err == nil {
+		err = cerr
+	}
+	if err == nil && size >= 0 && (extra > 0 || len(f.data) < size) {
+		log.Printf("nfs: transcode of %s came out %d bytes, %d predicted; served as %d",
+			path, len(f.data)+extra, size, size)
+		f.mu.Lock()
+		f.data = f.data[:size] // the zeros make() left past len
+		f.mu.Unlock()
+	}
+	f.finish(err)
+	return err
+}
+
+// finish marks f converted (or failed) and wakes its readers.
+func (f *mp3File) finish(err error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if err == nil {
+		f.size = len(f.data)
+	}
+	f.done, f.err = true, err
+	f.cond.Broadcast()
 }
 
 // evictLocked drops the least recently read MP3s while the total is over the
@@ -133,7 +242,7 @@ func (t *mp3Transcoder) evictLocked(keep *mp3File) {
 		var oldPath string
 		var old *mp3File
 		for path, f := range t.files {
-			if f != keep && f.data != nil && f.readAt.Before(readBefore) && (old == nil || f.lastRead < old.lastRead) {
+			if f != keep && f.held > 0 && f.readAt.Before(readBefore) && (old == nil || f.lastRead < old.lastRead) {
 				oldPath, old = path, f
 			}
 		}
@@ -141,24 +250,92 @@ func (t *mp3Transcoder) evictLocked(keep *mp3File) {
 			return
 		}
 		delete(t.files, oldPath)
-		t.total -= len(old.data)
+		t.total -= old.held
 		dlog.Debugf("nfs: dropped the MP3 of %s (%d bytes held)", oldPath, t.total)
 	}
 }
 
-// ffmpegToMP3 converts a file to a 320 kbps MP3. Cover art is left out
-// (-vn): written to a pipe, ffmpeg can't go back to fill in the size of an
-// ID3 tag holding a picture, so the tag claimed to be empty while megabytes
-// of picture came before the audio, which a deck reads through 2 KB at a
-// time before it can play (3 to 5 s on a load). Decks get the art from the
-// dbserver.
-func ffmpegToMP3(path string) ([]byte, error) {
-	return ffmpeg.Run(context.Background(),
+// startMP3 starts converting path to a 320 kbps MP3 with ffmpeg and predicts
+// its size, or -1 for a file that doesn't say how many samples it holds.
+//
+// The MP3 starts right with audio: no ID3 tag, whose size depends on the
+// file's tags, and no cover art (-vn), which written to a pipe came out as a
+// tag claiming to be empty with megabytes of picture after it. Decks get
+// titles and art from the dbserver.
+func startMP3(path string) (int, io.ReadCloser, error) {
+	ctx := context.Background()
+	rate, samples, err := probeSamples(ctx, path)
+	if err != nil {
+		return 0, nil, err
+	}
+	out := mp3Rate(rate)
+	size := -1
+	if samples >= 0 {
+		size = mp3Size((samples*int64(out)+int64(rate)-1)/int64(rate), out)
+	}
+	r, err := ffmpeg.Stream(ctx,
 		"-i", path,
 		"-vn",
+		"-ar", strconv.Itoa(out),
 		"-f", "mp3",
+		"-id3v2_version", "0",
+		"-write_xing", "0",
 		"-acodec", "libmp3lame",
 		"-b:a", "320k",
 		"-",
 	)
+	return size, r, err
+}
+
+// probeSamples returns the sample rate of path's audio and how many samples
+// it holds, or -1 if the file doesn't say (a FLAC written without its
+// length).
+func probeSamples(ctx context.Context, path string) (rate int, samples int64, err error) {
+	out, err := ffmpeg.Probe(ctx, path, "stream=sample_rate,time_base,duration_ts", "default=noprint_wrappers=1")
+	if err != nil {
+		return 0, 0, err
+	}
+	v := map[string]string{}
+	for _, line := range strings.Split(string(out), "\n") {
+		if k, val, ok := strings.Cut(strings.TrimSpace(line), "="); ok {
+			v[k] = val
+		}
+	}
+	rate, err = strconv.Atoi(v["sample_rate"])
+	if err != nil || rate <= 0 {
+		return 0, 0, fmt.Errorf("ffprobe: %s: no sample rate", path)
+	}
+	samples = -1
+	if n, err := strconv.ParseInt(v["duration_ts"], 10, 64); err == nil && v["time_base"] == "1/"+v["sample_rate"] {
+		samples = n
+	}
+	return rate, samples, nil
+}
+
+// mp3Rate is the sample rate a file is converted at: its own if a 320 kbps
+// MP3 can have it (32, 44.1 or 48 kHz), else 44.1 kHz for rates in its family
+// and 48 kHz for the rest, so a resampled file keeps a whole-number ratio
+// and a predictable length.
+func mp3Rate(rate int) int {
+	switch {
+	case rate == 32000 || rate == 44100 || rate == 48000:
+		return rate
+	case rate%11025 == 0:
+		return 44100
+	default:
+		return 48000
+	}
+}
+
+// mp3Size is the size of the MP3 ffmpeg's LAME encoder writes for samples at
+// rate (32, 44.1 or 48 kHz) and 320 kbps, with no tag or Xing frame. It writes
+// ceil(samples/1152)+1 frames (its delay and flush add one). A frame takes
+// 144*320000/rate bytes, a fraction at 44.1 kHz that LAME makes up with a
+// padding byte on each frame where the running remainder wraps, from the
+// second frame on. Checked against ffmpeg for 66 lengths and rates (frame
+// boundaries, mono, 22.05 to 96 kHz) and 12 FLAC, WAV and AIFF files.
+func mp3Size(samples int64, rate int) int {
+	frames := (samples+1151)/1152 + 1
+	base, frac := int64(144*320000/rate), int64(144*320000%rate)
+	return int(frames*base + ((frames-1)*frac+int64(rate)-1)/int64(rate))
 }
