@@ -11,6 +11,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -28,16 +29,23 @@ const (
 // flac handles transparent FLAC→WAV transcoding for NFS serving.
 var flac = newFlacTranscoder()
 
+// fhPrefix is how many leading bytes of a file handle a CDJ leaves alone: it
+// rewrites bytes 12-31 of every handle it sends back, so handles are found by
+// their first 12 bytes.
+const fhPrefix = 12
+
 // fileHandleMap maps opaque 32-byte handles to filesystem paths.
 type fileHandleMap struct {
 	mu       sync.RWMutex
 	toPath   map[[fhSize]byte]string
+	byPrefix map[[fhPrefix]byte]string
 	fromPath map[string][fhSize]byte
 }
 
 func newFileHandleMap() *fileHandleMap {
 	return &fileHandleMap{
 		toPath:   make(map[[fhSize]byte]string),
+		byPrefix: make(map[[fhPrefix]byte]string),
 		fromPath: make(map[string][fhSize]byte),
 	}
 }
@@ -51,17 +59,22 @@ func (m *fileHandleMap) GetOrCreate(path string) [fhSize]byte {
 	}
 
 	fh := sha256.Sum256([]byte(path))
-	m.toPath[fh] = path
-	m.fromPath[path] = fh
+	m.add(fh, path)
 	return fh
+}
+
+// add maps fh to path; the caller holds m.mu.
+func (m *fileHandleMap) add(fh [fhSize]byte, path string) {
+	m.toPath[fh] = path
+	m.byPrefix[[fhPrefix]byte(fh[:fhPrefix])] = path
+	m.fromPath[path] = fh
 }
 
 // Register maps a specific file handle to a path (e.g., all-zeros for root).
 func (m *fileHandleMap) Register(fh [fhSize]byte, path string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.toPath[fh] = path
-	m.fromPath[path] = fh
+	m.add(fh, path)
 }
 
 func (m *fileHandleMap) Resolve(fh [fhSize]byte) (string, bool) {
@@ -72,29 +85,149 @@ func (m *fileHandleMap) Resolve(fh [fhSize]byte) (string, bool) {
 }
 
 // ResolveByPrefix matches a file handle by its first 12 bytes.
-// The CDJ modifies bytes 12-31 of file handles with its own data.
+// The CDJ modifies bytes 12-31 of file handles with its own data, so this is
+// how every handle a CDJ sends is found.
 func (m *fileHandleMap) ResolveByPrefix(fh [fhSize]byte) (string, bool) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	for storedFH, path := range m.toPath {
-		match := true
-		for i := 0; i < 12; i++ {
-			if storedFH[i] != fh[i] {
-				match = false
-				break
+	path, ok := m.byPrefix[[fhPrefix]byte(fh[:fhPrefix])]
+	return path, ok
+}
+
+// fileCacheIdleTTL is how long an open file may sit unread before the sweeper
+// closes it. It only needs to be far larger than a single read's duration (ms)
+// so that a file being actively streamed, touched every few ms, is never a
+// close candidate; the race between get() handing out a file and the sweeper
+// closing it cannot happen while reads keep arriving. When the deck finishes a
+// track or unmounts, its files fall idle and are reclaimed within this window.
+const fileCacheIdleTTL = 30 * time.Second
+
+// fileCache keeps audio files open across the hundreds of small NFS READs a
+// track load generates, which opened, stat'ed and closed the file on every
+// one.
+//
+// Files are only ever closed by the idle sweeper, never by a reader, so an
+// *os.File handed out by get is safe to ReadAt without holding any lock
+// (os.File.ReadAt is a pread: it does not touch the shared seek offset, so
+// concurrent reads of the same cached file are fine). A file replaced on disk
+// is retired (see checkCurrent) and closed by the sweeper too. The CDJ reads
+// at most a handful of files at once, so the map stays tiny on its own.
+type fileCache struct {
+	mu      sync.Mutex
+	entries map[string]*cachedFile
+	retired []*cachedFile // replaced on disk; closed once idle
+}
+
+type cachedFile struct {
+	f        *os.File
+	lastUsed time.Time
+}
+
+func newFileCache() *fileCache {
+	return &fileCache{entries: make(map[string]*cachedFile)}
+}
+
+// get returns an open handle for path, opening and caching it on first use.
+// The returned *os.File is owned by the cache; callers must not Close it.
+func (c *fileCache) get(path string) (*os.File, error) {
+	c.mu.Lock()
+	if e := c.entries[path]; e != nil {
+		e.lastUsed = time.Now()
+		f := e.f
+		c.mu.Unlock()
+		return f, nil
+	}
+	c.mu.Unlock()
+
+	// Open outside the lock: on a slow stick this can block, and holding the
+	// lock would serialise every other file's reads behind it.
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+
+	c.mu.Lock()
+	// Another reader may have opened the same path while we were unlocked;
+	// keep the first one and drop our duplicate.
+	if e := c.entries[path]; e != nil {
+		e.lastUsed = time.Now()
+		existing := e.f
+		c.mu.Unlock()
+		f.Close()
+		return existing, nil
+	}
+	c.entries[path] = &cachedFile{f: f, lastUsed: time.Now()}
+	c.mu.Unlock()
+	return f, nil
+}
+
+// checkCurrent retires path's open file when path no longer names it (the
+// file was replaced on disk since it was opened), so the next read opens the
+// new one. info is path's current Stat; LOOKUP and GETATTR, which a deck asks
+// for before it reads a file, pass theirs.
+func (c *fileCache) checkCurrent(path string, info os.FileInfo) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	e := c.entries[path]
+	if e == nil {
+		return
+	}
+	if cur, err := e.f.Stat(); err == nil && os.SameFile(cur, info) {
+		return
+	}
+	delete(c.entries, path)
+	c.retired = append(c.retired, e)
+}
+
+// sweep closes handles idle longer than fileCacheIdleTTL. Runs until ctx ends,
+// then closes everything.
+func (c *fileCache) sweep(ctx context.Context) {
+	t := time.NewTicker(fileCacheIdleTTL / 2)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			c.closeAll()
+			return
+		case <-t.C:
+			now := time.Now()
+			c.mu.Lock()
+			for path, e := range c.entries {
+				if now.Sub(e.lastUsed) > fileCacheIdleTTL {
+					e.f.Close()
+					delete(c.entries, path)
+				}
 			}
-		}
-		if match {
-			return path, true
+			c.retired = slices.DeleteFunc(c.retired, func(e *cachedFile) bool {
+				if now.Sub(e.lastUsed) > fileCacheIdleTTL {
+					e.f.Close()
+					return true
+				}
+				return false
+			})
+			c.mu.Unlock()
 		}
 	}
-	return "", false
+}
+
+func (c *fileCache) closeAll() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	for path, e := range c.entries {
+		e.f.Close()
+		delete(c.entries, path)
+	}
+	for _, e := range c.retired {
+		e.f.Close()
+	}
+	c.retired = nil
 }
 
 // Server implements a minimal read-only NFS v2 server.
 type Server struct {
 	exportRoot string
 	handles    *fileHandleMap
+	files      *fileCache
 	Transcode  bool   // if true, transcode FLAC/WAV/AIFF to MP3
 	IP         net.IP // server's IP for EXPORT response
 
@@ -119,6 +252,7 @@ func NewServer(exportRoot string) *Server {
 	return &Server{
 		exportRoot: exportRoot,
 		handles:    newFileHandleMap(),
+		files:      newFileCache(),
 	}
 }
 
@@ -135,6 +269,9 @@ func (s *Server) Start(ctx context.Context) error {
 			log.Printf("portmapper error: %v", err)
 		}
 	}()
+
+	// Reclaim idle open file handles (and close them all on shutdown).
+	go s.files.sweep(ctx)
 
 	var wg sync.WaitGroup
 
@@ -376,6 +513,7 @@ func (s *Server) nfsGetAttr(hdr *rpcHeader) []byte {
 		w.putU32(nfsNoEnt)
 		return w.bytes()
 	}
+	s.files.checkCurrent(path, info)
 
 	w := buildRPCReply(hdr.XID)
 	w.putU32(nfsOK)
@@ -446,6 +584,7 @@ func (s *Server) nfsLookup(hdr *rpcHeader) []byte {
 		return w.bytes()
 	}
 
+	s.files.checkCurrent(childPath, info)
 	childFH := s.handles.GetOrCreate(childPath)
 
 	w := buildRPCReply(hdr.XID)
@@ -508,13 +647,14 @@ func (s *Server) nfsRead(hdr *rpcHeader) []byte {
 		return w.bytes()
 	}
 
-	f, err := os.Open(path)
+	// Reuse a cached open handle (see fileCache). The handle is owned by the
+	// cache: do not Close it.
+	f, err := s.files.get(path)
 	if err != nil {
 		w := buildRPCReply(hdr.XID)
 		w.putU32(nfsIO)
 		return w.bytes()
 	}
-	defer f.Close()
 
 	data := make([]byte, count)
 	n, err := f.ReadAt(data, int64(offset))
