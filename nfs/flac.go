@@ -4,7 +4,6 @@ package nfs
 
 import (
 	"context"
-	"fmt"
 	"log"
 	"sync"
 
@@ -60,7 +59,7 @@ func (t *flacTranscoder) ReadAt(path string, offset, count uint32) ([]byte, erro
 	}
 
 	if int(offset) >= len(w.data) {
-		return nil, fmt.Errorf("offset %d beyond WAV size %d", offset, len(w.data))
+		return nil, nil // at or past the end: no data, as for any file
 	}
 	end := int(offset) + int(count)
 	if end > len(w.data) {
