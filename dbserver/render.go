@@ -315,10 +315,7 @@ func (h *Handler) setPending(menu uint8, items []*menuItem) {
 }
 
 func (h *Handler) setPendingTxID(txid uint32, items []*menuItem) {
-	if h.pendingByTxID == nil {
-		h.pendingByTxID = make(map[uint32][]*menuItem)
-	}
-	h.pendingByTxID[txid] = items
+	h.lastQuery.txid, h.lastQuery.items = txid, items
 }
 
 func (h *Handler) getPending(menu uint8) []*menuItem {
@@ -329,13 +326,11 @@ func (h *Handler) getPending(menu uint8) []*menuItem {
 }
 
 func (h *Handler) getPendingTxID(txid uint32) []*menuItem {
-	if h.pendingByTxID == nil {
+	if h.lastQuery.txid != txid {
 		return nil
 	}
-	items := h.pendingByTxID[txid]
-	if items != nil {
-		delete(h.pendingByTxID, txid) // consume once rendered
-	}
+	items := h.lastQuery.items
+	h.lastQuery.items = nil // consume once rendered
 	return items
 }
 

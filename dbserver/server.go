@@ -3,6 +3,7 @@
 package dbserver
 
 import (
+	"bufio"
 	"context"
 	"encoding/binary"
 	"encoding/hex"
@@ -482,6 +483,9 @@ func (s *Server) handleSession(ctx context.Context, conn net.Conn) {
 		exportTree:   s.ExportPlaylists,
 	}
 
+	// Requests are read through a buffer: readMessage reads each field on
+	// its own, which unbuffered was a read from the socket per field.
+	rc := bufConn{Conn: conn, r: bufio.NewReader(conn)}
 	for {
 		select {
 		case <-ctx.Done():
@@ -489,7 +493,7 @@ func (s *Server) handleSession(ctx context.Context, conn net.Conn) {
 		default:
 		}
 
-		msg, err := readMessage(conn)
+		msg, err := readMessage(rc)
 		if err != nil {
 			switch {
 			case err == io.EOF || err == io.ErrUnexpectedEOF:
@@ -556,6 +560,15 @@ func (s *Server) handleSession(ctx context.Context, conn net.Conn) {
 		}
 	}
 }
+
+// bufConn is a connection whose reads go through a buffer; deadlines and
+// writes go to the connection itself.
+type bufConn struct {
+	net.Conn
+	r *bufio.Reader
+}
+
+func (c bufConn) Read(p []byte) (int, error) { return c.r.Read(p) }
 
 // errBadFrame marks a request that violates the dbserver framing (bad magic,
 // too many arguments, an unknown field tag, an oversized field). rekordbox
