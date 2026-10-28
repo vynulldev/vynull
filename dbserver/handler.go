@@ -54,10 +54,14 @@ type Handler struct {
 	// transcoded to MP3 (--transcode); see transcoded.
 	transcode bool
 
-	// Pending items keyed by transaction ID.
-	// The CDJ sends a query (which sets pending items), then a render
-	// request with the same txid to fetch the items.
-	pendingByTxID map[uint32][]*menuItem
+	// lastQuery is the last list query's transaction ID and list, for a
+	// render that reuses the query's ID. A CDJ-2000NXS2 renders with the
+	// next ID and gets the list by its menu location (pendingByMenu); a map
+	// of every query's list by ID kept each of them for the whole session.
+	lastQuery struct {
+		txid  uint32
+		items []*menuItem
+	}
 	pendingByMenu map[uint8][]*menuItem // legacy fallback
 	pendingItems  []*menuItem           // legacy fallback
 
