@@ -3,6 +3,7 @@
 package api
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -65,5 +66,56 @@ func TestCORSHeaders(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// TestCORSHeadersEveryRoute checks no handler sets CORS headers of its own:
+// every route's preflight and normal responses carry exactly the
+// middleware's. Handlers used to narrow Allow-Methods and Allow-Headers on
+// their own responses, dropping If-None-Match.
+func TestCORSHeadersEveryRoute(t *testing.T) {
+	h := (&Server{Library: library.New()}).Handler()
+	want := map[string]string{
+		"Access-Control-Allow-Origin":   "*",
+		"Access-Control-Allow-Methods":  "GET, POST, PUT, DELETE, HEAD, OPTIONS",
+		"Access-Control-Allow-Headers":  "Content-Type, If-None-Match",
+		"Access-Control-Expose-Headers": "ETag, X-Audio-Source",
+	}
+	// serve answers one request with its context already ended, so no
+	// handler starts real work. A handler missing a store this bare server
+	// lacks may panic; the CORS headers are set before it runs.
+	serve := func(method, path string) (w *httptest.ResponseRecorder) {
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+		w = httptest.NewRecorder()
+		defer func() { recover() }()
+		h.ServeHTTP(w, httptest.NewRequest(method, path, nil).WithContext(ctx))
+		return w
+	}
+	for _, path := range []string{
+		"/api/status", "/api/version", "/api/peers", "/api/players", "/api/nowplaying",
+		"/api/events", "/api/overlay/config", "/api/history", "/api/load", "/api/link", "/api/unlink",
+		"/api/tracks", "/api/tracks/rev", "/api/tracks/color", "/api/tracks/rating", "/api/tracks/tags",
+		"/api/tracks/add", "/api/tracks/add/status", "/api/tracks/reimport", "/api/fs/list",
+		"/api/tracks/1/metadata", "/api/tracks/1/path", "/api/tracks/1/color", "/api/tracks/1/rating",
+		"/api/tracks/1/tags", "/api/tracks/1/phrases", "/api/tracks/1/beats", "/api/tracks/1/lock",
+		"/api/tracks/1/related",
+		"/api/import/rekordbox", "/api/import/status", "/api/library/remap-paths",
+		"/api/export", "/api/export/preview", "/api/diag", "/api/diag/logs", "/api/diag/status",
+		"/api/audio/1", "/api/analysis/1", "/api/analysis/ext/1/2/3", "/api/analysis/reanalyze/1",
+		"/api/analysis/beatgrid/adjust", "/api/analysis/waveform/1", "/api/analysis/waveform-png/1",
+		"/api/artwork/1", "/api/artwork/ext/1/2/3", "/api/cues", "/api/cues/1",
+		"/api/settings", "/api/settings/enums", "/api/menu-items", "/api/menu-items/reset",
+		"/api/tags", "/api/tags/1", "/api/tag-categories", "/api/tag-categories/1",
+		"/api/playlists", "/api/playlists/1", "/api/hotcuebanks", "/api/hotcuebanks/1",
+	} {
+		for _, method := range []string{http.MethodOptions, http.MethodGet} {
+			w := serve(method, path)
+			for name, value := range want {
+				if got := w.Header().Get(name); got != value {
+					t.Errorf("%s %s: %s = %q, want %q", method, path, name, got, value)
+				}
+			}
+		}
 	}
 }

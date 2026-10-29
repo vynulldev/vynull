@@ -388,12 +388,6 @@ func (s *Server) updateTrack(w http.ResponseWriter, trackID uint32, edit func(*l
 // the whole edit, and artist, album and genre edits keep the library's
 // indexes in step.
 func (s *Server) handleTrackMetadata(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Access-Control-Allow-Origin", "*")
-	w.Header().Set("Access-Control-Allow-Methods", "PUT, POST, OPTIONS")
-	w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
-	if r.Method == "OPTIONS" {
-		return
-	}
 	if s.Library == nil {
 		http.Error(w, "library not available", http.StatusServiceUnavailable)
 		return
@@ -480,12 +474,6 @@ func (s *Server) handleTrackMetadata(w http.ResponseWriter, r *http.Request) {
 // rechecks presence (clearing/setting FileMissing), and refreshes size/type
 // from the new file when it exists.
 func (s *Server) handleTrackPath(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Access-Control-Allow-Origin", "*")
-	w.Header().Set("Access-Control-Allow-Methods", "PUT, POST, OPTIONS")
-	w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
-	if r.Method == "OPTIONS" {
-		return
-	}
 	if s.Library == nil {
 		http.Error(w, "library not available", http.StatusServiceUnavailable)
 		return
@@ -557,12 +545,6 @@ func (s *Server) handleTrackPath(w http.ResponseWriter, r *http.Request) {
 
 // PUT /api/tracks/{id}/color — set track color {color_id: N}
 func (s *Server) handleTrackColor(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Access-Control-Allow-Origin", "*")
-	w.Header().Set("Access-Control-Allow-Methods", "PUT, GET, OPTIONS")
-	w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
-	if r.Method == "OPTIONS" {
-		return
-	}
 	if s.Library == nil {
 		http.Error(w, "library not available", http.StatusServiceUnavailable)
 		return
@@ -612,12 +594,6 @@ func (s *Server) handleTrackColor(w http.ResponseWriter, r *http.Request) {
 
 // PUT /api/tracks/{id}/rating — set track rating {rating: N} (0-5; 0 clears)
 func (s *Server) handleTrackRating(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Access-Control-Allow-Origin", "*")
-	w.Header().Set("Access-Control-Allow-Methods", "PUT, GET, OPTIONS")
-	w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
-	if r.Method == "OPTIONS" {
-		return
-	}
 	if s.Library == nil {
 		http.Error(w, "library not available", http.StatusServiceUnavailable)
 		return

@@ -18,12 +18,6 @@ import (
 // POST /api/analysis/beatgrid/adjust {"track_id": 123, "bpm": 130.00}
 // POST /api/analysis/beatgrid/adjust {"track_id": 123, "set_downbeat_ms": 4975.0}
 func (s *Server) handleBeatGridAdjust(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Access-Control-Allow-Origin", "*")
-	w.Header().Set("Access-Control-Allow-Methods", "POST, OPTIONS")
-	w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
-	if r.Method == "OPTIONS" {
-		return
-	}
 	if r.Method != "POST" {
 		http.Error(w, "POST required", http.StatusMethodNotAllowed)
 		return
@@ -194,12 +188,6 @@ func (s *Server) handleBeatGridAdjust(w http.ResponseWriter, r *http.Request) {
 //	      - beat_phase_shift in 0..3
 //	      - clear: true reverts BPM to detected_bpm and phase to 0
 func (s *Server) handleTrackBeats(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Access-Control-Allow-Origin", "*")
-	w.Header().Set("Access-Control-Allow-Methods", "PUT, GET, OPTIONS")
-	w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
-	if r.Method == "OPTIONS" {
-		return
-	}
 	if s.Library == nil {
 		http.Error(w, "library not available", http.StatusServiceUnavailable)
 		return
@@ -302,12 +290,6 @@ func (s *Server) analysisLocked(trackID uint32) bool {
 // the daemon refuses re-analysis and grid edits (409) and will not auto- or
 // re-analyze the track, so a hand-corrected grid cannot be overwritten.
 func (s *Server) handleTrackLock(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Access-Control-Allow-Origin", "*")
-	w.Header().Set("Access-Control-Allow-Methods", "PUT, GET, OPTIONS")
-	w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
-	if r.Method == "OPTIONS" {
-		return
-	}
 	if s.Library == nil {
 		http.Error(w, "library not available", http.StatusServiceUnavailable)
 		return

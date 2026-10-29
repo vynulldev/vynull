@@ -17,12 +17,6 @@ import (
 // Both also carry the deck's SORT menu as "sorts" ([{id, visible}, ...] in
 // menu order).
 func (s *Server) handleMenuItems(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Access-Control-Allow-Origin", "*")
-	w.Header().Set("Access-Control-Allow-Methods", "GET, PUT, OPTIONS")
-	w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
-	if r.Method == "OPTIONS" {
-		return
-	}
 	if s.Menu == nil {
 		http.Error(w, "menu store not available", http.StatusServiceUnavailable)
 		return
@@ -80,7 +74,6 @@ func (s *Server) handleMenuItems(w http.ResponseWriter, r *http.Request) {
 // POST /api/menu-items/reset → restore default order + visibility
 // (?sorts=1: the SORT menu's instead)
 func (s *Server) handleMenuItemsReset(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Access-Control-Allow-Origin", "*")
 	if r.Method != "POST" {
 		http.Error(w, "POST required", http.StatusMethodNotAllowed)
 		return

@@ -18,12 +18,6 @@ import (
 // GET  /api/playlists           — flat list of every playlist/folder
 // POST /api/playlists           — create {name, parent_id?, is_folder?}
 func (s *Server) handlePlaylists(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Access-Control-Allow-Origin", "*")
-	w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-	w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
-	if r.Method == "OPTIONS" {
-		return
-	}
 	if s.Playlists == nil {
 		http.Error(w, "playlist store not available", http.StatusServiceUnavailable)
 		return
@@ -82,12 +76,6 @@ func (s *Server) handlePlaylists(w http.ResponseWriter, r *http.Request) {
 // GET     /api/playlists/{id}/tracks — track list as []TrackInfo
 // POST    /api/playlists/{id}/tracks — replace tracks {track_ids: [...]}
 func (s *Server) handlePlaylistByID(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Access-Control-Allow-Origin", "*")
-	w.Header().Set("Access-Control-Allow-Methods", "GET, PUT, POST, DELETE, OPTIONS")
-	w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
-	if r.Method == "OPTIONS" {
-		return
-	}
 	if s.Playlists == nil {
 		http.Error(w, "playlist store not available", http.StatusServiceUnavailable)
 		return

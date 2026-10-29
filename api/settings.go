@@ -47,13 +47,6 @@ func (s *Server) syncBPMRange() {
 
 // handleSettings handles GET/POST /api/settings for CDJ display settings.
 func (s *Server) handleSettings(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Access-Control-Allow-Origin", "*")
-	if r.Method == "OPTIONS" {
-		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-		w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
-		return
-	}
-
 	settings := s.Device.Settings
 	if settings == nil {
 		http.Error(w, "settings not available", http.StatusServiceUnavailable)

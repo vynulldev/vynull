@@ -113,12 +113,6 @@ func artworkLookup(lib *library.Library) func(uint32) []byte {
 // Returns 400 for bad input, 404 when the playlist isn't found, 500
 // for any pipeline error.
 func (s *Server) handleExport(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Access-Control-Allow-Origin", "*")
-	w.Header().Set("Access-Control-Allow-Methods", "POST, OPTIONS")
-	w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
-	if r.Method == "OPTIONS" {
-		return
-	}
 	if r.Method != "POST" {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return

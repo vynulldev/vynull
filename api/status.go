@@ -306,7 +306,6 @@ type NowPlaying struct {
 }
 
 func (s *Server) handleNowPlaying(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Access-Control-Allow-Origin", "*")
 	writeJSON(w, nowPlayingFrom(s.getPlayers()))
 }
 
@@ -376,7 +375,6 @@ func betterNowPlaying(a, b *PlayerInfo) bool {
 // browsing our library gets kicked immediately rather than after the
 // next 0x0100 round-trip.
 func (s *Server) handleLink(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Access-Control-Allow-Origin", "*")
 	if s.Device == nil {
 		http.Error(w, "device not available", http.StatusServiceUnavailable)
 		return
@@ -404,7 +402,6 @@ func (s *Server) handleLink(w http.ResponseWriter, r *http.Request) {
 // seconds later via discovery, so this is a soft disconnect — useful when
 // state has gone weird and the simplest fix is to start over.
 func (s *Server) handleUnlink(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Access-Control-Allow-Origin", "*")
 	if r.Method != "POST" {
 		http.Error(w, "POST required", http.StatusMethodNotAllowed)
 		return
