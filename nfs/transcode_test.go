@@ -22,8 +22,8 @@ import (
 )
 
 // mp3Of is a conversion that writes data at once, its size known ahead.
-func mp3Of(data []byte) (int, io.ReadCloser, error) {
-	return len(data), io.NopCloser(bytes.NewReader(data)), nil
+func mp3Of(data []byte) (conversion, error) {
+	return conversion{size: len(data), body: io.NopCloser(bytes.NewReader(data))}, nil
 }
 
 // fakeTranscoder is an mp3Transcoder whose conversions write size bytes of
@@ -36,7 +36,7 @@ func fakeTranscoder(max, size int) (*mp3Transcoder, *atomic.Int32) {
 	var clock time.Time
 	t.now = func() time.Time { clock = clock.Add(time.Second); return clock } // under t.mu
 	var n atomic.Int32
-	t.start = func(path string) (int, io.ReadCloser, error) {
+	t.start = func(path string) (conversion, error) {
 		n.Add(1)
 		return mp3Of(bytes.Repeat([]byte{path[1]}, size))
 	}
@@ -59,7 +59,7 @@ func converted(t *testing.T, tc *mp3Transcoder, path string) int64 {
 // file gets no data rather than an error.
 func TestTranscodedReadAtEnd(t *testing.T) {
 	tc := newMP3Transcoder()
-	tc.start = func(string) (int, io.ReadCloser, error) { return mp3Of([]byte("mp3 data")) }
+	tc.start = func(string) (conversion, error) { return mp3Of([]byte("mp3 data")) }
 	for _, off := range []uint32{8, 20} {
 		if got, err := tc.ReadAt("/music/track.flac", off, 2048); err != nil || len(got) != 0 {
 			t.Errorf("read at %d of 8 bytes: %q, %v; want none, no error", off, got, err)
@@ -97,7 +97,7 @@ func TestTranscodedFilesBounded(t *testing.T) {
 func TestTranscodedFileOverBudget(t *testing.T) {
 	tc, conversions := fakeTranscoder(100, 40)
 	converted(t, tc, "/a.flac")
-	tc.start = func(path string) (int, io.ReadCloser, error) { conversions.Add(1); return mp3Of(make([]byte, 300)) }
+	tc.start = func(path string) (conversion, error) { conversions.Add(1); return mp3Of(make([]byte, 300)) }
 	if size := converted(t, tc, "/m.flac"); size != 300 {
 		t.Fatalf("size %d; want 300", size)
 	}
@@ -118,7 +118,7 @@ func TestTranscodedFileInUseKept(t *testing.T) {
 	tc.max = 100
 	clock := time.Unix(0, 0)
 	tc.now = func() time.Time { return clock }
-	tc.start = func(path string) (int, io.ReadCloser, error) {
+	tc.start = func(path string) (conversion, error) {
 		if path == "/mix.flac" {
 			return mp3Of(make([]byte, 300))
 		}
@@ -162,9 +162,9 @@ func TestTranscodeOnce(t *testing.T) {
 func TestTranscodeFailureRetried(t *testing.T) {
 	tc := newMP3Transcoder()
 	fail := true
-	tc.start = func(string) (int, io.ReadCloser, error) {
+	tc.start = func(string) (conversion, error) {
 		if fail {
-			return 0, nil, errors.New("file busy")
+			return conversion{}, errors.New("file busy")
 		}
 		return mp3Of([]byte("mp3"))
 	}
@@ -183,7 +183,7 @@ func TestTranscodeFailureRetried(t *testing.T) {
 func TestTranscodeStreams(t *testing.T) {
 	tc := newMP3Transcoder()
 	r, w := io.Pipe()
-	tc.start = func(string) (int, io.ReadCloser, error) { return 100, r, nil }
+	tc.start = func(string) (conversion, error) { return conversion{size: 100, body: r}, nil }
 	if size, err := tc.Size("/mix.flac"); err != nil || size != 100 {
 		t.Fatalf("size %d, %v; want 100 before any of it is converted", size, err)
 	}
@@ -212,14 +212,46 @@ func TestTranscodeStreams(t *testing.T) {
 	}
 }
 
+// TestTranscodeTailAtOnce checks a read within an MP3's tail is answered
+// before the body is converted, as a deck's first read (the last 160 bytes)
+// must be, and a read reaching into the body waits for it.
+func TestTranscodeTailAtOnce(t *testing.T) {
+	tc := newMP3Transcoder()
+	r, w := io.Pipe()
+	tail := []byte("0123456789")
+	tc.start = func(string) (conversion, error) { return conversion{size: 100, body: r, tail: tail}, nil }
+	if got, err := tc.ReadAt("/mix.flac", 92, 160); err != nil || string(got) != "23456789" {
+		t.Fatalf("read within the tail: %q, %v; want the tail's last 8 bytes at once", got, err)
+	}
+
+	later := make(chan string, 1)
+	go func() {
+		got, err := tc.ReadAt("/mix.flac", 85, 10)
+		later <- fmt.Sprintf("%s %v", got, err)
+	}()
+	select {
+	case got := <-later:
+		t.Fatalf("read reaching into the body answered %q before it was converted", got)
+	case <-time.After(50 * time.Millisecond):
+	}
+	w.Write(bytes.Repeat([]byte("b"), 90))
+	w.Close()
+	if got := <-later; got != "bbbbb01234 <nil>" {
+		t.Errorf("read across body and tail: %q", got)
+	}
+	if got, _ := tc.ReadAt("/mix.flac", 0, 200); len(got) != 100 || !bytes.HasSuffix(got, tail) {
+		t.Errorf("whole MP3: %d bytes ending %q; want 100 ending with the tail", len(got), got[max(0, len(got)-10):])
+	}
+}
+
 // TestTranscodeKeepsPredictedSize checks an MP3 that comes out shorter or
 // longer than predicted is served at the predicted size, padded with zeros
 // or cut, since decks were told that size.
 func TestTranscodeKeepsPredictedSize(t *testing.T) {
 	for _, wrote := range []int{30, 50} {
 		tc := newMP3Transcoder()
-		tc.start = func(string) (int, io.ReadCloser, error) {
-			return 40, io.NopCloser(bytes.NewReader(bytes.Repeat([]byte("m"), wrote))), nil
+		tc.start = func(string) (conversion, error) {
+			return conversion{size: 40, body: io.NopCloser(bytes.NewReader(bytes.Repeat([]byte("m"), wrote)))}, nil
 		}
 		got, err := tc.ReadAt("/a.flac", 0, 100)
 		want := append(bytes.Repeat([]byte("m"), min(wrote, 40)), make([]byte, 40-min(wrote, 40))...)
@@ -237,7 +269,7 @@ func TestTranscodeKeepsPredictedSize(t *testing.T) {
 func TestTranscodeSizeUnknown(t *testing.T) {
 	tc := newMP3Transcoder()
 	r, w := io.Pipe()
-	tc.start = func(string) (int, io.ReadCloser, error) { return -1, r, nil }
+	tc.start = func(string) (conversion, error) { return conversion{size: -1, body: r}, nil }
 	sized := make(chan int64, 1)
 	go func() {
 		size, _ := tc.Size("/a.flac")
@@ -280,7 +312,7 @@ func TestTranscodeDoesNotHoldUpReads(t *testing.T) {
 	started, release := make(chan struct{}), make(chan struct{})
 	var startOnce, releaseOnce sync.Once
 	defer releaseOnce.Do(func() { close(release) })
-	srv.transcoder.start = func(path string) (int, io.ReadCloser, error) {
+	srv.transcoder.start = func(path string) (conversion, error) {
 		startOnce.Do(func() { close(started) })
 		<-release
 		return mp3Of(make([]byte, 5000))
@@ -357,21 +389,21 @@ func needFFmpeg(t *testing.T) {
 }
 
 // convertWhole converts path with startMP3 and returns the size it
-// predicted and the MP3 as ffmpeg wrote it.
+// predicted and the MP3: the body as ffmpeg wrote it, then the tail.
 func convertWhole(t *testing.T, path string) (int, []byte) {
 	t.Helper()
-	size, r, err := startMP3(path)
+	c, err := startMP3(path)
 	if err != nil {
 		t.Fatal(err)
 	}
-	mp3, err := io.ReadAll(r)
-	if cerr := r.Close(); err == nil {
+	body, err := io.ReadAll(c.body)
+	if cerr := c.body.Close(); err == nil {
 		err = cerr
 	}
 	if err != nil {
 		t.Fatal(err)
 	}
-	return size, mp3
+	return c.size, append(body, c.tail...)
 }
 
 // TestMP3StartsWithAudio converts a FLAC with cover art: the MP3 must start
@@ -436,6 +468,38 @@ func TestMP3SizePredicted(t *testing.T) {
 	}
 	if size, mp3 := convertWhole(t, path); size != -1 || len(mp3) == 0 {
 		t.Errorf("FLAC without its length: predicted %d, converted %d bytes; want -1 and an MP3", size, len(mp3))
+	}
+}
+
+// TestMP3EndsSilent checks the MP3 with its silent frame decodes without an
+// error, at each rate, and that frame adds 1152 samples of silence.
+func TestMP3EndsSilent(t *testing.T) {
+	needFFmpeg(t)
+	dir := t.TempDir()
+	ctx := context.Background()
+	for _, rate := range []int{32000, 44100, 48000} {
+		flac := filepath.Join(dir, fmt.Sprintf("%d.flac", rate))
+		if _, err := ffmpeg.Run(ctx, "-f", "lavfi", "-i", fmt.Sprintf("sine=frequency=440:sample_rate=%d", rate),
+			"-af", "atrim=end_sample=50000", flac); err != nil {
+			t.Fatal(err)
+		}
+		_, mp3 := convertWhole(t, flac)
+		path := filepath.Join(dir, fmt.Sprintf("%d.mp3", rate))
+		if err := os.WriteFile(path, mp3, 0o644); err != nil {
+			t.Fatal(err)
+		}
+		pcm, err := ffmpeg.Run(ctx, "-xerror", "-i", path, "-f", "s16le", "-")
+		if err != nil {
+			t.Errorf("%d Hz: decoding the MP3: %v", rate, err)
+			continue
+		}
+		// The body's frames, (50000+1151)/1152 + 1, then the silent one.
+		if want := ((50000+1151)/1152 + 2) * 1152 * 4; len(pcm) != want {
+			t.Errorf("%d Hz: decoded %d bytes of stereo PCM, want %d", rate, len(pcm), want)
+		}
+		if last := pcm[max(0, len(pcm)-1152*4):]; !bytes.Equal(last, make([]byte, len(last))) {
+			t.Errorf("%d Hz: the last 1152 samples aren't silent", rate)
+		}
 	}
 }
 

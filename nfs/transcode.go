@@ -27,6 +27,11 @@ import (
 // answered at once and each READ waits only for the bytes it asks for. A
 // deck gives up on a file it has had no answer about for 25 s, and an hour
 // of FLAC takes about 36 s to convert, where its first bytes take 50 ms.
+//
+// A CDJ-2000NXS2's first read of an MP3 is its last 160 bytes, looking for
+// a tag, so the MP3 ends with a silent frame made here (silentFrame): its
+// bytes are known from the start, and a read within them is answered at
+// once rather than when the whole file is converted.
 
 // maxTranscodedBytes bounds the MP3s kept in memory. A 320 kbps MP3 takes
 // 2.4 MB a minute, so this holds well over an hour of music. The least
@@ -41,16 +46,24 @@ const keepReadFor = 30 * time.Minute
 // mp3Transcoder converts files to MP3 in the background, once each, and
 // keeps the results within a byte budget.
 type mp3Transcoder struct {
-	start   func(path string) (size int, mp3 io.ReadCloser, err error) // startMP3, or a test's
-	now     func() time.Time                                           // time.Now, or a test's
-	max     int                                                        // byte budget (maxTranscodedBytes)
-	keepFor time.Duration                                              // keepReadFor
+	start   func(path string) (conversion, error) // startMP3, or a test's
+	now     func() time.Time                      // time.Now, or a test's
+	max     int                                   // byte budget (maxTranscodedBytes)
+	keepFor time.Duration                         // keepReadFor
 
 	mu      sync.Mutex
 	files   map[string]*mp3File
 	total   int            // bytes of converted MP3s held
 	seq     uint64         // read counter, for least-recently-read eviction
 	running sync.WaitGroup // conversions running (tests wait for them)
+}
+
+// A conversion is an MP3 being written: its size, if known ahead, then its
+// body as ffmpeg writes it, and its tail, known ahead.
+type conversion struct {
+	size int           // the whole MP3's size, -1 if not known ahead
+	body io.ReadCloser // the MP3 up to its tail
+	tail []byte        // the MP3's last bytes; none if size is unknown
 }
 
 // mp3File is a file's MP3, converted in the background. Once written, a
@@ -66,6 +79,7 @@ type mp3File struct {
 	cond sync.Cond // on mu: broadcast as the MP3 grows, its size is known, or it ends
 	size int       // the MP3's size: -1 until known
 	data []byte    // the MP3 so far
+	tail []byte    // its last bytes, known ahead
 	done bool
 	err  error
 }
@@ -120,6 +134,9 @@ func (t *mp3Transcoder) ReadAt(path string, offset, count uint32) ([]byte, error
 			if have >= min(end, size) {
 				return f.data[start:min(end, have)], nil
 			}
+			if tailAt := size - int64(len(f.tail)); start >= tailAt {
+				return f.tail[start-tailAt : min(end, size)-tailAt], nil
+			}
 		}
 		if f.done {
 			return nil, f.err
@@ -168,19 +185,22 @@ func (t *mp3Transcoder) convert(path string, f *mp3File) {
 }
 
 // fill starts path's conversion and copies the MP3 into f as it comes,
-// waking the readers waiting for it. An MP3 that comes out longer or shorter
-// than the size predicted is cut or padded with zeros to it, so the size a
-// deck was given stays true.
-func (f *mp3File) fill(start func(string) (int, io.ReadCloser, error), path string) error {
-	size, r, err := start(path)
+// waking the readers waiting for it. A body that comes out longer or shorter
+// than predicted is cut or padded with zeros to fit, so the size a deck was
+// given stays true.
+func (f *mp3File) fill(start func(string) (conversion, error), path string) error {
+	c, err := start(path)
 	if err != nil {
 		f.finish(err)
 		return err
 	}
+	body := -1 // the body's predicted size
 	f.mu.Lock()
-	f.size = size
-	if size >= 0 {
-		f.data = make([]byte, 0, size) // never grown, so bytes handed out stay put
+	f.size = c.size
+	if c.size >= 0 {
+		f.data = make([]byte, 0, c.size) // never grown, so bytes handed out stay put
+		f.tail = c.tail
+		body = c.size - len(c.tail)
 	}
 	f.cond.Broadcast()
 	f.mu.Unlock()
@@ -188,12 +208,12 @@ func (f *mp3File) fill(start func(string) (int, io.ReadCloser, error), path stri
 	extra := 0
 	buf := make([]byte, 64<<10)
 	for {
-		n, rerr := r.Read(buf)
+		n, rerr := c.body.Read(buf)
 		if n > 0 {
 			f.mu.Lock()
 			chunk := buf[:n]
-			if size >= 0 {
-				keep := min(n, size-len(f.data))
+			if body >= 0 {
+				keep := min(n, body-len(f.data))
 				extra += n - keep
 				chunk = chunk[:keep]
 			}
@@ -208,14 +228,17 @@ func (f *mp3File) fill(start func(string) (int, io.ReadCloser, error), path stri
 			break
 		}
 	}
-	if cerr := r.Close(); err == nil {
+	if cerr := c.body.Close(); err == nil {
 		err = cerr
 	}
-	if err == nil && size >= 0 && (extra > 0 || len(f.data) < size) {
-		log.Printf("nfs: transcode of %s came out %d bytes, %d predicted; served as %d",
-			path, len(f.data)+extra, size, size)
+	if err == nil && body >= 0 {
 		f.mu.Lock()
-		f.data = f.data[:size] // the zeros make() left past len
+		if extra > 0 || len(f.data) < body {
+			log.Printf("nfs: transcode of %s came out %d bytes, %d predicted; served as %d",
+				path, len(f.data)+extra, body, body)
+			f.data = f.data[:body] // the zeros make() left past len
+		}
+		f.data = append(f.data, f.tail...)
 		f.mu.Unlock()
 	}
 	f.finish(err)
@@ -255,27 +278,30 @@ func (t *mp3Transcoder) evictLocked(keep *mp3File) {
 	}
 }
 
-// startMP3 starts converting path to a 320 kbps MP3 with ffmpeg and predicts
-// its size, or -1 for a file that doesn't say how many samples it holds.
+// startMP3 starts converting path to a stereo 320 kbps MP3 with ffmpeg and
+// predicts its size, unless the file doesn't say how many samples it holds.
 //
 // The MP3 starts right with audio: no ID3 tag, whose size depends on the
 // file's tags, and no cover art (-vn), which written to a pipe came out as a
 // tag claiming to be empty with megabytes of picture after it. Decks get
-// titles and art from the dbserver.
-func startMP3(path string) (int, io.ReadCloser, error) {
+// titles and art from the dbserver. It ends with a silent frame, as its
+// tail.
+func startMP3(path string) (conversion, error) {
 	ctx := context.Background()
 	rate, samples, err := probeSamples(ctx, path)
 	if err != nil {
-		return 0, nil, err
+		return conversion{}, err
 	}
 	out := mp3Rate(rate)
-	size := -1
+	c := conversion{size: -1}
 	if samples >= 0 {
-		size = mp3Size((samples*int64(out)+int64(rate)-1)/int64(rate), out)
+		c.tail = silentFrame(out)
+		c.size = mp3Size((samples*int64(out)+int64(rate)-1)/int64(rate), out) + len(c.tail)
 	}
-	r, err := ffmpeg.Stream(ctx,
+	c.body, err = ffmpeg.Stream(ctx,
 		"-i", path,
 		"-vn",
+		"-ac", "2",
 		"-ar", strconv.Itoa(out),
 		"-f", "mp3",
 		"-id3v2_version", "0",
@@ -284,7 +310,17 @@ func startMP3(path string) (int, io.ReadCloser, error) {
 		"-b:a", "320k",
 		"-",
 	)
-	return size, r, err
+	return c, err
+}
+
+// silentFrame is an MPEG-1 Layer III frame of silence, joint stereo at
+// 320 kbps and rate (32, 44.1 or 48 kHz): a header, then side information
+// and main data all zero, which code no sound.
+func silentFrame(rate int) []byte {
+	index := map[int]byte{44100: 0, 48000: 1, 32000: 2}[rate]
+	frame := make([]byte, 144*320000/rate)
+	copy(frame, []byte{0xff, 0xfb, 14<<4 | index<<2, 0x44})
+	return frame
 }
 
 // probeSamples returns the sample rate of path's audio and how many samples
