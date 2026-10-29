@@ -96,6 +96,15 @@ port 111 granted as above).
 
 ## Quick Start
 
+### Download
+
+Each [release](https://github.com/vynulldev/vynull/releases) has static Linux binaries for amd64 and arm64. The same page has nightly prereleases (`nightly-YYYY-MM-DD`): `main`, built each day it changes, once the full test suite passes; the newest 7 are kept. They have the newest fixes, without the checks a release gets, so don't take one to a gig. To check a nightly download:
+
+```bash
+sha256sum --check --ignore-missing SHA256SUMS
+gh attestation verify vynull-nightly-YYYY-MM-DD-linux-amd64.tar.gz --repo vynulldev/vynull
+```
+
 ### Build
 
 ```bash

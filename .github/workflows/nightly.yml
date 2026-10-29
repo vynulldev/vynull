@@ -1,0 +1,144 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# Nightly builds. Once a day, if main has changed since the last nightly and
+# isn't a release, test it more thoroughly than CI does (every test, with
+# ffmpeg and dbus installed so none skips, under the race detector, then the
+# end-to-end suite), build the same static Linux binaries as a release
+# (amd64 + arm64), and publish them as that day's prerelease,
+# nightly-YYYY-MM-DD. The newest NIGHTLY_KEEP are kept. A nightly reports the
+# commit it was built from (vynull --version, the web UI's status bar) and
+# comes with a SHA256SUMS file and a build provenance attestation.
+#
+# Run it by hand from the Actions tab to publish main now; a second nightly
+# on the same day replaces that day's.
+name: nightly
+
+on:
+  schedule:
+    - cron: '17 3 * * *' # 03:17 UTC: off the hour, when GitHub delays runs
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# One run at a time, never cut short: a publish stopped halfway could leave
+# a tag moved with the old files up. A run waiting behind another gives way
+# to a newer one.
+concurrency:
+  group: nightly
+  cancel-in-progress: false
+
+env:
+  NIGHTLY_KEEP: 7
+
+jobs:
+  check:
+    # Run by hand on another branch, it would publish that branch.
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    outputs:
+      build: ${{ steps.check.outputs.build }}
+      sha: ${{ steps.check.outputs.sha }}
+      date: ${{ steps.check.outputs.date }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # the tags: the last nightly and the last release
+
+      - id: check
+        run: .github/nightly.sh check
+
+  test:
+    needs: check
+    if: needs.check.outputs.build == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.check.outputs.sha }}
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Install ffmpeg and dbus
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ffmpeg dbus
+
+      - run: go vet ./...
+
+      - run: go test -race ./...
+
+      - name: End-to-end tests
+        env:
+          VYNULL_E2E: '1'
+        run: go test ./e2e/
+
+  build:
+    needs: [check, test]
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        goarch: [amd64, arm64]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.check.outputs.sha }}
+          fetch-depth: 0 # the tags give the build its version
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Build
+        env:
+          CGO_ENABLED: '0' # no cgo: fully static, portable binaries
+          GOOS: linux
+          GOARCH: ${{ matrix.goarch }}
+          DATE: ${{ needs.check.outputs.date }}
+        run: |
+          # No version stamped by hand: the toolchain derives one from the
+          # nearest tag and the commit, e.g. v0.6.1-0.20261029192143-168bbc3b5ad8
+          # (see internal/buildinfo).
+          go build -trimpath -ldflags="-s -w" -o vynull .
+          tar -czf "vynull-nightly-${DATE}-linux-${GOARCH}.tar.gz" vynull LICENSE README.md
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: vynull-nightly-${{ matrix.goarch }}
+          path: 'vynull-nightly-*.tar.gz'
+          if-no-files-found: error
+
+  publish:
+    needs: [check, build]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # tag the commit, publish the release, delete old ones
+      id-token: write # sign the provenance attestation
+      attestations: write
+    env:
+      SHA: ${{ needs.check.outputs.sha }}
+      DATE: ${{ needs.check.outputs.date }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.check.outputs.sha }}
+          fetch-depth: 0 # the tags: the previous nightly, for the notes
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Checksums
+        working-directory: dist
+        run: sha256sum vynull-nightly-*.tar.gz > SHA256SUMS
+
+      - uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: 'dist/vynull-nightly-*.tar.gz'
+
+      - name: Publish
+        run: .github/nightly.sh publish
