@@ -105,20 +105,3 @@ func TestReadAtEndOfFile(t *testing.T) {
 		t.Errorf("read crossing the end: %q, %v; want the last 10 bytes", got, err)
 	}
 }
-
-// TestTranscodedReadAtEnd checks a read at or past the end of a transcoded
-// file gets no data rather than an error.
-func TestTranscodedReadAtEnd(t *testing.T) {
-	tc := newFlacTranscoder()
-	w := tc.getOrCreate("/music/track.flac")
-	w.once.Do(func() {}) // transcoded already
-	w.data = []byte("mp3 data")
-	for _, off := range []uint32{8, 20} {
-		if got, err := tc.ReadAt("/music/track.flac", off, 2048); err != nil || len(got) != 0 {
-			t.Errorf("read at %d of 8 bytes: %q, %v; want none, no error", off, got, err)
-		}
-	}
-	if got, err := tc.ReadAt("/music/track.flac", 4, 2048); err != nil || string(got) != "data" {
-		t.Errorf("read crossing the end: %q, %v; want \"data\"", got, err)
-	}
-}

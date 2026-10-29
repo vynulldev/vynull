@@ -9,6 +9,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"os/exec"
 	"strings"
 )
@@ -33,15 +34,52 @@ func Probe(ctx context.Context, path, entries, format string) ([]byte, error) {
 		"-show_entries", entries, "-of", format, path))
 }
 
+// Stream starts ffmpeg with args and returns what it writes to stdout, as it
+// writes it. Close waits for ffmpeg to exit and returns its error, carrying
+// what ffmpeg printed; closing before the end stops ffmpeg.
+func Stream(ctx context.Context, args ...string) (io.ReadCloser, error) {
+	cmd := Command(ctx, args...)
+	stderr := new(bytes.Buffer)
+	cmd.Stderr = stderr
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		return nil, err
+	}
+	if err := cmd.Start(); err != nil {
+		return nil, toolError(cmd, stderr, err)
+	}
+	return &stream{ReadCloser: stdout, cmd: cmd, stderr: stderr}, nil
+}
+
+// stream is ffmpeg's stdout, from Stream.
+type stream struct {
+	io.ReadCloser
+	cmd    *exec.Cmd
+	stderr *bytes.Buffer
+}
+
+func (s *stream) Close() error {
+	s.ReadCloser.Close() // a write to it now fails, so ffmpeg can't block on it
+	if err := s.cmd.Wait(); err != nil {
+		return toolError(s.cmd, s.stderr, err)
+	}
+	return nil
+}
+
 func run(cmd *exec.Cmd) ([]byte, error) {
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
 	if err := cmd.Run(); err != nil {
-		name := cmd.Args[0]
-		if msg := strings.TrimSpace(stderr.String()); msg != "" {
-			return nil, fmt.Errorf("%s: %s: %w", name, msg, err)
-		}
-		return nil, fmt.Errorf("%s: %w", name, err)
+		return nil, toolError(cmd, &stderr, err)
 	}
 	return stdout.Bytes(), nil
+}
+
+// toolError is err from running cmd, carrying what the tool printed.
+func toolError(cmd *exec.Cmd, stderr *bytes.Buffer, err error) error {
+	name := cmd.Args[0]
+	if msg := strings.TrimSpace(stderr.String()); msg != "" {
+		return fmt.Errorf("%s: %s: %w", name, msg, err)
+	}
+	return fmt.Errorf("%s: %w", name, err)
 }

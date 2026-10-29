@@ -27,9 +27,6 @@ const (
 	maxReadSize  = 16384 // NFS v2 max read size (matches the CDJ)
 )
 
-// flac handles transparent FLAC→WAV transcoding for NFS serving.
-var flac = newFlacTranscoder()
-
 // fhPrefix is how many leading bytes of a file handle a CDJ leaves alone: it
 // rewrites bytes 12-31 of every handle it sends back, so handles are found by
 // their first 12 bytes.
@@ -229,7 +226,8 @@ type Server struct {
 	exportRoot string
 	handles    *fileHandleMap
 	files      *fileCache
-	Transcode  bool   // if true, transcode FLAC/WAV/AIFF to MP3
+	transcoder *mp3Transcoder
+	Transcode  bool   // if true, serve FLAC/WAV/AIFF as MP3 (transcode.go)
 	IP         net.IP // server's IP for EXPORT response
 
 	// LinkedFn, if set, gates MOUNT EXPORT replies on the device's
@@ -254,6 +252,7 @@ func NewServer(exportRoot string) *Server {
 		exportRoot: exportRoot,
 		handles:    newFileHandleMap(),
 		files:      newFileCache(),
+		transcoder: newMP3Transcoder(),
 	}
 }
 
@@ -285,7 +284,7 @@ func (s *Server) Start(ctx context.Context) error {
 	go func() {
 		defer wg.Done()
 		log.Printf("nfs: mount listener starting on UDP port %d", mountPortNum)
-		s.listenUDP(ctx, mountPortNum, s.handleMount, true)
+		s.listenUDP(ctx, mountPortNum, s.handleMount, true, false)
 	}()
 
 	// NFS on port 2049 (also accept mount program here as fallback).
@@ -305,8 +304,12 @@ func (s *Server) Start(ctx context.Context) error {
 		defer wg.Done()
 		log.Printf("nfs: NFS listener starting on UDP port %d", nfsPortNum)
 		// Single-reply: don't duplicate NFS READ payloads (would double
-		// the bandwidth for every track byte during playback).
-		s.listenUDP(ctx, nfsPortNum, combinedHandler, false)
+		// the bandwidth for every track byte during playback). When
+		// transcoding, each request is answered in its own goroutine: one
+		// for a file served transcoded waits for its conversion (seconds,
+		// or minutes for a long mix), and must not hold up the reads of a
+		// deck playing meanwhile.
+		s.listenUDP(ctx, nfsPortNum, combinedHandler, false, s.Transcode)
 	}()
 	wg.Add(1)
 	go func() {
@@ -326,13 +329,39 @@ func (s *Server) Start(ctx context.Context) error {
 	return nil
 }
 
-func (s *Server) listenUDP(ctx context.Context, port int, handler func(*rpcHeader) []byte, duplicate bool) {
+func (s *Server) listenUDP(ctx context.Context, port int, handler func(*rpcHeader) []byte, duplicate, concurrent bool) {
 	conn, err := net.ListenUDP("udp4", &net.UDPAddr{Port: port})
 	if err != nil {
 		log.Printf("nfs udp bind %d: %v", port, err)
 		return
 	}
 	defer conn.Close()
+	s.serveUDP(ctx, conn, handler, duplicate, concurrent)
+}
+
+// serveUDP answers RPC requests arriving on conn until ctx ends or a read
+// fails. duplicate sends each reply twice; concurrent answers each request in
+// its own goroutine (the replies are matched to requests by their XID).
+func (s *Server) serveUDP(ctx context.Context, conn *net.UDPConn, handler func(*rpcHeader) []byte, duplicate, concurrent bool) {
+	port := conn.LocalAddr().(*net.UDPAddr).Port
+	answer := func(req []byte, addr *net.UDPAddr) {
+		resp := s.dispatchRPC(req, handler)
+		if resp == nil {
+			return
+		}
+		if dlog.Enabled(dlog.Trace) {
+			dlog.Tracef("nfs udp %d: send %d bytes to %s\n%s", port, len(resp), addr, hex.Dump(resp[:min(len(resp), 80)]))
+		}
+		conn.WriteToUDP(resp, addr)
+		if duplicate {
+			// rekordbox sends each MOUNT/Portmap reply twice
+			// ~400µs apart. Without the duplicate the CDJ treats
+			// it as packet loss and retries 200ms later, which
+			// makes UNLINK look unclean.
+			time.Sleep(400 * time.Microsecond)
+			conn.WriteToUDP(resp, addr)
+		}
+	}
 
 	buf := make([]byte, 65536)
 	for {
@@ -355,20 +384,10 @@ func (s *Server) listenUDP(ctx context.Context, port int, handler func(*rpcHeade
 		if dlog.Enabled(dlog.Trace) {
 			dlog.Tracef("nfs udp %d: recv %d bytes from %s\n%s", port, n, addr, hex.Dump(buf[:min(n, 80)]))
 		}
-		resp := s.dispatchRPC(buf[:n], handler)
-		if resp != nil {
-			if dlog.Enabled(dlog.Trace) {
-				dlog.Tracef("nfs udp %d: send %d bytes to %s\n%s", port, len(resp), addr, hex.Dump(resp[:min(len(resp), 80)]))
-			}
-			conn.WriteToUDP(resp, addr)
-			if duplicate {
-				// rekordbox sends each MOUNT/Portmap reply twice
-				// ~400µs apart. Without the duplicate the CDJ treats
-				// it as packet loss and retries 200ms later, which
-				// makes UNLINK look unclean.
-				time.Sleep(400 * time.Microsecond)
-				conn.WriteToUDP(resp, addr)
-			}
+		if concurrent {
+			go answer(slices.Clone(buf[:n]), addr)
+		} else {
+			answer(buf[:n], addr)
 		}
 	}
 }
@@ -518,7 +537,7 @@ func (s *Server) nfsGetAttr(hdr *rpcHeader) []byte {
 
 	w := buildRPCReply(hdr.XID)
 	w.putU32(nfsOK)
-	putFAttr(w, info, path, !s.Transcode)
+	s.putFAttr(w, info, path)
 	return w.bytes()
 }
 
@@ -591,7 +610,7 @@ func (s *Server) nfsLookup(hdr *rpcHeader) []byte {
 	w := buildRPCReply(hdr.XID)
 	w.putU32(nfsOK)
 	w.putFH(childFH)
-	putFAttr(w, info, childPath, !s.Transcode)
+	s.putFAttr(w, info, childPath)
 	resp := w.bytes()
 
 	dlog.Tracef("nfs: LOOKUP OK %q size=%d isdir=%v fh=%x resp_hex=%x",
@@ -630,7 +649,7 @@ func (s *Server) nfsRead(hdr *rpcHeader) []byte {
 
 	// For non-MP3 formats, serve transcoded MP3 data instead (unless disabled).
 	if s.Transcode && NeedsTranscode(path) {
-		wavBytes, err := flac.ReadAt(path, offset, count)
+		mp3Bytes, err := s.transcoder.ReadAt(path, offset, count)
 		if err != nil {
 			log.Printf("nfs: READ transcode %s error: %v", filepath.Base(path), err)
 			w := buildRPCReply(hdr.XID)
@@ -639,12 +658,12 @@ func (s *Server) nfsRead(hdr *rpcHeader) []byte {
 		}
 		if offset == 0 {
 			dlog.Debugf("nfs: READ transcode %s offset=0 count=%d read=%d",
-				filepath.Base(path), count, len(wavBytes))
+				filepath.Base(path), count, len(mp3Bytes))
 		}
 		w := buildRPCReply(hdr.XID)
 		w.putU32(nfsOK)
-		putFAttr(w, nil, path, !s.Transcode)
-		w.putBytes(wavBytes)
+		s.putFAttr(w, nil, path)
+		w.putBytes(mp3Bytes)
 		return w.bytes()
 	}
 
@@ -677,7 +696,7 @@ func (s *Server) nfsRead(hdr *rpcHeader) []byte {
 
 	w := buildRPCReply(hdr.XID)
 	w.putU32(nfsOK)
-	putFAttr(w, info, path, !s.Transcode)
+	s.putFAttr(w, info, path)
 	w.putBytes(data)
 	return w.bytes()
 }
@@ -762,8 +781,10 @@ func (s *Server) nfsStatFS(hdr *rpcHeader) []byte {
 	return w.bytes()
 }
 
-// putFAttr writes NFS v2 file attributes.
-func putFAttr(w *xdrWriter, info os.FileInfo, path string, noTranscode bool) {
+// putFAttr writes NFS v2 file attributes: info's, with the MP3's size for a
+// file served transcoded.
+func (s *Server) putFAttr(w *xdrWriter, info os.FileInfo, path string) {
+	noTranscode := !s.Transcode
 	var ftype uint32
 	var mode uint32
 	var fileSize int64
@@ -773,8 +794,8 @@ func putFAttr(w *xdrWriter, info os.FileInfo, path string, noTranscode bool) {
 		// Transcoded file: no os.FileInfo, get size from transcoder.
 		ftype = nfTypeReg
 		mode = 0x8000
-		if wavSize, err := flac.Size(path); err == nil {
-			fileSize = wavSize
+		if size, err := s.transcoder.Size(path); err == nil {
+			fileSize = size
 		}
 	} else if info == nil {
 		// No info and no transcode — try stat directly.
@@ -795,8 +816,8 @@ func putFAttr(w *xdrWriter, info os.FileInfo, path string, noTranscode bool) {
 		fileSize = info.Size()
 		mtime = uint32(info.ModTime().Unix())
 		if !noTranscode && NeedsTranscode(path) {
-			if wavSize, err := flac.Size(path); err == nil {
-				fileSize = wavSize
+			if size, err := s.transcoder.Size(path); err == nil {
+				fileSize = size
 			}
 		}
 	}
