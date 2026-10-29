@@ -7,6 +7,7 @@ import (
 	"context"
 	"os"
 	"os/exec"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -47,8 +48,11 @@ func TestPublisher(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
-		var current NowPlaying
-		_, err := Start(ctx, func() NowPlaying { return current }, 50*time.Millisecond)
+		// The publisher reads the snapshot on its own goroutine while the test
+		// changes it.
+		var current atomic.Pointer[NowPlaying]
+		current.Store(&NowPlaying{})
+		_, err := Start(ctx, func() NowPlaying { return *current.Load() }, 50*time.Millisecond)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -90,12 +94,12 @@ func TestPublisher(t *testing.T) {
 		waitStatus("Stopped")
 
 		// Deck starts playing.
-		current = NowPlaying{
+		current.Store(&NowPlaying{
 			Playing: true, DeviceNumber: 2, TrackID: 42,
 			Title: "Encounter", Artist: "Jerome Isma-Ae",
 			DurationMs: 374000, PositionMs: 61500,
 			ArtURL: "http://127.0.0.1:9443/api/artwork/42",
-		}
+		})
 		waitStatus("Playing")
 		md := get(playerFace, "Metadata").(map[string]dbus.Variant)
 		if v := md["xesam:title"].Value(); v != "Encounter" {
@@ -124,7 +128,7 @@ func TestPublisher(t *testing.T) {
 		}
 
 		// Deck stops.
-		current = NowPlaying{}
+		current.Store(&NowPlaying{})
 		waitStatus("Stopped")
 		md = get(playerFace, "Metadata").(map[string]dbus.Variant)
 		if v := md["xesam:title"].Value(); v != "" {
