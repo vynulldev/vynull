@@ -16,7 +16,7 @@ import (
 // COLLECTION of ENTRY elements plus a nested PLAYLISTS tree. This importer
 // mirrors ImportRekordboxXML — parse entries into library.Track, then walk the
 // playlist node tree — so both importers share the same result shape and the
-// api.go dispatch can treat them uniformly.
+// api/imports.go dispatch can treat them uniformly.
 
 type traktorNML struct {
 	XMLName    xml.Name          `xml:"NML"`
@@ -128,9 +128,9 @@ func (traktorImporter) Import(lib *Library, o ImportOptions) (*ImportBundle, err
 }
 
 // ImportTraktorNML imports a Traktor collection.nml. Cues (hot cues, memory
-// cues, and loops from CUE_V2) come back in the bundle's ImportedCue carrier the
-// api.go applier already consumes; Traktor has no MyTags or per-track colours,
-// so the bundle's Tags/Colors are always nil.
+// cues, and loops from CUE_V2) come back in the bundle's ImportedCue carrier
+// the api/imports.go applier already consumes; Traktor has no MyTags or
+// per-track colours, so the bundle's Tags/Colors are always nil.
 func ImportTraktorNML(lib *Library, nmlPath string) (*ImportBundle, error) {
 	data, err := os.ReadFile(nmlPath)
 	if err != nil {

@@ -684,7 +684,20 @@ vynull/
     import_xml.go      Import a rekordbox.xml export (tracks, tags, colors)
     import_masterdb.go Import an encrypted master.db / backup .zip (via rekordbox_dump.py)
   api/                 HTTP API server
-    api.go             REST endpoints, analysis/cue/waveform/settings/import APIs
+    api.go             Server, routes, CORS middleware, JSON helpers
+    status.go          Status, peers, players, now playing, history, link
+    tracks.go          Track list, deck loads, track edits (metadata/path/color/rating)
+    imports.go         rekordbox import, path remap, adding + reimporting files
+    export.go          rekordbox USB export, with a preview
+    analysis.go        Analysis jobs, reanalysis, analysis + phrase endpoints
+    waveform.go        Waveform data + PNG rendering
+    artwork.go         Artwork endpoints
+    beatgrid.go        Beat grid edits, tempo overrides, analysis lock
+    cues.go            Cue endpoints
+    settings.go        Settings endpoint
+    menu.go            CDJ root-menu endpoints
+    tags.go            Tag + tag category endpoints
+    playlists.go       Playlist endpoints
     fs.go              Sandboxed filesystem browser for "add files/folders"
     diag.go            Log ring buffer + diagnostic endpoints (status/logs/stats)
     web.go             //go:embed of the single-page web UI (served at GET /)

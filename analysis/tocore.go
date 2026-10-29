@@ -5,7 +5,7 @@ package analysis
 import "github.com/vynulldev/vynull/core"
 
 // phraseKindName maps the mood_high_phrase enum to the neutral labels used in
-// core.Analysis (mirrors the API's phrase naming in api/api.go).
+// core.Analysis (mirrors the API's phrase naming in api/analysis.go).
 var phraseKindName = map[uint16]string{
 	1: "intro", 2: "up", 3: "down", 5: "chorus", 6: "outro",
 }
