@@ -56,7 +56,7 @@ the authority where schemas are incomplete.
 
 Specific implementation facts that affect the design:
 
-- [Track listing](../../api/api.go) returns the entire collection, not paginated
+- [Track listing](../../api/tracks.go) returns the entire collection, not paginated
   search results. The initial client can index a snapshot in a worker; repeatedly
   downloading it after every edit will not scale.
 - [SSE](../../api/events.go) carries full player/now-playing snapshots, checked

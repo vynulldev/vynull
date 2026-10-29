@@ -87,7 +87,7 @@ func ImporterFor(path string) Importer // first whose Handles(path) is true, els
 The backup zip becomes a first-class `Importer` that extracts and then delegates
 to the master.db importer, filling `ShareRoot` / `SettingsDir` on the bundle.
 
-The whole `switch` in `api.go` collapses to:
+The whole `switch` in `api/imports.go` collapses to:
 
 ```go
 imp := library.ImporterFor(req.Path)
@@ -107,7 +107,7 @@ The `applyImportBundle` method and the dialog's include-options stay untouched.
    force-fit it. Revisit only if a non-library consumer ever appears.
 2. **Rename `MasterDB{Cue,Asset}` -> `Imported{Cue,Asset}`.** They are the shared
    carrier now that Traktor uses them; the rekordbox-era name is misleading.
-   Small blast radius (the two library files + the api.go applier).
+   Small blast radius (the two library files + the api/imports.go applier).
 3. **Extract the ~350-line apply pipeline into `applyImportBundle`.** Pure move,
    no logic change; slims the 530-line handler and benefits every importer
    equally.
