@@ -140,7 +140,6 @@ func (s *OverlayStore) Set(c OverlayConfig) error {
 
 // handleOverlayConfig serves GET (read) and PUT/POST (update) of the config.
 func (s *Server) handleOverlayConfig(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Access-Control-Allow-Origin", "*")
 	switch r.Method {
 	case http.MethodGet:
 		cfg := defaultOverlayConfig()

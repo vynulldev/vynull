@@ -18,7 +18,6 @@ var artExtractSem = make(chan struct{}, 4)
 // for trackID. 404 when the track has no art. Used by the library
 // table's optional ART column.
 func (s *Server) handleArtwork(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Access-Control-Allow-Origin", "*")
 	trackID := parseTrackIDFromPath(r.URL.Path, "/api/artwork/")
 	if trackID == 0 || s.Library == nil {
 		http.Error(w, "track ID required", http.StatusBadRequest)
@@ -74,7 +73,6 @@ func (s *Server) handleArtwork(w http.ResponseWriter, r *http.Request) {
 // plays from another player's media (downloaded over NFS by package mediadb).
 // 404 until the image is cached; the PLAYERS view retries on its next poll.
 func (s *Server) handleExtArtwork(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Access-Control-Allow-Origin", "*")
 	if s.ExtArtwork == nil {
 		http.NotFound(w, r)
 		return

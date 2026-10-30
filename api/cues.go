@@ -50,7 +50,6 @@ func importedCuesToInfo(cues []analysis.ImportedCue) []CueInfo {
 // cues. Used by the web UI's library page to overlay cue markers on every
 // waveform thumbnail in a single round-trip instead of per-row fetches.
 func (s *Server) handleAllCues(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Access-Control-Allow-Origin", "*")
 	if r.Method != "GET" {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
@@ -73,13 +72,6 @@ func (s *Server) handleAllCues(w http.ResponseWriter, r *http.Request) {
 // POST /api/tracks/{trackID}/cues — add/update cue
 // DELETE /api/tracks/{trackID}/cues/{number} — delete cue
 func (s *Server) handleCues(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Access-Control-Allow-Origin", "*")
-	w.Header().Set("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS")
-	w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
-	if r.Method == "OPTIONS" {
-		return
-	}
-
 	// Parse /api/tracks/{trackID}/cues[/{number}]
 	path := strings.TrimPrefix(r.URL.Path, "/api/tracks/")
 	parts := strings.Split(path, "/")

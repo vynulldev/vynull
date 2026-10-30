@@ -102,18 +102,11 @@ func (s *Server) handleTracksTags(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, batchResult{len(changed)})
 }
 
-// batchRequest answers the CORS preflight and decodes a batch edit's body
-// into req, refusing another method, bad JSON or an empty selection. It
-// reports whether the handler should go on.
+// batchRequest decodes a batch edit's body into req, refusing another
+// method, bad JSON or an empty selection. It reports whether the handler
+// should go on.
 func (s *Server) batchRequest(w http.ResponseWriter, r *http.Request, method string, req any, trackIDs *[]uint32) bool {
-	w.Header().Set("Access-Control-Allow-Origin", "*")
-	w.Header().Set("Access-Control-Allow-Methods", method+", OPTIONS")
-	w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
-	switch r.Method {
-	case http.MethodOptions:
-		return false
-	case method:
-	default:
+	if r.Method != method {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return false
 	}

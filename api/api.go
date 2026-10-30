@@ -204,11 +204,10 @@ func (s *Server) Handler() http.Handler {
 }
 
 // corsMiddleware adds permissive CORS to every response and answers preflight
-// OPTIONS requests uniformly, so a frontend served from another origin or
-// device can call the API. Vynull is a trusted-LAN tool with no auth; this just
-// makes the already-open posture consistent across every endpoint instead of
-// the former per-handler patchwork (those handlers set the same header, so they
-// remain correct — this just guarantees it everywhere, preflight included).
+// OPTIONS requests itself, so a frontend served from another origin or device
+// can call the API, and no handler sets CORS headers or sees an OPTIONS
+// request. Vynull is a trusted-LAN tool with no auth; this keeps that open
+// posture the same on every endpoint.
 func corsMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		h := w.Header()
@@ -266,7 +265,6 @@ func parseTrackIDFromPath(path, prefix string) uint32 {
 
 func writeJSON(w http.ResponseWriter, v interface{}) {
 	w.Header().Set("Content-Type", "application/json")
-	w.Header().Set("Access-Control-Allow-Origin", "*")
 	json.NewEncoder(w).Encode(v)
 }
 
@@ -276,7 +274,6 @@ func writeJSON(w http.ResponseWriter, v interface{}) {
 // writeJSON. Content negotiation is advertised via Vary so caches key on it.
 func writeJSONGzip(w http.ResponseWriter, r *http.Request, v interface{}) {
 	w.Header().Set("Content-Type", "application/json")
-	w.Header().Set("Access-Control-Allow-Origin", "*")
 	if strings.Contains(r.Header.Get("Accept-Encoding"), "gzip") {
 		w.Header().Set("Content-Encoding", "gzip")
 		w.Header().Add("Vary", "Accept-Encoding")

@@ -30,8 +30,6 @@ import (
 //     global peak across the track. For CDJ/Rekordbox-style additive 3-band rendering
 //     where each band drives its own bar height
 func (s *Server) handleWaveform(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Access-Control-Allow-Origin", "*")
-
 	trackID := parseTrackIDFromPath(r.URL.Path, "/api/analysis/waveform/")
 	if trackID == 0 {
 		http.Error(w, "track ID required", http.StatusBadRequest)
@@ -188,8 +186,6 @@ func decodePWV5(data []byte) []WaveEntrySpectral {
 // Width/height are clamped to sane bounds; the cache key includes them so
 // requests at different sizes coexist.
 func (s *Server) handleWaveformPNG(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Access-Control-Allow-Origin", "*")
-
 	trackID := parseTrackIDFromPath(r.URL.Path, "/api/analysis/waveform-png/")
 	if trackID == 0 {
 		http.Error(w, "track ID required", http.StatusBadRequest)

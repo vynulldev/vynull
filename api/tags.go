@@ -12,13 +12,6 @@ import (
 // GET /api/tags — list all tags
 // POST /api/tags — create a tag {name: "..."}
 func (s *Server) handleTags(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Access-Control-Allow-Origin", "*")
-	w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-	w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
-	if r.Method == "OPTIONS" {
-		return
-	}
-
 	if s.Tags == nil {
 		http.Error(w, "tag store not available", http.StatusServiceUnavailable)
 		return
@@ -60,13 +53,6 @@ func (s *Server) handleTags(w http.ResponseWriter, r *http.Request) {
 // PUT /api/tags/{id} — rename tag
 // DELETE /api/tags/{id} — delete tag
 func (s *Server) handleTagByID(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Access-Control-Allow-Origin", "*")
-	w.Header().Set("Access-Control-Allow-Methods", "PUT, DELETE, OPTIONS")
-	w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
-	if r.Method == "OPTIONS" {
-		return
-	}
-
 	if s.Tags == nil {
 		http.Error(w, "tag store not available", http.StatusServiceUnavailable)
 		return
@@ -124,13 +110,6 @@ func (s *Server) handleTagByID(w http.ResponseWriter, r *http.Request) {
 // GET /api/tracks/{id}/tags — get tags for a track
 // POST /api/tracks/{id}/tags — set tags for a track {tag_ids: [...]}
 func (s *Server) handleTrackTags(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Access-Control-Allow-Origin", "*")
-	w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-	w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
-	if r.Method == "OPTIONS" {
-		return
-	}
-
 	if s.Tags == nil {
 		http.Error(w, "tag store not available", http.StatusServiceUnavailable)
 		return
@@ -178,12 +157,6 @@ func (s *Server) handleTrackTags(w http.ResponseWriter, r *http.Request) {
 // GET /api/tag-categories — list all categories
 // POST /api/tag-categories — create category {name: "..."}
 func (s *Server) handleTagCategories(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Access-Control-Allow-Origin", "*")
-	w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-	w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
-	if r.Method == "OPTIONS" {
-		return
-	}
 	if s.Tags == nil {
 		http.Error(w, "tag store not available", http.StatusServiceUnavailable)
 		return
@@ -224,12 +197,6 @@ func (s *Server) handleTagCategories(w http.ResponseWriter, r *http.Request) {
 // PUT /api/tag-categories/{id} — rename category
 // DELETE /api/tag-categories/{id} — delete category
 func (s *Server) handleTagCategoryByID(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Access-Control-Allow-Origin", "*")
-	w.Header().Set("Access-Control-Allow-Methods", "PUT, DELETE, OPTIONS")
-	w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
-	if r.Method == "OPTIONS" {
-		return
-	}
 	if s.Tags == nil {
 		http.Error(w, "tag store not available", http.StatusServiceUnavailable)
 		return

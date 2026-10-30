@@ -141,10 +141,6 @@ func (s *Server) getOrAnalyze(ctx context.Context, trackID uint32) *analysis.Res
 // result replaces both the in-memory entry and the on-disk .gob cache.
 // POST /api/analysis/reanalyze/{trackID}
 func (s *Server) handleReanalyze(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Access-Control-Allow-Origin", "*")
-	if r.Method == "OPTIONS" {
-		return
-	}
 	if r.Method != http.MethodPost {
 		http.Error(w, "POST required", http.StatusMethodNotAllowed)
 		return
@@ -234,12 +230,6 @@ func (s *Server) trackFilePath(trackID uint32) string {
 // handleAnalysis returns the analysis data for a track.
 // GET /api/analysis/{trackID}
 func (s *Server) handleAnalysis(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Access-Control-Allow-Origin", "*")
-	if r.Method == "OPTIONS" {
-		w.Header().Set("Access-Control-Allow-Methods", "GET, OPTIONS")
-		return
-	}
-
 	trackID := parseTrackIDFromPath(r.URL.Path, "/api/analysis/")
 	if trackID == 0 {
 		http.Error(w, "track ID required", http.StatusBadRequest)
@@ -336,7 +326,6 @@ func (s *Server) handleAnalysis(w http.ResponseWriter, r *http.Request) {
 // a deck plays from another player's media (ANLZ downloaded over NFS). 404 until
 // the download lands or when the track has no analysis.
 func (s *Server) handleExtAnalysis(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Access-Control-Allow-Origin", "*")
 	if s.ExtAnalysis == nil {
 		http.NotFound(w, r)
 		return
@@ -381,7 +370,6 @@ func (s *Server) handleExtAnalysis(w http.ResponseWriter, r *http.Request) {
 // GET /api/tracks/{id}/phrases — list detected phrases (intro/up/down/chorus/outro)
 // with start/end times in milliseconds for visual rendering.
 func (s *Server) handleTrackPhrases(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Access-Control-Allow-Origin", "*")
 	if r.Method != "GET" {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
