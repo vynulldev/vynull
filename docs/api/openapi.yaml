@@ -19,8 +19,12 @@ info:
 
     **Transport.** JSON over HTTP (`writeJSON` sets `application/json`). A few
     endpoints return raw bytes: artwork and waveform-PNG return images, and the
-    preview waveform returns `application/octet-stream`. Error paths return
-    `text/plain` via `http.Error` with the status code.
+    preview waveform returns `application/octet-stream`.
+
+    **Errors.** An error keeps its status code and answers
+    `{"error": "message"}` (the `Error` schema), an unknown path under `/api/`
+    included. A method an endpoint doesn't take gets 405 with an `Allow` header
+    listing the ones it does.
 
     **Auth.** None. Vynull is a trusted-LAN tool. It binds `127.0.0.1:9443` by
     default; pass `--listen 0.0.0.0:9443` to reach it from another device (e.g. a
@@ -28,9 +32,11 @@ info:
     it, you own the network boundary.
 
     **CORS.** A middleware sends permissive CORS on every response
-    (`Access-Control-Allow-Origin: *`, the usual methods, and `Content-Type`)
-    and answers preflight `OPTIONS` uniformly, so a browser frontend on another
-    origin works out of the box. Native apps are unaffected either way.
+    (`Access-Control-Allow-Origin: *`, the usual methods, the `Content-Type`
+    and `If-None-Match` request headers, and `ETag` and `X-Audio-Source`
+    exposed) and answers every preflight `OPTIONS` itself, so a browser
+    frontend on another origin works out of the box. Native apps are
+    unaffected either way.
 
     **Live updates.** `GET /api/events` is a Server-Sent Events stream that
     pushes live deck + now-playing state on change (no polling). `beat_age_ms`
@@ -38,9 +44,9 @@ info:
     playhead between events. You can still poll `/api/players` / `/api/nowplaying`
     if you prefer.
 
-    **Success acks.** Many write endpoints reply with a small object. Note a
-    historical quirk: some use the key `"OK"` (capitalised) and some `"ok"`; the
-    per-endpoint schemas below reflect the actual key.
+    **Successes.** A success is a 2xx. A read returns its data; a write returns
+    the data it has to give back, or `{"ok": true}` (the `Ack` schema) when it
+    has none.
   license:
     name: GPL-3.0-or-later
     url: https://www.gnu.org/licenses/gpl-3.0.html
@@ -194,8 +200,8 @@ paths:
             application/json:
               schema:
                 oneOf:
-                  - { type: object, properties: { status: { type: string, example: ok }, added: { type: integer }, total: { type: integer } } }
-                  - { type: object, properties: { status: { type: string, example: started }, async: { type: boolean }, job_id: { type: string }, total: { type: integer } } }
+                  - { type: object, properties: { ok: { type: boolean }, added: { type: integer }, total: { type: integer } } }
+                  - { type: object, properties: { ok: { type: boolean }, async: { type: boolean, enum: [true] }, job_id: { type: string }, total: { type: integer } } }
         "400": { description: paths empty. }
 
   /api/tracks/add/status:
@@ -213,7 +219,7 @@ paths:
       summary: Re-read file tags for the given tracks (or all).
       requestBody: { content: { application/json: { schema: { type: object, properties: { track_ids: { type: array, items: { type: integer, format: int64 } } } } } } }
       responses:
-        "200": { description: OK, content: { application/json: { schema: { type: object, properties: { status: {type: string}, updated: {type: integer} } } } } }
+        "200": { description: OK, content: { application/json: { schema: { type: object, properties: { ok: {type: boolean}, updated: {type: integer} } } } } }
         "400": { description: The body isn't valid JSON (an empty body reimports every track). }
 
   /api/tracks/{id}:
@@ -228,7 +234,7 @@ paths:
       tags: [Library]
       summary: Delete a track (cascades to playlists, tags, cues, analysis).
       responses:
-        "200": { description: OK, content: { application/json: { schema: { $ref: "#/components/schemas/AckOK" } } } }
+        "200": { description: OK, content: { application/json: { schema: { $ref: "#/components/schemas/Ack" } } } }
         "404": { description: No such track. }
 
   # ------------------------------------------------------------ Track edits
@@ -244,12 +250,12 @@ paths:
   /api/tracks/{id}/color:
     parameters: [ { name: id, in: path, required: true, schema: { type: integer, format: int64 } } ]
     get: { tags: [Track edits], summary: Get track colour., responses: { "200": { description: OK, content: { application/json: { schema: { type: object, properties: { color_id: { type: integer } } } } } } } }
-    put: { tags: [Track edits], summary: Set track colour (0 none, 1-8 palette)., requestBody: { required: true, content: { application/json: { schema: { type: object, properties: { color_id: { type: integer } } } } } }, responses: { "200": { description: OK, content: { application/json: { schema: { $ref: "#/components/schemas/AckOK" } } } } } }
+    put: { tags: [Track edits], summary: Set track colour (0 none, 1-8 palette)., requestBody: { required: true, content: { application/json: { schema: { type: object, properties: { color_id: { type: integer } } } } } }, responses: { "200": { description: OK, content: { application/json: { schema: { $ref: "#/components/schemas/Ack" } } } } } }
 
   /api/tracks/{id}/rating:
     parameters: [ { name: id, in: path, required: true, schema: { type: integer, format: int64 } } ]
     get: { tags: [Track edits], summary: Get rating (0-5)., responses: { "200": { description: OK, content: { application/json: { schema: { type: object, properties: { rating: { type: integer } } } } } } } }
-    put: { tags: [Track edits], summary: Set rating (clamped 0-5)., requestBody: { required: true, content: { application/json: { schema: { type: object, properties: { rating: { type: integer } } } } } }, responses: { "200": { description: OK, content: { application/json: { schema: { $ref: "#/components/schemas/AckOK" } } } } } }
+    put: { tags: [Track edits], summary: Set rating (clamped 0-5)., requestBody: { required: true, content: { application/json: { schema: { type: object, properties: { rating: { type: integer } } } } } }, responses: { "200": { description: OK, content: { application/json: { schema: { $ref: "#/components/schemas/Ack" } } } } } }
 
   /api/tracks/{id}/beats:
     parameters: [ { name: id, in: path, required: true, schema: { type: integer, format: int64 } } ]
@@ -271,7 +277,7 @@ paths:
         re-analysis and grid edits with 409, and will not auto- or re-analyze
         the track (serving its existing grid even across a cache-version bump).
       requestBody: { required: true, content: { application/json: { schema: { type: object, required: [locked], properties: { locked: {type: boolean} } } } } }
-      responses: { "200": { description: OK, content: { application/json: { schema: { $ref: "#/components/schemas/AckOK" } } } }, "404": { description: No such track. } }
+      responses: { "200": { description: OK, content: { application/json: { schema: { $ref: "#/components/schemas/Ack" } } } }, "404": { description: No such track. } }
 
   /api/tracks/{id}/related:
     parameters: [ { name: id, in: path, required: true, schema: { type: integer, format: int64 } } ]
@@ -297,7 +303,7 @@ paths:
   /api/tracks/{id}/tags:
     parameters: [ { name: id, in: path, required: true, schema: { type: integer, format: int64 } } ]
     get: { tags: [Track edits], summary: Tags on a track., responses: { "200": { description: OK, content: { application/json: { schema: { type: array, items: { $ref: "#/components/schemas/TagInfo" } } } } } } }
-    post: { tags: [Track edits], summary: Set the track's tag set., requestBody: { required: true, content: { application/json: { schema: { type: object, properties: { tag_ids: { type: array, items: { type: integer, format: int64 } } } } } } }, responses: { "200": { description: OK, content: { application/json: { schema: { $ref: "#/components/schemas/AckOK" } } } } } }
+    post: { tags: [Track edits], summary: Set the track's tag set., requestBody: { required: true, content: { application/json: { schema: { type: object, properties: { tag_ids: { type: array, items: { type: integer, format: int64 } } } } } } }, responses: { "200": { description: OK, content: { application/json: { schema: { $ref: "#/components/schemas/Ack" } } } } } }
 
   /api/tracks/{id}/phrases:
     parameters: [ { name: id, in: path, required: true, schema: { type: integer, format: int64 } } ]
@@ -328,18 +334,18 @@ paths:
 
   /api/playlists/{id}:
     parameters: [ { name: id, in: path, required: true, schema: { type: integer, format: int64 } } ]
-    put: { tags: [Playlists], summary: Rename / reparent / reorder., requestBody: { required: true, content: { application/json: { schema: { type: object, properties: { name: {type: string}, parent_id: {type: integer, format: int64}, sort_order: {type: integer} } } } } }, responses: { "200": { description: OK, content: { application/json: { schema: { $ref: "#/components/schemas/AckOK" } } } }, "403": { description: Served-USB playlist is read-only. } } }
-    delete: { tags: [Playlists], summary: Delete (recursive for folders)., responses: { "200": { description: OK, content: { application/json: { schema: { $ref: "#/components/schemas/AckOK" } } } }, "404": { description: Not found. } } }
+    put: { tags: [Playlists], summary: Rename / reparent / reorder., requestBody: { required: true, content: { application/json: { schema: { type: object, properties: { name: {type: string}, parent_id: {type: integer, format: int64}, sort_order: {type: integer} } } } } }, responses: { "200": { description: OK, content: { application/json: { schema: { $ref: "#/components/schemas/Ack" } } } }, "403": { description: Served-USB playlist is read-only. } } }
+    delete: { tags: [Playlists], summary: Delete (recursive for folders)., responses: { "200": { description: OK, content: { application/json: { schema: { $ref: "#/components/schemas/Ack" } } } }, "404": { description: Not found. } } }
 
   /api/playlists/{id}/tracks:
     parameters: [ { name: id, in: path, required: true, schema: { type: integer, format: int64 } } ]
     get: { tags: [Playlists], summary: Tracks in a playlist (smart rules evaluated live)., responses: { "200": { description: OK, content: { application/json: { schema: { type: array, items: { $ref: "#/components/schemas/TrackInfo" } } } } } } }
-    post: { tags: [Playlists], summary: Set membership (rejected for smart playlists)., requestBody: { required: true, content: { application/json: { schema: { type: object, properties: { track_ids: { type: array, items: { type: integer, format: int64 } } } } } } }, responses: { "200": { description: OK, content: { application/json: { schema: { $ref: "#/components/schemas/AckOK" } } } } } }
+    post: { tags: [Playlists], summary: Set membership (rejected for smart playlists)., requestBody: { required: true, content: { application/json: { schema: { type: object, properties: { track_ids: { type: array, items: { type: integer, format: int64 } } } } } } }, responses: { "200": { description: OK, content: { application/json: { schema: { $ref: "#/components/schemas/Ack" } } } } } }
 
   /api/playlists/{id}/rules:
     parameters: [ { name: id, in: path, required: true, schema: { type: integer, format: int64 } } ]
     get: { tags: [Playlists], summary: Smart-playlist rules (null if not smart)., responses: { "200": { description: OK, content: { application/json: { schema: { $ref: "#/components/schemas/SmartRules" } } } } } }
-    put: { tags: [Playlists], summary: Set rules (body is a SmartRules, no wrapper)., requestBody: { required: true, content: { application/json: { schema: { $ref: "#/components/schemas/SmartRules" } } } }, responses: { "200": { description: OK, content: { application/json: { schema: { $ref: "#/components/schemas/AckOK" } } } } } }
+    put: { tags: [Playlists], summary: Set rules (body is a SmartRules, no wrapper)., requestBody: { required: true, content: { application/json: { schema: { $ref: "#/components/schemas/SmartRules" } } } }, responses: { "200": { description: OK, content: { application/json: { schema: { $ref: "#/components/schemas/Ack" } } } } } }
 
   # --------------------------------------------------------- Hot Cue Banks
   /api/hotcuebanks:
@@ -374,7 +380,7 @@ paths:
       summary: Load a track onto a deck.
       requestBody: { required: true, content: { application/json: { schema: { $ref: "#/components/schemas/LoadRequest" } } } }
       responses:
-        "200": { description: OK, content: { application/json: { schema: { type: object, properties: { status: {type: string}, track_id: {type: integer, format: int64}, device_number: {type: integer} } } } } }
+        "200": { description: OK, content: { application/json: { schema: { type: object, properties: { ok: {type: boolean}, track_id: {type: integer, format: int64}, device_number: {type: integer} } } } } }
         "400": { description: track_id or file_path required, or device_number 0. }
         "404": { description: Target CDJ not found. }
         "503": { description: No peers connected. }
@@ -566,8 +572,8 @@ paths:
 
   /api/tags/{id}:
     parameters: [ { name: id, in: path, required: true, schema: { type: integer, format: int64 } } ]
-    put: { tags: [Tags], summary: Edit a tag., requestBody: { required: true, content: { application/json: { schema: { type: object, properties: { name: {type: string}, category_id: {type: integer, format: int64}, color: {type: integer} } } } } }, responses: { "200": { description: OK, content: { application/json: { schema: { $ref: "#/components/schemas/AckOK" } } } } } }
-    delete: { tags: [Tags], summary: Delete a tag., responses: { "200": { description: OK, content: { application/json: { schema: { $ref: "#/components/schemas/AckOK" } } } } } }
+    put: { tags: [Tags], summary: Edit a tag., requestBody: { required: true, content: { application/json: { schema: { type: object, properties: { name: {type: string}, category_id: {type: integer, format: int64}, color: {type: integer} } } } } }, responses: { "200": { description: OK, content: { application/json: { schema: { $ref: "#/components/schemas/Ack" } } } } } }
+    delete: { tags: [Tags], summary: Delete a tag., responses: { "200": { description: OK, content: { application/json: { schema: { $ref: "#/components/schemas/Ack" } } } } } }
 
   /api/tag-categories:
     get: { tags: [Tags], summary: All tag categories., responses: { "200": { description: OK, content: { application/json: { schema: { type: array, items: { $ref: "#/components/schemas/TagCategoryInfo" } } } } } } }
@@ -575,8 +581,8 @@ paths:
 
   /api/tag-categories/{id}:
     parameters: [ { name: id, in: path, required: true, schema: { type: integer, format: int64 } } ]
-    put: { tags: [Tags], summary: Rename a category., requestBody: { required: true, content: { application/json: { schema: { type: object, properties: { name: { type: string } } } } } }, responses: { "200": { description: OK, content: { application/json: { schema: { $ref: "#/components/schemas/AckOK" } } } } } }
-    delete: { tags: [Tags], summary: Delete a category., responses: { "200": { description: OK, content: { application/json: { schema: { $ref: "#/components/schemas/AckOK" } } } } } }
+    put: { tags: [Tags], summary: Rename a category., requestBody: { required: true, content: { application/json: { schema: { type: object, properties: { name: { type: string } } } } } }, responses: { "200": { description: OK, content: { application/json: { schema: { $ref: "#/components/schemas/Ack" } } } } } }
+    delete: { tags: [Tags], summary: Delete a category., responses: { "200": { description: OK, content: { application/json: { schema: { $ref: "#/components/schemas/Ack" } } } } } }
 
   # ------------------------------------------------------- Settings & Menu
   /api/settings:
@@ -588,7 +594,7 @@ paths:
       tags: [Settings & Menu]
       summary: "Update settings — send {full: <SettingsConfig>} to replace the whole config, or the DEVSETTING fields to tweak those."
       requestBody: { required: true, content: { application/json: { schema: { type: object } } } }
-      responses: { "200": { description: Updated., content: { application/json: { schema: { $ref: "#/components/schemas/SettingsResponse" } } } }, "503": { description: Settings unavailable. } }
+      responses: { "200": { description: "The updated settings, or {\"ok\": true} after a full replace (`full`).", content: { application/json: { schema: { oneOf: [ { $ref: "#/components/schemas/SettingsResponse" }, { $ref: "#/components/schemas/Ack" } ] } } } }, "503": { description: Settings unavailable. } }
 
   /api/settings/enums:
     get: { tags: [Settings & Menu], summary: Enum option lists for the settings UI., responses: { "200": { description: OK, content: { application/json: { schema: { type: object } } } } } }
@@ -602,10 +608,10 @@ paths:
       tags: [Settings & Menu]
       summary: Update menu items, the track-detail column, and/or the deck's SORT menu.
       requestBody: { required: true, content: { application/json: { schema: { type: object, properties: { items: { type: array, items: { $ref: "#/components/schemas/MenuItem" } }, track_detail: { type: string }, sorts: { type: array, items: { $ref: "#/components/schemas/SortItem" } } } } } } }
-      responses: { "200": { description: OK, content: { application/json: { schema: { $ref: "#/components/schemas/AckOK" } } } }, "400": { description: Invalid items/detail. } }
+      responses: { "200": { description: OK, content: { application/json: { schema: { $ref: "#/components/schemas/Ack" } } } }, "400": { description: Invalid items/detail. } }
 
   /api/menu-items/reset:
-    post: { tags: [Settings & Menu], summary: "Restore the default CDJ menu (with sorts=1, the default SORT menu instead).", parameters: [{ name: sorts, in: query, required: false, schema: { type: string } }], responses: { "200": { description: OK, content: { application/json: { schema: { $ref: "#/components/schemas/AckOK" } } } }, "503": { description: No menu store. } } }
+    post: { tags: [Settings & Menu], summary: "Restore the default CDJ menu (with sorts=1, the default SORT menu instead).", parameters: [{ name: sorts, in: query, required: false, schema: { type: string } }], responses: { "200": { description: OK, content: { application/json: { schema: { $ref: "#/components/schemas/Ack" } } } }, "503": { description: No menu store. } } }
 
   # --------------------------------------------------------------- Overlay
   /api/overlay/config:
@@ -648,8 +654,8 @@ paths:
 components:
   schemas:
 
-    Ack: { type: object, properties: { ok: { type: boolean } }, description: 'Success ack (lowercase "ok").' }
-    AckOK: { type: object, properties: { OK: { type: boolean } }, description: 'Success ack (capitalised "OK" — historical).' }
+    Ack: { type: object, required: [ok], properties: { ok: { type: boolean, enum: [true] } }, description: A write with nothing else to return. }
+    Error: { type: object, required: [error], properties: { error: { type: string } }, description: 'The body of every error answer, e.g. {"error": "track not found"}.' }
     TrackIDs: { type: array, minItems: 1, items: { type: integer, format: int64 }, description: The tracks a batch edit applies to. }
     BatchResult: { type: object, properties: { updated: { type: integer, description: How many tracks the edit changed. } } }
 

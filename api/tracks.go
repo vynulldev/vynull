@@ -145,12 +145,12 @@ func (s *Server) handleTracks(w http.ResponseWriter, r *http.Request) {
 	if path != "" && path != "add" && path != "reimport" {
 		trackID := parseTrackIDFromPath(r.URL.Path, "/api/tracks/")
 		if trackID == 0 {
-			http.Error(w, "invalid track ID", http.StatusBadRequest)
+			jsonError(w, "invalid track ID", http.StatusBadRequest)
 			return
 		}
 		if r.Method == http.MethodDelete {
 			if s.Library == nil || s.Library.Track(trackID) == nil {
-				http.Error(w, "track not found", http.StatusNotFound)
+				jsonError(w, "track not found", http.StatusNotFound)
 				return
 			}
 			// Cascade cleanup: drop the track from playlists, tag/colour
@@ -175,7 +175,7 @@ func (s *Server) handleTracks(w http.ResponseWriter, r *http.Request) {
 			}
 			s.Library.RemoveTrack(trackID)
 			log.Printf("api: deleted track %d (library + playlists + tags + cues + analysis)", trackID)
-			writeJSON(w, struct{ OK bool }{true})
+			ok(w)
 			return
 		}
 		if s.Library != nil {
@@ -184,7 +184,7 @@ func (s *Server) handleTracks(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 		}
-		http.Error(w, "track not found", http.StatusNotFound)
+		jsonError(w, "track not found", http.StatusNotFound)
 		return
 	}
 
@@ -224,8 +224,7 @@ func (s *Server) handleTracksRev(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleLoadTrack(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "POST required", http.StatusMethodNotAllowed)
+	if !allow(w, r, http.MethodPost) {
 		return
 	}
 
@@ -235,12 +234,12 @@ func (s *Server) handleLoadTrack(w http.ResponseWriter, r *http.Request) {
 		DeviceNumber uint8  `json:"device_number"` // target CDJ (1-4)
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "invalid JSON: "+err.Error(), http.StatusBadRequest)
+		jsonError(w, "invalid JSON: "+err.Error(), http.StatusBadRequest)
 		return
 	}
 
 	if req.DeviceNumber == 0 {
-		http.Error(w, "device_number required", http.StatusBadRequest)
+		jsonError(w, "device_number required", http.StatusBadRequest)
 		return
 	}
 
@@ -252,7 +251,7 @@ func (s *Server) handleLoadTrack(w http.ResponseWriter, r *http.Request) {
 		if req.TrackID == 0 {
 			id, err := s.addTrackByPath(req.FilePath, false)
 			if err != nil {
-				http.Error(w, "failed to add track: "+err.Error(), http.StatusBadRequest)
+				jsonError(w, "failed to add track: "+err.Error(), http.StatusBadRequest)
 				return
 			}
 			req.TrackID = id
@@ -260,13 +259,13 @@ func (s *Server) handleLoadTrack(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if req.TrackID == 0 {
-		http.Error(w, "track_id or file_path required", http.StatusBadRequest)
+		jsonError(w, "track_id or file_path required", http.StatusBadRequest)
 		return
 	}
 
 	// Find the target CDJ's IP from peers
 	if s.Device.Peers == nil {
-		http.Error(w, "no peers connected", http.StatusServiceUnavailable)
+		jsonError(w, "no peers connected", http.StatusServiceUnavailable)
 		return
 	}
 	var targetIP net.IP
@@ -277,7 +276,7 @@ func (s *Server) handleLoadTrack(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if targetIP == nil {
-		http.Error(w, fmt.Sprintf("CDJ device %d not found", req.DeviceNumber), http.StatusNotFound)
+		jsonError(w, fmt.Sprintf("CDJ device %d not found", req.DeviceNumber), http.StatusNotFound)
 		return
 	}
 
@@ -290,12 +289,12 @@ func (s *Server) handleLoadTrack(w http.ResponseWriter, r *http.Request) {
 	}
 	err := s.Device.LoadTrackOnCDJ(req.TrackID, loadName, req.DeviceNumber, targetIP)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		jsonError(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
 	writeJSON(w, map[string]interface{}{
-		"status":        "ok",
+		"ok":            true,
 		"track_id":      req.TrackID,
 		"device_number": req.DeviceNumber,
 	})
@@ -373,11 +372,11 @@ func (s *Server) updateTrack(w http.ResponseWriter, trackID uint32, edit func(*l
 	case err == nil:
 		return updated, true
 	case errors.Is(err, library.ErrTrackNotFound):
-		http.Error(w, "track not found", http.StatusNotFound)
+		jsonError(w, "track not found", http.StatusNotFound)
 	case errors.As(err, &refused):
-		http.Error(w, refused.msg, refused.status)
+		jsonError(w, refused.msg, refused.status)
 	default:
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		jsonError(w, err.Error(), http.StatusInternalServerError)
 	}
 	return library.Track{}, false
 }
@@ -389,20 +388,19 @@ func (s *Server) updateTrack(w http.ResponseWriter, trackID uint32, edit func(*l
 // indexes in step.
 func (s *Server) handleTrackMetadata(w http.ResponseWriter, r *http.Request) {
 	if s.Library == nil {
-		http.Error(w, "library not available", http.StatusServiceUnavailable)
+		jsonError(w, "library not available", http.StatusServiceUnavailable)
 		return
 	}
-	if r.Method != "PUT" && r.Method != "POST" {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+	if !allow(w, r, http.MethodPut, http.MethodPost) {
 		return
 	}
 	trackID := parseTrackIDFromPath(r.URL.Path, "/api/tracks/")
 	if trackID == 0 {
-		http.Error(w, "track ID required", http.StatusBadRequest)
+		jsonError(w, "track ID required", http.StatusBadRequest)
 		return
 	}
 	if s.Library.Track(trackID) == nil {
-		http.Error(w, "track not found", http.StatusNotFound)
+		jsonError(w, "track not found", http.StatusNotFound)
 		return
 	}
 	var req struct {
@@ -419,7 +417,7 @@ func (s *Server) handleTrackMetadata(w http.ResponseWriter, r *http.Request) {
 		Comment        *string `json:"comment"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "invalid JSON: "+err.Error(), http.StatusBadRequest)
+		jsonError(w, "invalid JSON: "+err.Error(), http.StatusBadRequest)
 		return
 	}
 	updated, ok := s.updateTrack(w, trackID, func(t *library.Track) error {
@@ -475,37 +473,36 @@ func (s *Server) handleTrackMetadata(w http.ResponseWriter, r *http.Request) {
 // from the new file when it exists.
 func (s *Server) handleTrackPath(w http.ResponseWriter, r *http.Request) {
 	if s.Library == nil {
-		http.Error(w, "library not available", http.StatusServiceUnavailable)
+		jsonError(w, "library not available", http.StatusServiceUnavailable)
 		return
 	}
-	if r.Method != "PUT" && r.Method != "POST" {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+	if !allow(w, r, http.MethodPut, http.MethodPost) {
 		return
 	}
 	trackID := parseTrackIDFromPath(r.URL.Path, "/api/tracks/")
 	if trackID == 0 {
-		http.Error(w, "track ID required", http.StatusBadRequest)
+		jsonError(w, "track ID required", http.StatusBadRequest)
 		return
 	}
 	if s.Library.Track(trackID) == nil {
-		http.Error(w, "track not found", http.StatusNotFound)
+		jsonError(w, "track not found", http.StatusNotFound)
 		return
 	}
 	var req struct {
 		Path string `json:"path"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "invalid JSON: "+err.Error(), http.StatusBadRequest)
+		jsonError(w, "invalid JSON: "+err.Error(), http.StatusBadRequest)
 		return
 	}
 	newPath := strings.TrimSpace(req.Path)
 	if newPath == "" {
-		http.Error(w, "path is required", http.StatusBadRequest)
+		jsonError(w, "path is required", http.StatusBadRequest)
 		return
 	}
 	newType, ok := filetype.ForPath(newPath)
 	if !ok {
-		http.Error(w, "unsupported file type: "+filepath.Ext(newPath), http.StatusBadRequest)
+		jsonError(w, "unsupported file type: "+filepath.Ext(newPath), http.StatusBadRequest)
 		return
 	}
 	// Recheck presence, and size from the new file if it exists, before taking
@@ -546,17 +543,17 @@ func (s *Server) handleTrackPath(w http.ResponseWriter, r *http.Request) {
 // PUT /api/tracks/{id}/color — set track color {color_id: N}
 func (s *Server) handleTrackColor(w http.ResponseWriter, r *http.Request) {
 	if s.Library == nil {
-		http.Error(w, "library not available", http.StatusServiceUnavailable)
+		jsonError(w, "library not available", http.StatusServiceUnavailable)
 		return
 	}
 	trackID := parseTrackIDFromPath(r.URL.Path, "/api/tracks/")
 	if trackID == 0 {
-		http.Error(w, "track ID required", http.StatusBadRequest)
+		jsonError(w, "track ID required", http.StatusBadRequest)
 		return
 	}
 	t := s.Library.Track(trackID)
 	if t == nil {
-		http.Error(w, "track not found", http.StatusNotFound)
+		jsonError(w, "track not found", http.StatusNotFound)
 		return
 	}
 
@@ -573,11 +570,11 @@ func (s *Server) handleTrackColor(w http.ResponseWriter, r *http.Request) {
 			ColorID uint8 `json:"color_id"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			http.Error(w, "invalid JSON: "+err.Error(), http.StatusBadRequest)
+			jsonError(w, "invalid JSON: "+err.Error(), http.StatusBadRequest)
 			return
 		}
 		if req.ColorID > 8 {
-			http.Error(w, "color_id must be 0-8", http.StatusBadRequest)
+			jsonError(w, "color_id must be 0-8", http.StatusBadRequest)
 			return
 		}
 		s.Library.SetColor(trackID, req.ColorID)
@@ -585,27 +582,27 @@ func (s *Server) handleTrackColor(w http.ResponseWriter, r *http.Request) {
 		if s.Device != nil {
 			s.Device.BroadcastTrackRefresh(trackID)
 		}
-		writeJSON(w, struct{ OK bool }{true})
+		ok(w)
 
 	default:
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		notAllowed(w, http.MethodGet, http.MethodPut, http.MethodPost)
 	}
 }
 
 // PUT /api/tracks/{id}/rating — set track rating {rating: N} (0-5; 0 clears)
 func (s *Server) handleTrackRating(w http.ResponseWriter, r *http.Request) {
 	if s.Library == nil {
-		http.Error(w, "library not available", http.StatusServiceUnavailable)
+		jsonError(w, "library not available", http.StatusServiceUnavailable)
 		return
 	}
 	trackID := parseTrackIDFromPath(r.URL.Path, "/api/tracks/")
 	if trackID == 0 {
-		http.Error(w, "track ID required", http.StatusBadRequest)
+		jsonError(w, "track ID required", http.StatusBadRequest)
 		return
 	}
 	t := s.Library.Track(trackID)
 	if t == nil {
-		http.Error(w, "track not found", http.StatusNotFound)
+		jsonError(w, "track not found", http.StatusNotFound)
 		return
 	}
 
@@ -621,16 +618,16 @@ func (s *Server) handleTrackRating(w http.ResponseWriter, r *http.Request) {
 			Rating uint8 `json:"rating"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			http.Error(w, "invalid JSON: "+err.Error(), http.StatusBadRequest)
+			jsonError(w, "invalid JSON: "+err.Error(), http.StatusBadRequest)
 			return
 		}
 		s.Library.SetRating(trackID, req.Rating) // clamps to 5
 		if s.Device != nil {
 			s.Device.BroadcastRatingRefresh(trackID)
 		}
-		writeJSON(w, struct{ OK bool }{true})
+		ok(w)
 
 	default:
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		notAllowed(w, http.MethodGet, http.MethodPut, http.MethodPost)
 	}
 }

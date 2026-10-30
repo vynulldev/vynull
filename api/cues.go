@@ -50,8 +50,7 @@ func importedCuesToInfo(cues []analysis.ImportedCue) []CueInfo {
 // cues. Used by the web UI's library page to overlay cue markers on every
 // waveform thumbnail in a single round-trip instead of per-row fetches.
 func (s *Server) handleAllCues(w http.ResponseWriter, r *http.Request) {
-	if r.Method != "GET" {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+	if !allow(w, r, http.MethodGet) {
 		return
 	}
 	if s.Cues == nil {
@@ -76,19 +75,19 @@ func (s *Server) handleCues(w http.ResponseWriter, r *http.Request) {
 	path := strings.TrimPrefix(r.URL.Path, "/api/tracks/")
 	parts := strings.Split(path, "/")
 	if len(parts) < 2 {
-		http.Error(w, "invalid path", http.StatusBadRequest)
+		jsonError(w, "invalid path", http.StatusBadRequest)
 		return
 	}
 
 	var trackID uint32
 	fmt.Sscanf(parts[0], "%d", &trackID)
 	if trackID == 0 {
-		http.Error(w, "track ID required", http.StatusBadRequest)
+		jsonError(w, "track ID required", http.StatusBadRequest)
 		return
 	}
 
 	if s.Cues == nil {
-		http.Error(w, "cue store not available", http.StatusServiceUnavailable)
+		jsonError(w, "cue store not available", http.StatusServiceUnavailable)
 		return
 	}
 
@@ -103,11 +102,11 @@ func (s *Server) handleCues(w http.ResponseWriter, r *http.Request) {
 	case "POST":
 		var cue CueInfo
 		if err := json.NewDecoder(r.Body).Decode(&cue); err != nil {
-			http.Error(w, "invalid JSON: "+err.Error(), http.StatusBadRequest)
+			jsonError(w, "invalid JSON: "+err.Error(), http.StatusBadRequest)
 			return
 		}
 		if cue.Number == 0 {
-			http.Error(w, "cue number required (1=A, 2=B, ...)", http.StatusBadRequest)
+			jsonError(w, "cue number required (1=A, 2=B, ...)", http.StatusBadRequest)
 			return
 		}
 		if cue.Type == "" {
@@ -127,13 +126,13 @@ func (s *Server) handleCues(w http.ResponseWriter, r *http.Request) {
 
 	case "DELETE":
 		if len(parts) < 3 {
-			http.Error(w, "cue number required in path", http.StatusBadRequest)
+			jsonError(w, "cue number required in path", http.StatusBadRequest)
 			return
 		}
 		var cueNum uint16
 		fmt.Sscanf(parts[2], "%d", &cueNum)
 		if cueNum == 0 {
-			http.Error(w, "invalid cue number", http.StatusBadRequest)
+			jsonError(w, "invalid cue number", http.StatusBadRequest)
 			return
 		}
 		s.Cues.DeleteCue(trackID, cueNum)

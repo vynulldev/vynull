@@ -3918,6 +3918,12 @@ async function fetchJSON(url, opts) {
     return await r.json();
   } catch (e) { return null; }
 }
+// errorText is why a failed request failed: the API's {"error": "..."}, or
+// the body as it came from anything answering otherwise.
+async function errorText(r) {
+  const t = (await r.text().catch(() => '')).trim();
+  try { return JSON.parse(t).error || t; } catch (e) { return t; }
+}
 function escape(s) {
   return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 }
@@ -7329,7 +7335,7 @@ async function loadTrack(trackID, deviceNumber) {
     body: JSON.stringify({ track_id: trackID, device_number: deviceNumber }),
   });
   if (r.ok) toast(`▶ TRACK ${String(trackID).padStart(4,'0')} → PLAYER ${String(deviceNumber).padStart(2,'0')}`, 'success');
-  else toast('LOAD FAILED · ' + (await r.text()), 'error');
+  else toast('LOAD FAILED · ' + (await errorText(r)), 'error');
 }
 
 // ───────── SETTINGS ─────────
@@ -8874,7 +8880,7 @@ function renderDetail(t, cues, wave, phrases, analysis) {
           body: JSON.stringify({ path: val }),
         });
         if (!r.ok) {
-          const why = (await r.text().catch(() => '')).trim();
+          const why = await errorText(r);
           toast('PATH SAVE FAILED' + (why ? ': ' + why.toUpperCase() : ''), 'error');
           inp.value = saved;
           return;
@@ -11067,7 +11073,7 @@ function openExportModal(presetSource, presetLabel) {
         body: JSON.stringify({ destination: dest, source: apiSource, copy_files: copyFiles, merge }),
       });
       if (!r.ok) {
-        const t = await r.text();
+        const t = await errorText(r);
         statusEl.textContent = `Failed: ${r.status} ${t}`;
         goBtn.disabled = false;
         destInput.disabled = false;
@@ -12098,7 +12104,7 @@ async function addTracksWithProgress(paths, statusEl, onDone) {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ paths }),
     });
-    if (!r.ok) throw new Error((await r.text()).trim() || r.statusText);
+    if (!r.ok) throw new Error((await errorText(r)) || r.statusText);
     j = await r.json();
   } catch (e) { setStatus('Error: ' + e.message); return; }
 
@@ -12231,7 +12237,7 @@ function openAddBrowserDialog(onDone) {
     selected.clear(); updateSel();
     try {
       const r = await fetch('/api/fs/list' + (path ? '?path=' + encodeURIComponent(path) : ''));
-      if (!r.ok) throw new Error((await r.text()).trim() || r.statusText);
+      if (!r.ok) throw new Error((await errorText(r)) || r.statusText);
       cur = await r.json();
     } catch (e) {
       listEl.innerHTML = `<div class="export-hint" style="padding:10px">Error: ${escape(e.message)}</div>`;
@@ -12483,7 +12489,7 @@ function openImportRekordboxDialog() {
       });
       stopProgress();
       if (!r.ok) {
-        const t = await r.text();
+        const t = await errorText(r);
         m.querySelector('#imp-form').style.display = '';
         statusEl.textContent = `Failed: ${r.status} ${t}`;
         goBtn.disabled = false;
@@ -12571,7 +12577,7 @@ function openFixPathsDialog() {
         body: JSON.stringify({ from, to }),
       });
       if (!r.ok) {
-        const t = await r.text();
+        const t = await errorText(r);
         stat.textContent = `Failed: ${r.status} ${t}`;
         go.disabled = false;
         return;

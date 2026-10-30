@@ -21,24 +21,23 @@ type RelatedTrack struct {
 // with this one, best first (see package related). Query parameters: limit
 // (1-200, default 25) and bpm_tolerance in percent (0.5-50, default 6).
 func (s *Server) handleTrackRelated(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		http.Error(w, "GET required", http.StatusMethodNotAllowed)
+	if !allow(w, r, http.MethodGet) {
 		return
 	}
 	if s.Library == nil {
-		http.Error(w, "library not available", http.StatusServiceUnavailable)
+		jsonError(w, "library not available", http.StatusServiceUnavailable)
 		return
 	}
 	trackID := parseTrackIDFromPath(r.URL.Path, "/api/tracks/")
 	if trackID == 0 || s.Library.Track(trackID) == nil {
-		http.Error(w, "track not found", http.StatusNotFound)
+		jsonError(w, "track not found", http.StatusNotFound)
 		return
 	}
 	var o related.Options
 	if v := r.URL.Query().Get("limit"); v != "" {
 		n, err := strconv.Atoi(v)
 		if err != nil || n < 1 || n > 200 {
-			http.Error(w, "limit must be 1-200", http.StatusBadRequest)
+			jsonError(w, "limit must be 1-200", http.StatusBadRequest)
 			return
 		}
 		o.Limit = n
@@ -46,7 +45,7 @@ func (s *Server) handleTrackRelated(w http.ResponseWriter, r *http.Request) {
 	if v := r.URL.Query().Get("bpm_tolerance"); v != "" {
 		f, err := strconv.ParseFloat(v, 64)
 		if err != nil || math.IsNaN(f) || f < 0.5 || f > 50 {
-			http.Error(w, "bpm_tolerance must be 0.5-50 (percent)", http.StatusBadRequest)
+			jsonError(w, "bpm_tolerance must be 0.5-50 (percent)", http.StatusBadRequest)
 			return
 		}
 		o.BPMTolerance = f

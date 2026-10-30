@@ -50,12 +50,12 @@ func (s *Server) handleExportPreview(w http.ResponseWriter, r *http.Request) {
 		idStr := src[strings.IndexByte(src, ':')+1:]
 		id, err := strconv.ParseUint(idStr, 10, 32)
 		if err != nil {
-			http.Error(w, "bad source ID: "+err.Error(), http.StatusBadRequest)
+			jsonError(w, "bad source ID: "+err.Error(), http.StatusBadRequest)
 			return
 		}
 		_, trackIDs, ok := s.exportPlaylistSource(uint32(id))
 		if !ok {
-			http.Error(w, "playlist not found", http.StatusNotFound)
+			jsonError(w, "playlist not found", http.StatusNotFound)
 			return
 		}
 		for _, tid := range trackIDs {
@@ -66,7 +66,7 @@ func (s *Server) handleExportPreview(w http.ResponseWriter, r *http.Request) {
 	} else if strings.HasPrefix(src, "selection:") {
 		trackIDs, err := parseSelectionIDs(src[len("selection:"):])
 		if err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
+			jsonError(w, err.Error(), http.StatusBadRequest)
 			return
 		}
 		for _, tid := range trackIDs {
@@ -75,7 +75,7 @@ func (s *Server) handleExportPreview(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	} else {
-		http.Error(w, "source must be 'all', 'playlist:N', 'smart:N', or 'selection:<ids>'", http.StatusBadRequest)
+		jsonError(w, "source must be 'all', 'playlist:N', 'smart:N', or 'selection:<ids>'", http.StatusBadRequest)
 		return
 	}
 
@@ -113,12 +113,11 @@ func artworkLookup(lib *library.Library) func(uint32) []byte {
 // Returns 400 for bad input, 404 when the playlist isn't found, 500
 // for any pipeline error.
 func (s *Server) handleExport(w http.ResponseWriter, r *http.Request) {
-	if r.Method != "POST" {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+	if !allow(w, r, http.MethodPost) {
 		return
 	}
 	if s.Library == nil {
-		http.Error(w, "library not available", http.StatusServiceUnavailable)
+		jsonError(w, "library not available", http.StatusServiceUnavailable)
 		return
 	}
 
@@ -129,15 +128,15 @@ func (s *Server) handleExport(w http.ResponseWriter, r *http.Request) {
 		Merge       bool   `json:"merge"` // append to existing export.pdb instead of replacing
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "invalid JSON: "+err.Error(), http.StatusBadRequest)
+		jsonError(w, "invalid JSON: "+err.Error(), http.StatusBadRequest)
 		return
 	}
 	if req.Destination == "" {
-		http.Error(w, "destination is required", http.StatusBadRequest)
+		jsonError(w, "destination is required", http.StatusBadRequest)
 		return
 	}
 	if !filepath.IsAbs(req.Destination) {
-		http.Error(w, "destination must be an absolute path", http.StatusBadRequest)
+		jsonError(w, "destination must be an absolute path", http.StatusBadRequest)
 		return
 	}
 
@@ -179,16 +178,16 @@ func (s *Server) handleExport(w http.ResponseWriter, r *http.Request) {
 		idStr := src[strings.IndexByte(src, ':')+1:]
 		id, err := strconv.ParseUint(idStr, 10, 32)
 		if err != nil {
-			http.Error(w, "source ID must be a uint32: "+err.Error(), http.StatusBadRequest)
+			jsonError(w, "source ID must be a uint32: "+err.Error(), http.StatusBadRequest)
 			return
 		}
 		plName, trackIDs, ok := s.exportPlaylistSource(uint32(id))
 		if !ok {
-			http.Error(w, "playlist not found", http.StatusNotFound)
+			jsonError(w, "playlist not found", http.StatusNotFound)
 			return
 		}
 		if len(trackIDs) == 0 {
-			http.Error(w, "playlist has no tracks", http.StatusBadRequest)
+			jsonError(w, "playlist has no tracks", http.StatusBadRequest)
 			return
 		}
 		opts.Tracks = export.FilterTracks(export.LibraryToTracks(s.Library), trackIDs)
@@ -197,25 +196,25 @@ func (s *Server) handleExport(w http.ResponseWriter, r *http.Request) {
 	case strings.HasPrefix(src, "selection:"):
 		trackIDs, err := parseSelectionIDs(src[len("selection:"):])
 		if err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
+			jsonError(w, err.Error(), http.StatusBadRequest)
 			return
 		}
 		if len(trackIDs) == 0 {
-			http.Error(w, "no tracks selected", http.StatusBadRequest)
+			jsonError(w, "no tracks selected", http.StatusBadRequest)
 			return
 		}
 		opts.Tracks = export.FilterTracks(export.LibraryToTracks(s.Library), trackIDs)
 		opts.Playlists = export.SinglePlaylist("Selected Tracks", trackIDs)
 		sourceLabel = fmt.Sprintf("%d selected", len(trackIDs))
 	default:
-		http.Error(w, "source must be 'all', 'playlist:<id>', 'smart:<id>', or 'selection:<ids>'", http.StatusBadRequest)
+		jsonError(w, "source must be 'all', 'playlist:<id>', 'smart:<id>', or 'selection:<ids>'", http.StatusBadRequest)
 		return
 	}
 
 	log.Printf("export: starting (source=%s dest=%s copy=%v)", sourceLabel, req.Destination, req.CopyFiles)
 	if err := export.Run(opts); err != nil {
 		log.Printf("export: failed: %v", err)
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		jsonError(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 

@@ -156,8 +156,7 @@ func (c *cliClient) get(path string, out any) error {
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("%s: %s", resp.Status, strings.TrimSpace(string(body)))
+		return apiError(resp)
 	}
 	return json.NewDecoder(resp.Body).Decode(out)
 }
@@ -170,13 +169,26 @@ func (c *cliClient) post(path string, body any, out any) error {
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		msg, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("%s: %s", resp.Status, strings.TrimSpace(string(msg)))
+		return apiError(resp)
 	}
 	if out != nil {
 		return json.NewDecoder(resp.Body).Decode(out)
 	}
 	return nil
+}
+
+// apiError is the error a failed response carries: the API's
+// {"error": "..."} message, or the body as text if it isn't one.
+func apiError(resp *http.Response) error {
+	body, _ := io.ReadAll(resp.Body)
+	msg := strings.TrimSpace(string(body))
+	var e struct {
+		Error string `json:"error"`
+	}
+	if json.Unmarshal(body, &e) == nil && e.Error != "" {
+		msg = e.Error
+	}
+	return fmt.Errorf("%s: %s", resp.Status, msg)
 }
 
 // cliTrack mirrors the /api/tracks fields the CLI shows.
@@ -252,10 +264,9 @@ func cliAdd(args []string) error {
 		paths[i] = abs
 	}
 	var resp struct {
-		Status string `json:"status"`
-		Added  int    `json:"added"`
-		Total  int    `json:"total"`
-		JobID  string `json:"job_id"`
+		Added int    `json:"added"`
+		Total int    `json:"total"`
+		JobID string `json:"job_id"`
 	}
 	if err := c.post("/api/tracks/add", map[string]any{"paths": paths}, &resp); err != nil {
 		return err

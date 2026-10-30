@@ -193,6 +193,10 @@ func (s *Server) Handler() http.Handler {
 		}
 	})
 
+	// Any other path under /api/ is an unknown endpoint, answered in JSON
+	// like every API error rather than with the web UI's or the mux's text.
+	mux.HandleFunc("/api/", handleUnknownAPI)
+
 	// API documentation (spec + self-hosted Swagger UI). Always on, so the API
 	// is self-describing even for a headless daemon with --web off.
 	registerAPIDocs(mux)

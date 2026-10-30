@@ -20,12 +20,12 @@ var artExtractSem = make(chan struct{}, 4)
 func (s *Server) handleArtwork(w http.ResponseWriter, r *http.Request) {
 	trackID := parseTrackIDFromPath(r.URL.Path, "/api/artwork/")
 	if trackID == 0 || s.Library == nil {
-		http.Error(w, "track ID required", http.StatusBadRequest)
+		jsonError(w, "track ID required", http.StatusBadRequest)
 		return
 	}
 	t := s.Library.Track(trackID)
 	if t == nil {
-		http.NotFound(w, r)
+		jsonError(w, "not found", http.StatusNotFound)
 		return
 	}
 	// Lazy extraction: if this track's file has never been probed, do it now
@@ -38,7 +38,7 @@ func (s *Server) handleArtwork(w http.ResponseWriter, r *http.Request) {
 		if _, busy := s.artInFlight.LoadOrStore(trackID, struct{}{}); busy {
 			// Another request is already probing this track; don't double-probe.
 			// The thumbnail appears once that finishes (next poll re-fetches).
-			http.NotFound(w, r)
+			jsonError(w, "not found", http.StatusNotFound)
 			return
 		}
 		artExtractSem <- struct{}{} // cap concurrent ffmpeg probes
@@ -52,12 +52,12 @@ func (s *Server) handleArtwork(w http.ResponseWriter, r *http.Request) {
 		s.artInFlight.Delete(trackID)
 	}
 	if t.ArtID == 0 {
-		http.NotFound(w, r)
+		jsonError(w, "not found", http.StatusNotFound)
 		return
 	}
 	art := s.Library.Artwork.Get(t.ArtID)
 	if art == nil || len(art.Data) == 0 {
-		http.NotFound(w, r)
+		jsonError(w, "not found", http.StatusNotFound)
 		return
 	}
 	contentType := art.MIMEType
@@ -74,25 +74,25 @@ func (s *Server) handleArtwork(w http.ResponseWriter, r *http.Request) {
 // 404 until the image is cached; the PLAYERS view retries on its next poll.
 func (s *Server) handleExtArtwork(w http.ResponseWriter, r *http.Request) {
 	if s.ExtArtwork == nil {
-		http.NotFound(w, r)
+		jsonError(w, "not found", http.StatusNotFound)
 		return
 	}
 	rest := strings.TrimPrefix(r.URL.Path, "/api/artwork/ext/")
 	parts := strings.Split(rest, "/")
 	if len(parts) != 3 {
-		http.Error(w, "expected /api/artwork/ext/{player}/{slot}/{trackID}", http.StatusBadRequest)
+		jsonError(w, "expected /api/artwork/ext/{player}/{slot}/{trackID}", http.StatusBadRequest)
 		return
 	}
 	player, err1 := strconv.ParseUint(parts[0], 10, 8)
 	slot, err2 := strconv.ParseUint(parts[1], 10, 8)
 	trackID, err3 := strconv.ParseUint(parts[2], 10, 32)
 	if err1 != nil || err2 != nil || err3 != nil || trackID == 0 {
-		http.Error(w, "invalid player/slot/trackID", http.StatusBadRequest)
+		jsonError(w, "invalid player/slot/trackID", http.StatusBadRequest)
 		return
 	}
 	data := s.ExtArtwork(uint8(player), uint8(slot), uint32(trackID))
 	if len(data) == 0 {
-		http.NotFound(w, r) // not fetched yet, or the track has no art
+		jsonError(w, "not found", http.StatusNotFound) // not fetched yet, or the track has no art
 		return
 	}
 	w.Header().Set("Content-Type", "image/jpeg")

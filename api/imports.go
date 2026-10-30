@@ -86,8 +86,7 @@ func isHex64(s string) bool {
 //
 // Auto-detected from extension if not obvious.
 func (s *Server) handleImportRekordbox(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "POST required", http.StatusMethodNotAllowed)
+	if !allow(w, r, http.MethodPost) {
 		return
 	}
 	var req struct {
@@ -115,11 +114,11 @@ func (s *Server) handleImportRekordbox(w http.ResponseWriter, r *http.Request) {
 		LockAnalysis *bool `json:"lock_analysis"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "invalid JSON: "+err.Error(), http.StatusBadRequest)
+		jsonError(w, "invalid JSON: "+err.Error(), http.StatusBadRequest)
 		return
 	}
 	if req.Path == "" {
-		http.Error(w, "path is required", http.StatusBadRequest)
+		jsonError(w, "path is required", http.StatusBadRequest)
 		return
 	}
 
@@ -140,7 +139,7 @@ func (s *Server) handleImportRekordbox(w http.ResponseWriter, r *http.Request) {
 		incSettings = want(req.Include.Settings)
 	}
 	if _, err := os.Stat(req.Path); err != nil {
-		http.Error(w, "path not found: "+err.Error(), http.StatusBadRequest)
+		jsonError(w, "path not found: "+err.Error(), http.StatusBadRequest)
 		return
 	}
 
@@ -148,7 +147,7 @@ func (s *Server) handleImportRekordbox(w http.ResponseWriter, r *http.Request) {
 	// a single in-flight import. The UI disables its button too, but guard here
 	// against a second concurrent request.
 	if s.importBusy() {
-		http.Error(w, "an import is already running", http.StatusConflict)
+		jsonError(w, "an import is already running", http.StatusConflict)
 		return
 	}
 	s.importBegin("Reading rekordbox database…")
@@ -156,14 +155,14 @@ func (s *Server) handleImportRekordbox(w http.ResponseWriter, r *http.Request) {
 
 	imp := library.ImporterFor(req.Path)
 	if imp == nil {
-		http.Error(w, "path must be a .xml, .nml (Traktor), .db, or .zip (rekordbox backup) file", http.StatusBadRequest)
+		jsonError(w, "path must be a .xml, .nml (Traktor), .db, or .zip (rekordbox backup) file", http.StatusBadRequest)
 		return
 	}
 	// Encrypted rekordbox formats (master.db / backup zip) need the user's 64-hex
 	// SQLCipher key — we ship none and don't extract one.
 	key := strings.ToLower(strings.TrimPrefix(strings.TrimSpace(req.Key), "0x"))
 	if imp.RequiresKey(req.Path) && !isHex64(key) {
-		http.Error(w, "a 64-hex SQLCipher key is required", http.StatusBadRequest)
+		jsonError(w, "a 64-hex SQLCipher key is required", http.StatusBadRequest)
 		return
 	}
 
@@ -175,7 +174,7 @@ func (s *Server) handleImportRekordbox(w http.ResponseWriter, r *http.Request) {
 		Progress:     s.importPhase,
 	})
 	if err != nil {
-		http.Error(w, "import failed: "+err.Error(), http.StatusInternalServerError)
+		jsonError(w, "import failed: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 	if bundle == nil {
@@ -549,8 +548,7 @@ func (s *Server) applyImportBundle(w http.ResponseWriter, bundle *library.Import
 // re-analyze after the move. Other per-track caches (artwork, cues,
 // waveform-png) are keyed by track ID or art ID and survive untouched.
 func (s *Server) handleRemapPaths(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "POST required", http.StatusMethodNotAllowed)
+	if !allow(w, r, http.MethodPost) {
 		return
 	}
 	var req struct {
@@ -558,11 +556,11 @@ func (s *Server) handleRemapPaths(w http.ResponseWriter, r *http.Request) {
 		To   string `json:"to"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "invalid JSON: "+err.Error(), http.StatusBadRequest)
+		jsonError(w, "invalid JSON: "+err.Error(), http.StatusBadRequest)
 		return
 	}
 	if req.From == "" || req.To == "" {
-		http.Error(w, "both 'from' and 'to' are required", http.StatusBadRequest)
+		jsonError(w, "both 'from' and 'to' are required", http.StatusBadRequest)
 		return
 	}
 	n, changes := s.Library.RemapPaths(req.From, req.To)
@@ -578,8 +576,7 @@ func (s *Server) handleRemapPaths(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleAddTracks(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "POST required", http.StatusMethodNotAllowed)
+	if !allow(w, r, http.MethodPost) {
 		return
 	}
 
@@ -587,12 +584,12 @@ func (s *Server) handleAddTracks(w http.ResponseWriter, r *http.Request) {
 		Paths []string `json:"paths"` // file paths to add
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "invalid JSON: "+err.Error(), http.StatusBadRequest)
+		jsonError(w, "invalid JSON: "+err.Error(), http.StatusBadRequest)
 		return
 	}
 
 	if len(req.Paths) == 0 {
-		http.Error(w, "paths array is required", http.StatusBadRequest)
+		jsonError(w, "paths array is required", http.StatusBadRequest)
 		return
 	}
 
@@ -608,9 +605,9 @@ func (s *Server) handleAddTracks(w http.ResponseWriter, r *http.Request) {
 		added := s.addFiles(files, nil)
 		s.Library.FinalizeBulk()
 		writeJSON(w, map[string]interface{}{
-			"status": "ok",
-			"added":  added,
-			"total":  s.Library.TrackCount(),
+			"ok":    true,
+			"added": added,
+			"total": s.Library.TrackCount(),
 		})
 		return
 	}
@@ -630,7 +627,7 @@ func (s *Server) handleAddTracks(w http.ResponseWriter, r *http.Request) {
 		time.AfterFunc(2*time.Minute, func() { s.addJobs.Delete(id) })
 	}()
 	writeJSON(w, map[string]interface{}{
-		"status": "started",
+		"ok":     true,
 		"async":  true,
 		"job_id": id,
 		"total":  len(files),
@@ -695,7 +692,7 @@ func (s *Server) handleAddStatus(w http.ResponseWriter, r *http.Request) {
 	id := r.URL.Query().Get("id")
 	v, ok := s.addJobs.Load(id)
 	if !ok {
-		http.Error(w, "unknown or expired job", http.StatusNotFound)
+		jsonError(w, "unknown or expired job", http.StatusNotFound)
 		return
 	}
 	writeJSON(w, v.(*addJob).snapshot())
@@ -814,13 +811,12 @@ func (s *Server) addTrackByPath(path string, bulk bool) (uint32, error) {
 // POST /api/tracks/reimport — reimport all tracks
 // POST /api/tracks/reimport {"track_ids": [1, 2, 3]} — reimport specific tracks
 func (s *Server) handleReimportTracks(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "POST required", http.StatusMethodNotAllowed)
+	if !allow(w, r, http.MethodPost) {
 		return
 	}
 
 	if s.Library == nil {
-		http.Error(w, "library not available", http.StatusServiceUnavailable)
+		jsonError(w, "library not available", http.StatusServiceUnavailable)
 		return
 	}
 	// An empty body (or no track_ids) reimports every track; a body that
@@ -830,7 +826,7 @@ func (s *Server) handleReimportTracks(w http.ResponseWriter, r *http.Request) {
 		TrackIDs []uint32 `json:"track_ids"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil && err != io.EOF {
-		http.Error(w, "invalid JSON: "+err.Error(), http.StatusBadRequest)
+		jsonError(w, "invalid JSON: "+err.Error(), http.StatusBadRequest)
 		return
 	}
 	want := make(map[uint32]bool, len(req.TrackIDs))
@@ -868,7 +864,7 @@ func (s *Server) handleReimportTracks(w http.ResponseWriter, r *http.Request) {
 	log.Printf("api: reimported tags for %d tracks", updated)
 
 	writeJSON(w, map[string]interface{}{
-		"status":  "ok",
+		"ok":      true,
 		"updated": updated,
 	})
 }

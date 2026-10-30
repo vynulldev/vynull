@@ -141,17 +141,16 @@ func (s *Server) getOrAnalyze(ctx context.Context, trackID uint32) *analysis.Res
 // result replaces both the in-memory entry and the on-disk .gob cache.
 // POST /api/analysis/reanalyze/{trackID}
 func (s *Server) handleReanalyze(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "POST required", http.StatusMethodNotAllowed)
+	if !allow(w, r, http.MethodPost) {
 		return
 	}
 	trackID := parseTrackIDFromPath(r.URL.Path, "/api/analysis/reanalyze/")
 	if trackID == 0 {
-		http.Error(w, "track ID required", http.StatusBadRequest)
+		jsonError(w, "track ID required", http.StatusBadRequest)
 		return
 	}
 	if s.Analysis == nil {
-		http.Error(w, "analysis store not available", http.StatusServiceUnavailable)
+		jsonError(w, "analysis store not available", http.StatusServiceUnavailable)
 		return
 	}
 
@@ -162,14 +161,14 @@ func (s *Server) handleReanalyze(w http.ResponseWriter, r *http.Request) {
 		parts = "all"
 	}
 	if parts != "all" && parts != "grid" && parts != "waveform" {
-		http.Error(w, "parts must be 'all', 'grid', or 'waveform'", http.StatusBadRequest)
+		jsonError(w, "parts must be 'all', 'grid', or 'waveform'", http.StatusBadRequest)
 		return
 	}
 
 	// A locked track refuses anything that rewrites its grid; a waveform-only
 	// re-analysis never touches the grid, so it is allowed.
 	if parts != "waveform" && s.analysisLocked(trackID) {
-		http.Error(w, "track analysis is locked; only a waveform re-analysis is allowed while locked", http.StatusConflict)
+		jsonError(w, "track analysis is locked; only a waveform re-analysis is allowed while locked", http.StatusConflict)
 		return
 	}
 
@@ -181,7 +180,7 @@ func (s *Server) handleReanalyze(w http.ResponseWriter, r *http.Request) {
 	} else {
 		filePath := s.trackFilePath(trackID)
 		if filePath == "" {
-			http.Error(w, "track not found", http.StatusNotFound)
+			jsonError(w, "track not found", http.StatusNotFound)
 			return
 		}
 		s.Analysis.SetPath(trackID, filePath)
@@ -199,7 +198,7 @@ func (s *Server) handleReanalyze(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if result == nil {
-		http.Error(w, "reanalysis failed", http.StatusInternalServerError)
+		jsonError(w, "reanalysis failed", http.StatusInternalServerError)
 		return
 	}
 	writeJSON(w, map[string]interface{}{
@@ -232,13 +231,13 @@ func (s *Server) trackFilePath(trackID uint32) string {
 func (s *Server) handleAnalysis(w http.ResponseWriter, r *http.Request) {
 	trackID := parseTrackIDFromPath(r.URL.Path, "/api/analysis/")
 	if trackID == 0 {
-		http.Error(w, "track ID required", http.StatusBadRequest)
+		jsonError(w, "track ID required", http.StatusBadRequest)
 		return
 	}
 
 	result := s.getOrAnalyze(r.Context(), trackID)
 	if result == nil {
-		http.Error(w, "analysis not found", http.StatusNotFound)
+		jsonError(w, "analysis not found", http.StatusNotFound)
 		return
 	}
 
@@ -327,25 +326,25 @@ func (s *Server) handleAnalysis(w http.ResponseWriter, r *http.Request) {
 // the download lands or when the track has no analysis.
 func (s *Server) handleExtAnalysis(w http.ResponseWriter, r *http.Request) {
 	if s.ExtAnalysis == nil {
-		http.NotFound(w, r)
+		jsonError(w, "not found", http.StatusNotFound)
 		return
 	}
 	rest := strings.TrimPrefix(r.URL.Path, "/api/analysis/ext/")
 	parts := strings.Split(rest, "/")
 	if len(parts) != 3 {
-		http.Error(w, "expected /api/analysis/ext/{player}/{slot}/{trackID}", http.StatusBadRequest)
+		jsonError(w, "expected /api/analysis/ext/{player}/{slot}/{trackID}", http.StatusBadRequest)
 		return
 	}
 	player, err1 := strconv.ParseUint(parts[0], 10, 8)
 	slot, err2 := strconv.ParseUint(parts[1], 10, 8)
 	trackID, err3 := strconv.ParseUint(parts[2], 10, 32)
 	if err1 != nil || err2 != nil || err3 != nil || trackID == 0 {
-		http.Error(w, "invalid player/slot/trackID", http.StatusBadRequest)
+		jsonError(w, "invalid player/slot/trackID", http.StatusBadRequest)
 		return
 	}
 	a := s.ExtAnalysis(uint8(player), uint8(slot), uint32(trackID))
 	if a == nil {
-		http.NotFound(w, r)
+		jsonError(w, "not found", http.StatusNotFound)
 		return
 	}
 	writeJSON(w, struct {
@@ -370,13 +369,12 @@ func (s *Server) handleExtAnalysis(w http.ResponseWriter, r *http.Request) {
 // GET /api/tracks/{id}/phrases — list detected phrases (intro/up/down/chorus/outro)
 // with start/end times in milliseconds for visual rendering.
 func (s *Server) handleTrackPhrases(w http.ResponseWriter, r *http.Request) {
-	if r.Method != "GET" {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+	if !allow(w, r, http.MethodGet) {
 		return
 	}
 	trackID := parseTrackIDFromPath(r.URL.Path, "/api/tracks/")
 	if trackID == 0 {
-		http.Error(w, "track ID required", http.StatusBadRequest)
+		jsonError(w, "track ID required", http.StatusBadRequest)
 		return
 	}
 	type PhraseInfo struct {

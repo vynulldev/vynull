@@ -13,7 +13,7 @@ import (
 // POST /api/tags — create a tag {name: "..."}
 func (s *Server) handleTags(w http.ResponseWriter, r *http.Request) {
 	if s.Tags == nil {
-		http.Error(w, "tag store not available", http.StatusServiceUnavailable)
+		jsonError(w, "tag store not available", http.StatusServiceUnavailable)
 		return
 	}
 
@@ -31,22 +31,22 @@ func (s *Server) handleTags(w http.ResponseWriter, r *http.Request) {
 			CategoryID uint32 `json:"category_id"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			http.Error(w, "invalid JSON: "+err.Error(), http.StatusBadRequest)
+			jsonError(w, "invalid JSON: "+err.Error(), http.StatusBadRequest)
 			return
 		}
 		if req.Name == "" {
-			http.Error(w, "name required", http.StatusBadRequest)
+			jsonError(w, "name required", http.StatusBadRequest)
 			return
 		}
 		id, err := s.Tags.CreateTag(req.Name, req.CategoryID)
 		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
+			jsonError(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
 		writeJSON(w, TagInfo{ID: id, Name: req.Name, CategoryID: req.CategoryID})
 
 	default:
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		notAllowed(w, http.MethodGet, http.MethodPost)
 	}
 }
 
@@ -54,7 +54,7 @@ func (s *Server) handleTags(w http.ResponseWriter, r *http.Request) {
 // DELETE /api/tags/{id} — delete tag
 func (s *Server) handleTagByID(w http.ResponseWriter, r *http.Request) {
 	if s.Tags == nil {
-		http.Error(w, "tag store not available", http.StatusServiceUnavailable)
+		jsonError(w, "tag store not available", http.StatusServiceUnavailable)
 		return
 	}
 
@@ -63,7 +63,7 @@ func (s *Server) handleTagByID(w http.ResponseWriter, r *http.Request) {
 	var id uint32
 	fmt.Sscanf(path, "%d", &id)
 	if id == 0 {
-		http.Error(w, "invalid tag ID", http.StatusBadRequest)
+		jsonError(w, "invalid tag ID", http.StatusBadRequest)
 		return
 	}
 
@@ -78,12 +78,12 @@ func (s *Server) handleTagByID(w http.ResponseWriter, r *http.Request) {
 			Color      *uint8  `json:"color,omitempty"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			http.Error(w, "invalid JSON: "+err.Error(), http.StatusBadRequest)
+			jsonError(w, "invalid JSON: "+err.Error(), http.StatusBadRequest)
 			return
 		}
 		if req.Name != nil {
 			if err := s.Tags.RenameTag(id, *req.Name); err != nil {
-				http.Error(w, err.Error(), http.StatusNotFound)
+				jsonError(w, err.Error(), http.StatusNotFound)
 				return
 			}
 		}
@@ -92,18 +92,18 @@ func (s *Server) handleTagByID(w http.ResponseWriter, r *http.Request) {
 		}
 		if req.Color != nil {
 			if err := s.Tags.SetTagColor(id, *req.Color); err != nil {
-				http.Error(w, err.Error(), http.StatusNotFound)
+				jsonError(w, err.Error(), http.StatusNotFound)
 				return
 			}
 		}
-		writeJSON(w, struct{ OK bool }{true})
+		ok(w)
 
 	case "DELETE":
 		s.Tags.DeleteTag(id)
-		writeJSON(w, struct{ OK bool }{true})
+		ok(w)
 
 	default:
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		notAllowed(w, http.MethodPut, http.MethodDelete)
 	}
 }
 
@@ -111,14 +111,14 @@ func (s *Server) handleTagByID(w http.ResponseWriter, r *http.Request) {
 // POST /api/tracks/{id}/tags — set tags for a track {tag_ids: [...]}
 func (s *Server) handleTrackTags(w http.ResponseWriter, r *http.Request) {
 	if s.Tags == nil {
-		http.Error(w, "tag store not available", http.StatusServiceUnavailable)
+		jsonError(w, "tag store not available", http.StatusServiceUnavailable)
 		return
 	}
 
 	// Parse /api/tracks/{trackID}/tags
 	trackID := parseTrackIDFromPath(r.URL.Path, "/api/tracks/")
 	if trackID == 0 {
-		http.Error(w, "track ID required", http.StatusBadRequest)
+		jsonError(w, "track ID required", http.StatusBadRequest)
 		return
 	}
 
@@ -135,7 +135,7 @@ func (s *Server) handleTrackTags(w http.ResponseWriter, r *http.Request) {
 			TagIDs []uint32 `json:"tag_ids"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			http.Error(w, "invalid JSON: "+err.Error(), http.StatusBadRequest)
+			jsonError(w, "invalid JSON: "+err.Error(), http.StatusBadRequest)
 			return
 		}
 		s.Tags.SetTagsForTrack(trackID, req.TagIDs)
@@ -147,10 +147,10 @@ func (s *Server) handleTrackTags(w http.ResponseWriter, r *http.Request) {
 			// list on receipt.
 			s.Device.BroadcastTrackRefresh(trackID)
 		}
-		writeJSON(w, struct{ OK bool }{true})
+		ok(w)
 
 	default:
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		notAllowed(w, http.MethodGet, http.MethodPost)
 	}
 }
 
@@ -158,7 +158,7 @@ func (s *Server) handleTrackTags(w http.ResponseWriter, r *http.Request) {
 // POST /api/tag-categories — create category {name: "..."}
 func (s *Server) handleTagCategories(w http.ResponseWriter, r *http.Request) {
 	if s.Tags == nil {
-		http.Error(w, "tag store not available", http.StatusServiceUnavailable)
+		jsonError(w, "tag store not available", http.StatusServiceUnavailable)
 		return
 	}
 
@@ -175,22 +175,22 @@ func (s *Server) handleTagCategories(w http.ResponseWriter, r *http.Request) {
 			Name string `json:"name"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			http.Error(w, "invalid JSON: "+err.Error(), http.StatusBadRequest)
+			jsonError(w, "invalid JSON: "+err.Error(), http.StatusBadRequest)
 			return
 		}
 		if req.Name == "" {
-			http.Error(w, "name required", http.StatusBadRequest)
+			jsonError(w, "name required", http.StatusBadRequest)
 			return
 		}
 		id, err := s.Tags.CreateCategory(req.Name)
 		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
+			jsonError(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
 		writeJSON(w, TagCategoryInfo{ID: id, Name: req.Name})
 
 	default:
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		notAllowed(w, http.MethodGet, http.MethodPost)
 	}
 }
 
@@ -198,7 +198,7 @@ func (s *Server) handleTagCategories(w http.ResponseWriter, r *http.Request) {
 // DELETE /api/tag-categories/{id} — delete category
 func (s *Server) handleTagCategoryByID(w http.ResponseWriter, r *http.Request) {
 	if s.Tags == nil {
-		http.Error(w, "tag store not available", http.StatusServiceUnavailable)
+		jsonError(w, "tag store not available", http.StatusServiceUnavailable)
 		return
 	}
 
@@ -206,7 +206,7 @@ func (s *Server) handleTagCategoryByID(w http.ResponseWriter, r *http.Request) {
 	var id uint32
 	fmt.Sscanf(path, "%d", &id)
 	if id == 0 {
-		http.Error(w, "invalid category ID", http.StatusBadRequest)
+		jsonError(w, "invalid category ID", http.StatusBadRequest)
 		return
 	}
 
@@ -216,20 +216,20 @@ func (s *Server) handleTagCategoryByID(w http.ResponseWriter, r *http.Request) {
 			Name string `json:"name"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			http.Error(w, "invalid JSON: "+err.Error(), http.StatusBadRequest)
+			jsonError(w, "invalid JSON: "+err.Error(), http.StatusBadRequest)
 			return
 		}
 		if err := s.Tags.RenameCategory(id, req.Name); err != nil {
-			http.Error(w, err.Error(), http.StatusNotFound)
+			jsonError(w, err.Error(), http.StatusNotFound)
 			return
 		}
-		writeJSON(w, struct{ OK bool }{true})
+		ok(w)
 
 	case "DELETE":
 		s.Tags.DeleteCategory(id)
-		writeJSON(w, struct{ OK bool }{true})
+		ok(w)
 
 	default:
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		notAllowed(w, http.MethodPut, http.MethodDelete)
 	}
 }

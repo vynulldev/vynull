@@ -32,13 +32,13 @@ import (
 func (s *Server) handleWaveform(w http.ResponseWriter, r *http.Request) {
 	trackID := parseTrackIDFromPath(r.URL.Path, "/api/analysis/waveform/")
 	if trackID == 0 {
-		http.Error(w, "track ID required", http.StatusBadRequest)
+		jsonError(w, "track ID required", http.StatusBadRequest)
 		return
 	}
 
 	result := s.getOrAnalyze(r.Context(), trackID)
 	if result == nil {
-		http.Error(w, "analysis not found", http.StatusNotFound)
+		jsonError(w, "analysis not found", http.StatusNotFound)
 		return
 	}
 
@@ -147,7 +147,7 @@ func (s *Server) handleWaveform(w http.ResponseWriter, r *http.Request) {
 		}{trackID, "color_preview", entries})
 
 	default:
-		http.Error(w, "type must be 'detail', 'preview', or 'color_preview'", http.StatusBadRequest)
+		jsonError(w, "type must be 'detail', 'preview', or 'color_preview'", http.StatusBadRequest)
 	}
 }
 
@@ -188,7 +188,7 @@ func decodePWV5(data []byte) []WaveEntrySpectral {
 func (s *Server) handleWaveformPNG(w http.ResponseWriter, r *http.Request) {
 	trackID := parseTrackIDFromPath(r.URL.Path, "/api/analysis/waveform-png/")
 	if trackID == 0 {
-		http.Error(w, "track ID required", http.StatusBadRequest)
+		jsonError(w, "track ID required", http.StatusBadRequest)
 		return
 	}
 	waveType := r.URL.Query().Get("type")
@@ -196,7 +196,7 @@ func (s *Server) handleWaveformPNG(w http.ResponseWriter, r *http.Request) {
 		waveType = "detail"
 	}
 	if waveType != "detail" && waveType != "color_preview" {
-		http.Error(w, "type must be detail or color_preview", http.StatusBadRequest)
+		jsonError(w, "type must be detail or color_preview", http.StatusBadRequest)
 		return
 	}
 	// Colour mode mirrors the CDJ "waveform color" DEVSETTING: "rgb" (the
@@ -288,7 +288,7 @@ func (s *Server) handleWaveformPNG(w http.ResponseWriter, r *http.Request) {
 	// Cache miss → render now.
 	imgBytes, err := renderWaveformPNG(result, waveType, colorMode, overview, width, height)
 	if err != nil {
-		http.Error(w, "render failed: "+err.Error(), http.StatusInternalServerError)
+		jsonError(w, "render failed: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 	// Best-effort write to disk for next time. Write-to-temp + rename so a

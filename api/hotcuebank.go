@@ -55,12 +55,11 @@ func (s *Server) hotCueBankEntries(bankID uint32) []HotCueBankEntry {
 // banks imported from rekordbox, as a flat list (parent_id links the tree;
 // siblings order by seq). Read-only.
 func (s *Server) handleHotCueBanks(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		http.Error(w, "GET required", http.StatusMethodNotAllowed)
+	if !allow(w, r, http.MethodGet) {
 		return
 	}
 	if s.Library == nil {
-		http.Error(w, "library not available", http.StatusServiceUnavailable)
+		jsonError(w, "library not available", http.StatusServiceUnavailable)
 		return
 	}
 	out := []HotCueBankNode{}
@@ -81,16 +80,15 @@ func (s *Server) handleHotCueBanks(w http.ResponseWriter, r *http.Request) {
 // handleHotCueBankByID serves GET /api/hotcuebanks/{id}/tracks: a bank's
 // tracks and the cue it holds for each. Read-only.
 func (s *Server) handleHotCueBankByID(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		http.Error(w, "GET required", http.StatusMethodNotAllowed)
+	if !allow(w, r, http.MethodGet) {
 		return
 	}
 	if s.Library == nil {
-		http.Error(w, "library not available", http.StatusServiceUnavailable)
+		jsonError(w, "library not available", http.StatusServiceUnavailable)
 		return
 	}
 	if !strings.HasSuffix(strings.TrimSuffix(r.URL.Path, "/"), "/tracks") {
-		http.NotFound(w, r)
+		jsonError(w, "not found", http.StatusNotFound)
 		return
 	}
 	id := parseTrackIDFromPath(r.URL.Path, "/api/hotcuebanks/")
@@ -102,7 +100,7 @@ func (s *Server) handleHotCueBankByID(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if !found {
-		http.Error(w, "hot cue bank not found", http.StatusNotFound)
+		jsonError(w, "hot cue bank not found", http.StatusNotFound)
 		return
 	}
 	writeJSON(w, s.hotCueBankEntries(id))

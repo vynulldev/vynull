@@ -92,23 +92,7 @@ func TestCORSHeadersEveryRoute(t *testing.T) {
 		h.ServeHTTP(w, httptest.NewRequest(method, path, nil).WithContext(ctx))
 		return w
 	}
-	for _, path := range []string{
-		"/api/status", "/api/version", "/api/peers", "/api/players", "/api/nowplaying",
-		"/api/events", "/api/overlay/config", "/api/history", "/api/load", "/api/link", "/api/unlink",
-		"/api/tracks", "/api/tracks/rev", "/api/tracks/color", "/api/tracks/rating", "/api/tracks/tags",
-		"/api/tracks/add", "/api/tracks/add/status", "/api/tracks/reimport", "/api/fs/list",
-		"/api/tracks/1/metadata", "/api/tracks/1/path", "/api/tracks/1/color", "/api/tracks/1/rating",
-		"/api/tracks/1/tags", "/api/tracks/1/phrases", "/api/tracks/1/beats", "/api/tracks/1/lock",
-		"/api/tracks/1/related",
-		"/api/import/rekordbox", "/api/import/status", "/api/library/remap-paths",
-		"/api/export", "/api/export/preview", "/api/diag", "/api/diag/logs", "/api/diag/status",
-		"/api/audio/1", "/api/analysis/1", "/api/analysis/ext/1/2/3", "/api/analysis/reanalyze/1",
-		"/api/analysis/beatgrid/adjust", "/api/analysis/waveform/1", "/api/analysis/waveform-png/1",
-		"/api/artwork/1", "/api/artwork/ext/1/2/3", "/api/cues", "/api/cues/1",
-		"/api/settings", "/api/settings/enums", "/api/menu-items", "/api/menu-items/reset",
-		"/api/tags", "/api/tags/1", "/api/tag-categories", "/api/tag-categories/1",
-		"/api/playlists", "/api/playlists/1", "/api/hotcuebanks", "/api/hotcuebanks/1",
-	} {
+	for _, path := range everyRoute {
 		for _, method := range []string{http.MethodOptions, http.MethodGet} {
 			w := serve(method, path)
 			for name, value := range want {
@@ -118,4 +102,23 @@ func TestCORSHeadersEveryRoute(t *testing.T) {
 			}
 		}
 	}
+}
+
+// everyRoute is a path for each route the API serves, with 1 for an ID.
+var everyRoute = []string{
+	"/api/status", "/api/version", "/api/peers", "/api/players", "/api/nowplaying",
+	"/api/events", "/api/overlay/config", "/api/history", "/api/load", "/api/link", "/api/unlink",
+	"/api/tracks", "/api/tracks/rev", "/api/tracks/color", "/api/tracks/rating", "/api/tracks/tags",
+	"/api/tracks/add", "/api/tracks/add/status", "/api/tracks/reimport", "/api/fs/list",
+	"/api/tracks/1/metadata", "/api/tracks/1/path", "/api/tracks/1/color", "/api/tracks/1/rating",
+	"/api/tracks/1/tags", "/api/tracks/1/phrases", "/api/tracks/1/beats", "/api/tracks/1/lock",
+	"/api/tracks/1/related",
+	"/api/import/rekordbox", "/api/import/status", "/api/library/remap-paths",
+	"/api/export", "/api/export/preview", "/api/diag", "/api/diag/logs", "/api/diag/status",
+	"/api/audio/1", "/api/analysis/1", "/api/analysis/ext/1/2/3", "/api/analysis/reanalyze/1",
+	"/api/analysis/beatgrid/adjust", "/api/analysis/waveform/1", "/api/analysis/waveform-png/1",
+	"/api/artwork/1", "/api/artwork/ext/1/2/3", "/api/cues", "/api/tracks/1/cues",
+	"/api/settings", "/api/settings/enums", "/api/menu-items", "/api/menu-items/reset",
+	"/api/tags", "/api/tags/1", "/api/tag-categories", "/api/tag-categories/1",
+	"/api/playlists", "/api/playlists/1", "/api/hotcuebanks", "/api/hotcuebanks/1",
 }

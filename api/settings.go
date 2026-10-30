@@ -49,7 +49,7 @@ func (s *Server) syncBPMRange() {
 func (s *Server) handleSettings(w http.ResponseWriter, r *http.Request) {
 	settings := s.Device.Settings
 	if settings == nil {
-		http.Error(w, "settings not available", http.StatusServiceUnavailable)
+		jsonError(w, "settings not available", http.StatusServiceUnavailable)
 		return
 	}
 
@@ -119,8 +119,7 @@ func (s *Server) handleSettings(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if r.Method != http.MethodPost {
-		http.Error(w, "GET or POST required", http.StatusMethodNotAllowed)
+	if !allow(w, r, http.MethodPost) {
 		return
 	}
 
@@ -134,7 +133,7 @@ func (s *Server) handleSettings(w http.ResponseWriter, r *http.Request) {
 		Full *device.SettingsConfig `json:"full,omitempty"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&combined); err != nil {
-		http.Error(w, "invalid JSON: "+err.Error(), http.StatusBadRequest)
+		jsonError(w, "invalid JSON: "+err.Error(), http.StatusBadRequest)
 		return
 	}
 	if combined.Full != nil {
@@ -143,7 +142,7 @@ func (s *Server) handleSettings(w http.ResponseWriter, r *http.Request) {
 		s.syncBPMRange() // keep the analyzer + cache in step with the Analysis Setting
 		s.syncGridOffset()
 		s.Device.NotifySettingsChanged()
-		writeJSON(w, struct{ OK bool }{true})
+		ok(w)
 		return
 	}
 	req := combined.SettingsJSON
