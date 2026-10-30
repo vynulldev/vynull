@@ -7,13 +7,13 @@ import (
 	"encoding/csv"
 	"encoding/json"
 	"fmt"
-	"log"
 	"os"
 	"path/filepath"
 	"strconv"
 	"sync"
 	"time"
 
+	"github.com/vynulldev/vynull/internal/dlog"
 	"github.com/vynulldev/vynull/library"
 	"github.com/vynulldev/vynull/pdb"
 	"github.com/vynulldev/vynull/proto"
@@ -212,7 +212,7 @@ func (m *PlayerMonitor) SetHistoryOutput(path, format string) {
 		return
 	}
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		log.Printf("history: mkdir %s: %v", filepath.Dir(path), err)
+		dlog.Errorf("history: mkdir %s: %v", filepath.Dir(path), err)
 		return
 	}
 	// Write the header only for a brand-new (or empty) file so appends across
@@ -221,7 +221,7 @@ func (m *PlayerMonitor) SetHistoryOutput(path, format string) {
 	isNew := os.IsNotExist(statErr) || (statErr == nil && st.Size() == 0)
 	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
 	if err != nil {
-		log.Printf("history: open %s: %v", path, err)
+		dlog.Errorf("history: open %s: %v", path, err)
 		return
 	}
 	m.histFile = f
@@ -276,7 +276,7 @@ func (m *PlayerMonitor) appendHistoryEntry(h HistoryEntry) {
 		return
 	}
 	if _, err := m.histFile.Write(renderEntry(h, m.historyFormat)); err != nil {
-		log.Printf("history: append %s: %v", m.historyPath, err)
+		dlog.Errorf("history: append %s: %v", m.historyPath, err)
 		return
 	}
 	_ = m.histFile.Sync()
@@ -479,7 +479,7 @@ func (m *PlayerMonitor) Update(status *proto.CDJStatus) {
 		if trackName != "" {
 			name = fmt.Sprintf(" %q", trackName)
 		}
-		log.Printf("deck %d: play-state %s (0x%02x) track=%d%s [was 0x%02x track=%d]",
+		dlog.Infof("deck %d: play-state %s (0x%02x) track=%d%s [was 0x%02x track=%d]",
 			dev, status.PlayStateString(), status.PlayState, status.TrackID, name, prevPlay, prevTID)
 	}
 

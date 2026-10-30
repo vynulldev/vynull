@@ -5,7 +5,6 @@ package api
 import (
 	"encoding/json"
 	"fmt"
-	"log"
 	"maps"
 	"os"
 	"path/filepath"
@@ -13,6 +12,7 @@ import (
 	"sync"
 	"sync/atomic"
 
+	"github.com/vynulldev/vynull/internal/dlog"
 	"github.com/vynulldev/vynull/internal/fsutil"
 	"github.com/vynulldev/vynull/internal/saver"
 )
@@ -100,7 +100,7 @@ func (ts *TagStore) CreateCategory(name string) (uint32, error) {
 	ts.nextCatID++
 	ts.categories = append(ts.categories, TagCategoryInfo{ID: id, Name: name})
 	ts.changed()
-	log.Printf("api: created tag category #%d %q", id, name)
+	dlog.Infof("api: created tag category #%d %q", id, name)
 	return id, nil
 }
 
@@ -157,7 +157,7 @@ func (ts *TagStore) CreateTag(name string, categoryID uint32) (uint32, error) {
 	ts.nextTagID++
 	ts.tags = append(ts.tags, TagInfo{ID: id, Name: name, CategoryID: categoryID})
 	ts.changed()
-	log.Printf("api: created tag #%d %q (category %d)", id, name, categoryID)
+	dlog.Infof("api: created tag #%d %q (category %d)", id, name, categoryID)
 	return id, nil
 }
 
@@ -269,7 +269,7 @@ func (ts *TagStore) SetTagsForTrack(trackID uint32, tagIDs []uint32) {
 		ts.trackTags[trackID] = slices.Clone(tagIDs)
 	}
 	ts.changed()
-	log.Printf("api: set %d tags for track %d", len(tagIDs), trackID)
+	dlog.Infof("api: set %d tags for track %d", len(tagIDs), trackID)
 }
 
 // EditTags adds tags to and removes tags from several tracks as one change,
@@ -305,7 +305,7 @@ func (ts *TagStore) EditTags(trackIDs, add, remove []uint32) ([]uint32, error) {
 	}
 	if len(changed) > 0 {
 		ts.changed()
-		log.Printf("api: edited tags on %d tracks (+%v -%v)", len(changed), add, remove)
+		dlog.Infof("api: edited tags on %d tracks (+%v -%v)", len(changed), add, remove)
 	}
 	return changed, nil
 }
@@ -328,11 +328,11 @@ func (ts *TagStore) TakeLegacyColorsAndRatings() (colors, ratings map[uint32]uin
 		}
 		m := map[uint32]uint8{}
 		if err := json.Unmarshal(data, &m); err != nil {
-			log.Printf("tags: %s: %v (left in place)", path, err)
+			dlog.Warnf("tags: %s: %v (left in place)", path, err)
 			return nil
 		}
 		if err := os.Rename(path, path+".migrated"); err != nil {
-			log.Printf("tags: %s: %v", path, err)
+			dlog.Warnf("tags: %s: %v", path, err)
 		}
 		return m
 	}
@@ -445,6 +445,6 @@ func (ts *TagStore) load() {
 		ts.trackTags = make(map[uint32][]uint32)
 	}
 
-	log.Printf("api: loaded %d categories, %d tags, %d track-tag assignments",
+	dlog.Infof("api: loaded %d categories, %d tags, %d track-tag assignments",
 		len(ts.categories), len(ts.tags), len(ts.trackTags))
 }

@@ -5,10 +5,10 @@ package device
 import (
 	"encoding/json"
 	"fmt"
-	"log"
 	"os"
 	"path/filepath"
 
+	"github.com/vynulldev/vynull/internal/dlog"
 	"gopkg.in/yaml.v3"
 )
 
@@ -141,7 +141,7 @@ func (e enumMap) encode(name string, def byte) byte {
 	if n, _ := fmt.Sscanf(name, "0x%x", &b); n == 1 {
 		return b
 	}
-	log.Printf("settings: unknown value %q (using default 0x%02x)", name, def)
+	dlog.Infof("settings: unknown value %q (using default 0x%02x)", name, def)
 	return def
 }
 
@@ -553,9 +553,9 @@ func LoadConfig(path string) (SettingsConfig, error) {
 			return cfg, err
 		}
 		if werr := writeConfigJSON(path, cfg); werr != nil {
-			log.Printf("settings: failed to write default %s: %v", path, werr)
+			dlog.Errorf("settings: failed to write default %s: %v", path, werr)
 		} else {
-			log.Printf("settings: wrote default config to %s", path)
+			dlog.Infof("settings: wrote default config to %s", path)
 		}
 		return cfg, nil
 	}
@@ -601,16 +601,16 @@ func tryMigrateYAML(jsonPath string) (SettingsConfig, bool) {
 		return cfg, false
 	}
 	if err := yaml.Unmarshal(data, &cfg); err != nil {
-		log.Printf("settings: legacy %s found but unparseable: %v", yamlPath, err)
+		dlog.Warnf("settings: legacy %s found but unparseable: %v", yamlPath, err)
 		return cfg, false
 	}
 	if err := os.MkdirAll(filepath.Dir(jsonPath), 0o755); err != nil {
 		return cfg, false
 	}
 	if err := writeConfigJSON(jsonPath, cfg); err != nil {
-		log.Printf("settings: migration write %s: %v", jsonPath, err)
+		dlog.Errorf("settings: migration write %s: %v", jsonPath, err)
 		return cfg, false
 	}
-	log.Printf("settings: migrated %s -> %s (YAML kept as backup)", yamlPath, jsonPath)
+	dlog.Infof("settings: migrated %s -> %s (YAML kept as backup)", yamlPath, jsonPath)
 	return cfg, true
 }

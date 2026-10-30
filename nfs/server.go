@@ -6,9 +6,9 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
-	"log"
 	"net"
 	"os"
 	"path/filepath"
@@ -266,7 +266,7 @@ func (s *Server) Start(ctx context.Context) error {
 	}
 	go func() {
 		if err := pm.Start(ctx); err != nil {
-			log.Printf("portmapper error: %v", err)
+			dlog.Errorf("portmapper error: %v", err)
 		}
 	}()
 
@@ -283,7 +283,7 @@ func (s *Server) Start(ctx context.Context) error {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		log.Printf("nfs: mount listener starting on UDP port %d", mountPortNum)
+		dlog.Infof("nfs: mount listener starting on UDP port %d", mountPortNum)
 		s.listenUDP(ctx, mountPortNum, s.handleMount, true, false)
 	}()
 
@@ -295,14 +295,14 @@ func (s *Server) Start(ctx context.Context) error {
 		case progNFS:
 			return s.handleNFS(hdr)
 		default:
-			log.Printf("nfs: unknown program %d", hdr.Program)
+			dlog.Infof("nfs: unknown program %d", hdr.Program)
 			return nil
 		}
 	}
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		log.Printf("nfs: NFS listener starting on UDP port %d", nfsPortNum)
+		dlog.Infof("nfs: NFS listener starting on UDP port %d", nfsPortNum)
 		// Single-reply: don't duplicate NFS READ payloads (would double
 		// the bandwidth for every track byte during playback). When
 		// transcoding, each request is answered in its own goroutine: one
@@ -321,7 +321,7 @@ func (s *Server) Start(ctx context.Context) error {
 	if s.CDJMode {
 		portmap = []int{111, 50111}
 	}
-	log.Printf("nfs server: export=%s port=:%d portmap=%v",
+	dlog.Infof("nfs server: export=%s port=:%d portmap=%v",
 		s.exportRoot, nfsPortNum, portmap)
 
 	<-ctx.Done()
@@ -332,7 +332,7 @@ func (s *Server) Start(ctx context.Context) error {
 func (s *Server) listenUDP(ctx context.Context, port int, handler func(*rpcHeader) []byte, duplicate, concurrent bool) {
 	conn, err := net.ListenUDP("udp4", &net.UDPAddr{Port: port})
 	if err != nil {
-		log.Printf("nfs udp bind %d: %v", port, err)
+		dlog.Errorf("nfs udp bind %d: %v", port, err)
 		return
 	}
 	defer conn.Close()
@@ -377,7 +377,11 @@ func (s *Server) serveUDP(ctx context.Context, conn *net.UDPConn, handler func(*
 			if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
 				continue
 			}
-			log.Printf("nfs udp %d read error: %v", port, err)
+			if errors.Is(err, net.ErrClosed) {
+				dlog.Debugf("nfs udp %d read error: %v", port, err) // closed at shutdown
+			} else {
+				dlog.Warnf("nfs udp %d read error: %v", port, err)
+			}
 			return
 		}
 
@@ -395,7 +399,7 @@ func (s *Server) serveUDP(ctx context.Context, conn *net.UDPConn, handler func(*
 func (s *Server) listenTCP(ctx context.Context, port int, handler func(*rpcHeader) []byte) {
 	ln, err := net.Listen("tcp4", fmt.Sprintf(":%d", port))
 	if err != nil {
-		log.Printf("nfs tcp bind %d: %v", port, err)
+		dlog.Errorf("nfs tcp bind %d: %v", port, err)
 		return
 	}
 	defer ln.Close()
@@ -412,7 +416,7 @@ func (s *Server) listenTCP(ctx context.Context, port int, handler func(*rpcHeade
 			case <-ctx.Done():
 				return
 			default:
-				log.Printf("nfs tcp accept %d: %v", port, err)
+				dlog.Errorf("nfs tcp accept %d: %v", port, err)
 				return
 			}
 		}
@@ -440,7 +444,7 @@ func (s *Server) handleTCPConn(ctx context.Context, conn net.Conn, handler func(
 		}
 		fragLen := int(be32(marker[:]) & 0x7FFFFFFF)
 		if fragLen > len(buf) {
-			log.Printf("nfs tcp: fragment too large: %d", fragLen)
+			dlog.Infof("nfs tcp: fragment too large: %d", fragLen)
 			return
 		}
 		if _, err := readFull(conn, buf[:fragLen]); err != nil {
@@ -461,7 +465,7 @@ func (s *Server) handleTCPConn(ctx context.Context, conn net.Conn, handler func(
 func (s *Server) dispatchRPC(data []byte, handler func(*rpcHeader) []byte) []byte {
 	hdr, err := parseRPCCall(data)
 	if err != nil {
-		log.Printf("nfs: RPC parse error: %v (data len=%d)", err, len(data))
+		dlog.Warnf("nfs: RPC parse error: %v (data len=%d)", err, len(data))
 		return nil
 	}
 	dlog.Tracef("nfs: RPC call prog=%d vers=%d proc=%d xid=%08x", hdr.Program, hdr.Version, hdr.Proc, hdr.XID)
@@ -490,22 +494,22 @@ func (s *Server) handleNFS(hdr *rpcHeader) []byte {
 		dlog.Tracef("nfs: STATFS")
 		return s.nfsStatFS(hdr)
 	case nfsSetAttr:
-		log.Printf("nfs: SETATTR (write attempt)")
+		dlog.Infof("nfs: SETATTR (write attempt)")
 		return s.nfsWriteStub(hdr, "SETATTR")
 	case nfsWrite:
-		log.Printf("nfs: WRITE (write attempt)")
+		dlog.Infof("nfs: WRITE (write attempt)")
 		return s.nfsWriteStub(hdr, "WRITE")
 	case nfsCreate:
-		log.Printf("nfs: CREATE (write attempt)")
+		dlog.Infof("nfs: CREATE (write attempt)")
 		return s.nfsWriteStub(hdr, "CREATE")
 	case nfsRemove:
-		log.Printf("nfs: REMOVE (write attempt)")
+		dlog.Infof("nfs: REMOVE (write attempt)")
 		return s.nfsWriteStub(hdr, "REMOVE")
 	case nfsMkdir:
-		log.Printf("nfs: MKDIR (write attempt)")
+		dlog.Infof("nfs: MKDIR (write attempt)")
 		return s.nfsWriteStub(hdr, "MKDIR")
 	default:
-		log.Printf("nfs: unhandled proc %d", hdr.Proc)
+		dlog.Infof("nfs: unhandled proc %d", hdr.Proc)
 		return buildRPCReply(hdr.XID).bytes()
 	}
 }
@@ -545,12 +549,12 @@ func (s *Server) nfsLookup(hdr *rpcHeader) []byte {
 	r := newXDRReader(hdr.body)
 	dirFH, err := r.fh()
 	if err != nil {
-		log.Printf("nfs: LOOKUP bad fh: %v", err)
+		dlog.Warnf("nfs: LOOKUP bad fh: %v", err)
 		return nil
 	}
 	rawName, err := r.str()
 	if err != nil {
-		log.Printf("nfs: LOOKUP bad name: %v", err)
+		dlog.Warnf("nfs: LOOKUP bad name: %v", err)
 		return nil
 	}
 
@@ -580,7 +584,7 @@ func (s *Server) nfsLookup(hdr *rpcHeader) []byte {
 		// CDJ modifies bytes 12-31 of file handles. Try matching by prefix.
 		dirPath, ok = s.handles.ResolveByPrefix(dirFH)
 		if !ok {
-			log.Printf("nfs: LOOKUP %q in unknown dir handle %x", name, dirFH[:12])
+			dlog.Infof("nfs: LOOKUP %q in unknown dir handle %x", name, dirFH[:12])
 			w := buildRPCReply(hdr.XID)
 			w.putU32(nfsNoEnt)
 			return w.bytes()
@@ -651,7 +655,7 @@ func (s *Server) nfsRead(hdr *rpcHeader) []byte {
 	if s.Transcode && NeedsTranscode(path) {
 		mp3Bytes, err := s.transcoder.ReadAt(path, offset, count)
 		if err != nil {
-			log.Printf("nfs: READ transcode %s error: %v", filepath.Base(path), err)
+			dlog.Errorf("nfs: READ transcode %s error: %v", filepath.Base(path), err)
 			w := buildRPCReply(hdr.XID)
 			w.putU32(nfsIO)
 			return w.bytes()
@@ -681,7 +685,7 @@ func (s *Server) nfsRead(hdr *rpcHeader) []byte {
 	// A read at or past the end of the file is answered with no data, as NFS
 	// servers do: a deck reads exactly at the end of a WAV.
 	if n == 0 && err != nil && err != io.EOF {
-		log.Printf("nfs: READ %s offset=%d count=%d error=%v", path, offset, count, err)
+		dlog.Errorf("nfs: READ %s offset=%d count=%d error=%v", path, offset, count, err)
 		w := buildRPCReply(hdr.XID)
 		w.putU32(nfsIO)
 		return w.bytes()

@@ -4,12 +4,13 @@ package analysis
 
 import (
 	"context"
-	"log"
 	"os"
 	"path/filepath"
 	"slices"
 	"sync"
 	"time"
+
+	"github.com/vynulldev/vynull/internal/dlog"
 )
 
 // queue.go runs the analyses the daemon starts by itself: a deck loading a
@@ -139,7 +140,7 @@ func (s *Store) Close() {
 	select {
 	case <-stopped:
 	case <-time.After(closeWait):
-		log.Printf("analysis: shutting down with an analysis still stopping")
+		dlog.Infof("analysis: shutting down with an analysis still stopping")
 	}
 }
 
@@ -202,26 +203,26 @@ func (s *Store) analyze(ctx context.Context, trackID uint32, filePath string) *R
 	if s.Importer != nil {
 		if r := s.Importer(trackID, filePath); r != nil {
 			r = s.keepCurrent(trackID, r)
-			log.Printf("analysis: track %d imported from ANLZ (BPM=%.1f dur=%ds)", trackID, r.BPM, r.Duration)
+			dlog.Infof("analysis: track %d imported from ANLZ (BPM=%.1f dur=%ds)", trackID, r.BPM, r.Duration)
 			return r
 		}
 	}
 	if _, err := os.Stat(filePath); err != nil {
-		log.Printf("analysis: track %d not analyzed, its file is missing: %s", trackID, filePath)
+		dlog.Warnf("analysis: track %d not analyzed, its file is missing: %s", trackID, filePath)
 		return nil
 	}
-	log.Printf("analysis: analyzing track %d (%s)...", trackID, filepath.Base(filePath))
+	dlog.Infof("analysis: analyzing track %d (%s)...", trackID, filepath.Base(filePath))
 	r, err := AnalyzeTrackContext(ctx, filePath)
 	if ctx.Err() != nil {
-		log.Printf("analysis: track %d cancelled", trackID)
+		dlog.Infof("analysis: track %d cancelled", trackID)
 		return s.stored(trackID)
 	}
 	if err != nil {
-		log.Printf("analysis: track %d failed: %v", trackID, err)
+		dlog.Errorf("analysis: track %d failed: %v", trackID, err)
 		return nil
 	}
 	r = s.keepCurrent(trackID, r)
-	log.Printf("analysis: track %d done (BPM=%.1f key=%s dur=%ds)", trackID, r.BPM, r.KeyCamelot, r.Duration)
+	dlog.Infof("analysis: track %d done (BPM=%.1f key=%s dur=%ds)", trackID, r.BPM, r.KeyCamelot, r.Duration)
 	return r
 }
 

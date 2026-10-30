@@ -143,7 +143,7 @@ func main() {
 			// bubbletea TUI's altscreen scroll past in jumbled stderr
 			// and the log file is silent. Available since Go 1.23.
 			if err := debug.SetCrashOutput(logFile, debug.CrashOptions{}); err != nil {
-				log.Printf("warning: SetCrashOutput failed: %v", err)
+				dlog.Warnf("SetCrashOutput failed: %v", err)
 			}
 			// Also catch panics in the main goroutine and log them
 			// before exiting (SetCrashOutput logs the stack but the
@@ -152,7 +152,7 @@ func main() {
 			// for grep-ability).
 			defer func() {
 				if r := recover(); r != nil {
-					log.Printf("PANIC main: %v\n%s", r, debug.Stack())
+					dlog.Errorf("PANIC main: %v\n%s", r, debug.Stack())
 					panic(r) // re-panic so runtime crash output still fires
 				}
 			}()
@@ -164,8 +164,8 @@ func main() {
 	// remotely, and previously the ring only attached after they printed.
 	api.CaptureLogs()
 
-	log.Printf("vynull %s", buildinfo.Get())
-	log.Printf("started with args: %v", os.Args[1:])
+	dlog.Infof("vynull %s", buildinfo.Get())
+	dlog.Infof("started with args: %v", os.Args[1:])
 
 	var lib *library.Library
 	var pdbDB *pdb.Database
@@ -181,10 +181,10 @@ func main() {
 		var err error
 		pdbDB, err = pdb.Open(pdbPath)
 		if err == nil {
-			log.Printf("pdb: loaded %d tracks from %s", len(pdbDB.Tracks), pdbPath)
+			dlog.Infof("pdb: loaded %d tracks from %s", len(pdbDB.Tracks), pdbPath)
 			lib = library.FromPDB(pdbDB.Tracks, cfg.MusicDir)
 		} else {
-			log.Printf("pdb: not available (%v), scanning tags", err)
+			dlog.Infof("pdb: not available (%v), scanning tags", err)
 			lib, err = library.Scan(cfg.MusicDir)
 			if err != nil {
 				log.Fatalf("scanning music library: %v", err)
@@ -193,7 +193,7 @@ func main() {
 	} else {
 		lib = library.New()
 		lib.SetDBPath(filepath.Join(cfg.DataDir, "library.json"))
-		log.Printf("library mode: add tracks via API (/api/tracks/add)")
+		dlog.Infof("library mode: add tracks via API (/api/tracks/add)")
 	}
 	// The library saves in the background; write what's pending on the way out.
 	defer lib.Close()
@@ -206,7 +206,7 @@ func main() {
 	// ArtChecked flag), and loading a track on a CDJ extracts via analysis.
 	// No startup or background sweep, so startup stays fast on large libraries.
 	if cached := lib.Artwork.Count(); cached > 0 {
-		log.Printf("library: %d artworks loaded from cache", cached)
+		dlog.Infof("library: %d artworks loaded from cache", cached)
 	}
 
 	// Generate USB structure mode — no network needed. The orchestration
@@ -251,7 +251,7 @@ func main() {
 			}
 			opts.Tracks = export.FilterTracks(export.LibraryToTracks(lib), trackIDs)
 			opts.Playlists = export.SinglePlaylist(pl.Name, trackIDs)
-			log.Printf("export: subset %q → %d tracks", pl.Name, len(opts.Tracks))
+			dlog.Infof("export: subset %q → %d tracks", pl.Name, len(opts.Tracks))
 		}
 
 		if err := export.Run(opts); err != nil {
@@ -265,7 +265,7 @@ func main() {
 		log.Fatalf("resolving interface: %v", err)
 	}
 
-	log.Printf("using interface %s: ip=%s mac=%s broadcast=%s",
+	dlog.Infof("using interface %s: ip=%s mac=%s broadcast=%s",
 		cfg.Interface, iface.IP, iface.MAC, iface.Broadcast)
 
 	// NFS root: music dir if set, otherwise "/" for absolute path serving.
@@ -387,7 +387,7 @@ func main() {
 	}
 
 	if cfg.LazyAnalysis {
-		log.Printf("lazy-analysis mode: tracks will be analyzed on-demand (cache: %s)", cacheDir)
+		dlog.Infof("lazy-analysis mode: tracks will be analyzed on-demand (cache: %s)", cacheDir)
 	} else if pdbDB != nil {
 		// PDB paths are relative to USB root (e.g., /Contents/...).
 		// Build absolute paths for ffmpeg, analyze, then restore.
@@ -396,7 +396,7 @@ func main() {
 			origPaths[i] = t.FilePath
 			t.FilePath = filepath.Join(cfg.MusicDir, t.FilePath)
 		}
-		log.Printf("analyzing %d tracks...", len(pdbDB.Tracks))
+		dlog.Infof("analyzing %d tracks...", len(pdbDB.Tracks))
 		analysis.AnalyzeAll(pdbDB.Tracks, runtime.NumCPU(), analysisStore, nil)
 		for i, t := range pdbDB.Tracks {
 			t.FilePath = origPaths[i]
@@ -442,7 +442,7 @@ func main() {
 		}
 
 		if artCount > 0 {
-			log.Printf("analysis: loaded %d artworks", artCount)
+			dlog.Infof("analysis: loaded %d artworks", artCount)
 		}
 	}
 
@@ -468,7 +468,7 @@ func main() {
 			}
 		}
 		if artCount > 0 {
-			log.Printf("loaded %d artworks from PIONEER/Artwork", artCount)
+			dlog.Infof("loaded %d artworks from PIONEER/Artwork", artCount)
 		}
 	}
 	// Start the database server for track metadata queries.
@@ -476,7 +476,7 @@ func main() {
 	var folderLookup *pdb.FolderLookup
 	if pdbDB != nil {
 		folderLookup = pdb.BuildFolderLookup(pdbDB.Tracks)
-		log.Printf("folders: %d directories mapped", len(folderLookup.Nodes))
+		dlog.Infof("folders: %d directories mapped", len(folderLookup.Nodes))
 	}
 
 	tagStore := api.NewTagStore(filepath.Join(cfg.DataDir, "tags"))
@@ -528,9 +528,9 @@ func main() {
 	go func() {
 		defer srvWg.Done()
 		if err := db.Start(ctx); err != nil {
-			log.Printf("dbserver error: %v", err)
+			dlog.Errorf("dbserver error: %v", err)
 		}
-		log.Printf("dbserver: stopped")
+		dlog.Infof("dbserver: stopped")
 	}()
 
 	// Forward-declare the device so the NFS server's LinkedFn closure
@@ -545,18 +545,18 @@ func main() {
 	nfsSrv.CDJMode = cfg.CDJMode // only CDJ mode needs privileged port 111
 	nfsSrv.LinkedFn = func() bool { return dev != nil && dev.Linked() }
 	if cfg.Transcode {
-		log.Printf("nfs: transcoding enabled — FLAC/WAV/AIFF will be converted to MP3")
+		dlog.Infof("nfs: transcoding enabled — FLAC/WAV/AIFF will be converted to MP3")
 	}
 	srvWg.Add(1)
 	go func() {
 		defer srvWg.Done()
 		if err := nfsSrv.Start(ctx); err != nil {
-			log.Printf("nfs server error: %v", err)
+			dlog.Errorf("nfs server error: %v", err)
 		}
-		log.Printf("nfs server: stopped")
+		dlog.Infof("nfs server: stopped")
 	}()
 
-	log.Printf("mode: %s (device %d, name %q, slot %d)",
+	dlog.Infof("mode: %s (device %d, name %q, slot %d)",
 		cfg.DeviceType, cfg.DeviceNumber, cfg.DeviceName, cfg.MediaSlot)
 
 	// Start the virtual device (announcement + keep-alive + status).
@@ -590,7 +590,7 @@ func main() {
 		histPath = filepath.Join(cfg.DataDir, "history."+ext)
 	}
 	monitor.SetHistoryOutput(histPath, cfg.HistoryFormat)
-	log.Printf("track history: %s (%s)", histPath, cfg.HistoryFormat)
+	dlog.Infof("track history: %s (%s)", histPath, cfg.HistoryFormat)
 
 	dev = &device.VirtualDevice{
 		Name:         cfg.DeviceName,
@@ -698,7 +698,7 @@ func main() {
 		Overlay:      api.NewOverlayStore(filepath.Join(cfg.DataDir, "overlay.json")),
 	}
 	if cfg.Web {
-		log.Printf("web UI enabled: http://%s/", displayAddr(cfg.Listen))
+		dlog.Infof("web UI enabled: http://%s/", displayAddr(cfg.Listen))
 	}
 	// MPRIS: mirror the audible deck to the desktop's media surfaces. Missing
 	// session bus (headless) is normal — debug-log and move on.
@@ -725,16 +725,16 @@ func main() {
 		}, time.Second); err != nil {
 			dlog.Debugf("mpris: disabled: %v", err)
 		} else {
-			log.Printf("mpris: publishing now-playing on the session bus")
+			dlog.Infof("mpris: publishing now-playing on the session bus")
 		}
 	}
 	srvWg.Add(1)
 	go func() {
 		defer srvWg.Done()
 		if err := apiSrv.Start(ctx); err != nil {
-			log.Printf("api server error: %v", err)
+			dlog.Errorf("api server error: %v", err)
 		}
-		log.Printf("api server: stopped")
+		dlog.Infof("api server: stopped")
 	}()
 
 	// Run device in a goroutine; the TUI takes the main thread.
@@ -744,10 +744,10 @@ func main() {
 		defer srvWg.Done()
 		devErr = dev.Start(ctx)
 		if devErr != nil && ctx.Err() == nil {
-			log.Printf("device error: %v", devErr)
+			dlog.Errorf("device error: %v", devErr)
 			cancel()
 		}
-		log.Printf("device: stopped")
+		dlog.Infof("device: stopped")
 	}()
 
 	// Periodic resource snapshot so we can spot goroutine / memory / session
@@ -766,7 +766,7 @@ func main() {
 	// API mux. localhost-only — never expose pprof on the LAN.
 	go func() {
 		if err := http.ListenAndServe("127.0.0.1:6060", nil); err != nil {
-			log.Printf("pprof: %v", err)
+			dlog.Warnf("pprof: %v", err)
 		}
 	}()
 
@@ -782,7 +782,7 @@ func main() {
 			tuiProgram.Quit()
 		}()
 		if _, err := tuiProgram.Run(); err != nil {
-			log.Printf("tui error: %v", err)
+			dlog.Errorf("tui error: %v", err)
 		}
 		cancel() // user pressed 'q' → tell services to stop
 
@@ -790,11 +790,11 @@ func main() {
 	} else {
 		// Headless: no terminal UI. Block the main goroutine until a signal
 		// (SIGINT/SIGTERM) or a service error cancels the context.
-		log.Printf("running headless (--tui=false); press Ctrl-C to stop")
+		dlog.Infof("running headless (--tui=false); press Ctrl-C to stop")
 		<-ctx.Done()
 		cancel()
 	}
-	log.Printf("shutdown: waiting for services to finish (up to 5s)...")
+	dlog.Infof("shutdown: waiting for services to finish (up to 5s)...")
 
 	// Wait for dbserver / nfs / api to finish their teardown (close
 	// listeners, drain in-flight requests), with a timeout so a stuck
@@ -806,9 +806,9 @@ func main() {
 	}()
 	select {
 	case <-done:
-		log.Printf("shutdown: all services stopped cleanly")
+		dlog.Infof("shutdown: all services stopped cleanly")
 	case <-time.After(5 * time.Second):
-		log.Printf("shutdown: timed out — some services did not stop within 5s")
+		dlog.Warnf("shutdown: timed out — some services did not stop within 5s")
 	}
 
 	// Finalize track history: close the still-playing entry and flush.
@@ -886,7 +886,7 @@ func logStatsLine(db *dbserver.Server, dev *device.VirtualDevice, analysisStore 
 		analyzed = analysisStore.Count()
 		cached = analysisStore.CachedCount()
 	}
-	log.Printf("stats: goroutines=%d heap=%dMB sys=%dMB heap-idle=%dMB heap-released=%dMB gc=%d dbserver-sessions=%d peers=%d analysis(pending=%d analyzed=%d cached=%d)",
+	dlog.Infof("stats: goroutines=%d heap=%dMB sys=%dMB heap-idle=%dMB heap-released=%dMB gc=%d dbserver-sessions=%d peers=%d analysis(pending=%d analyzed=%d cached=%d)",
 		runtime.NumGoroutine(),
 		ms.HeapAlloc>>20,
 		ms.Sys>>20,
@@ -1015,7 +1015,7 @@ func moveLegacyColorsAndRatings(lib *library.Library, colors, ratings map[uint32
 	}
 	nc := lib.SetColors(cs)
 	nr := lib.SetRatings(ratings)
-	log.Printf("tags: moved %d track colour(s) and %d rating(s) into the library", nc, nr)
+	dlog.Infof("tags: moved %d track colour(s) and %d rating(s) into the library", nc, nr)
 }
 
 const historyFolderName = "History"
@@ -1043,7 +1043,7 @@ func appendToHistoryPlaylist(ps *api.PlaylistStore, trackID uint32, when time.Ti
 	if folderID == 0 {
 		f, err := ps.Create(historyFolderName, 0, true)
 		if err != nil {
-			log.Printf("history: create folder: %v", err)
+			dlog.Errorf("history: create folder: %v", err)
 			return
 		}
 		folderID = f.ID
@@ -1061,7 +1061,7 @@ func appendToHistoryPlaylist(ps *api.PlaylistStore, trackID uint32, when time.Ti
 	if plID == 0 {
 		p, err := ps.Create(plName, folderID, false)
 		if err != nil {
-			log.Printf("history: create %q: %v", plName, err)
+			dlog.Errorf("history: create %q: %v", plName, err)
 			return
 		}
 		plID = p.ID
@@ -1074,7 +1074,7 @@ func appendToHistoryPlaylist(ps *api.PlaylistStore, trackID uint32, when time.Ti
 	}
 	current = append(current, trackID)
 	if err := ps.SetTracks(plID, current); err != nil {
-		log.Printf("history: append to %q: %v", plName, err)
+		dlog.Errorf("history: append to %q: %v", plName, err)
 	}
 }
 

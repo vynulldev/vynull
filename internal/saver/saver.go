@@ -8,10 +8,11 @@
 package saver
 
 import (
-	"log"
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/vynulldev/vynull/internal/dlog"
 )
 
 // Interval is how often, at most, the stores write: long enough to fold a
@@ -88,7 +89,7 @@ func (s *Saver) Flush() error {
 		return nil
 	}
 	if err := s.write(); err != nil {
-		log.Printf("%s: save: %v", s.name, err)
+		dlog.Errorf("%s: save: %v", s.name, err)
 		return err
 	}
 	s.saved = gen

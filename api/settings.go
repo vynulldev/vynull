@@ -4,11 +4,11 @@ package api
 
 import (
 	"encoding/json"
-	"log"
 	"net/http"
 
 	"github.com/vynulldev/vynull/analysis"
 	"github.com/vynulldev/vynull/device"
+	"github.com/vynulldev/vynull/internal/dlog"
 )
 
 // syncGridOffset applies the persisted beat-grid offset. No cache
@@ -23,7 +23,7 @@ func (s *Server) syncGridOffset() {
 		return
 	}
 	analysis.SetGridOffset(ms)
-	log.Printf("api: beat-grid offset -> %+gms (detected grids shift on next read)", ms)
+	dlog.Infof("api: beat-grid offset -> %+gms (detected grids shift on next read)", ms)
 }
 
 // syncBPMRange applies the persisted Analysis-Setting BPM range to the analyzer
@@ -42,7 +42,7 @@ func (s *Server) syncBPMRange() {
 	if s.Analysis != nil {
 		s.Analysis.InvalidateAll()
 	}
-	log.Printf("api: BPM analysis range -> %g-%g; cached analyses invalidated", mn, mx)
+	dlog.Infof("api: BPM analysis range -> %g-%g; cached analyses invalidated", mn, mx)
 }
 
 // handleSettings handles GET/POST /api/settings for CDJ display settings.
@@ -138,7 +138,7 @@ func (s *Server) handleSettings(w http.ResponseWriter, r *http.Request) {
 	}
 	if combined.Full != nil {
 		settings.SetConfig(*combined.Full)
-		log.Printf("api: settings: full config replaced")
+		dlog.Infof("api: settings: full config replaced")
 		s.syncBPMRange() // keep the analyzer + cache in step with the Analysis Setting
 		s.syncGridOffset()
 		s.Device.NotifySettingsChanged()
@@ -196,7 +196,7 @@ func (s *Server) handleSettings(w http.ResponseWriter, r *http.Request) {
 	if req.TrackDetail != "" {
 		settings.SetTrackDetail(req.TrackDetail)
 	}
-	log.Printf("api: settings updated: %+v", devSettingToJSON())
+	dlog.Infof("api: settings updated: %+v", devSettingToJSON())
 
 	// Notify connected CDJs that settings changed.
 	s.Device.NotifySettingsChanged()

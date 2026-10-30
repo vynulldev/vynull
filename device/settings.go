@@ -3,9 +3,10 @@
 package device
 
 import (
-	"log"
 	"path/filepath"
 	"sync"
+
+	"github.com/vynulldev/vynull/internal/dlog"
 )
 
 // CDJSettings holds the runtime settings state. Backed by a JSON config
@@ -30,7 +31,7 @@ func NewCDJSettings(dir string) *CDJSettings {
 func NewCDJSettingsAt(path string) *CDJSettings {
 	cfg, err := LoadConfig(path)
 	if err != nil {
-		log.Printf("settings: %v (using defaults)", err)
+		dlog.Warnf("settings: %v (using defaults)", err)
 		cfg = DefaultSettingsConfig()
 	}
 	return &CDJSettings{path: path, cfg: cfg}
@@ -50,7 +51,7 @@ func (s *CDJSettings) SetConfig(cfg SettingsConfig) {
 	defer s.mu.Unlock()
 	s.cfg = cfg
 	s.persist()
-	log.Printf("settings: full config replaced → %s", s.path)
+	dlog.Infof("settings: full config replaced → %s", s.path)
 }
 
 // SaveMySetting stores MYSETTING data from a 0x37 packet. Decodes the
@@ -60,7 +61,7 @@ func (s *CDJSettings) SaveMySetting(body []byte) {
 	defer s.mu.Unlock()
 	s.cfg.MySetting = DecodeMySetting(body)
 	s.persist()
-	log.Printf("settings: saved MYSETTING (%d bytes) → %s", len(body), s.path)
+	dlog.Infof("settings: saved MYSETTING (%d bytes) → %s", len(body), s.path)
 }
 
 // SaveDevSetting stores DEVSETTING data from a 0x48 packet. Decodes the
@@ -70,7 +71,7 @@ func (s *CDJSettings) SaveDevSetting(body []byte) {
 	defer s.mu.Unlock()
 	s.cfg.DevSetting = DecodeDevSetting(body)
 	s.persist()
-	log.Printf("settings: saved DEVSETTING (%d bytes) → %s", len(body), s.path)
+	dlog.Infof("settings: saved DEVSETTING (%d bytes) → %s", len(body), s.path)
 }
 
 // SaveMySetting2 stores MYSETTING2 data from a CDJ push.
@@ -79,7 +80,7 @@ func (s *CDJSettings) SaveMySetting2(body []byte) {
 	defer s.mu.Unlock()
 	s.cfg.MySetting2 = DecodeMySetting2(body)
 	s.persist()
-	log.Printf("settings: saved MYSETTING2 (%d bytes) → %s", len(body), s.path)
+	dlog.Infof("settings: saved MYSETTING2 (%d bytes) → %s", len(body), s.path)
 }
 
 // GetMySetting returns the encoded MYSETTING body (40 bytes).
@@ -135,7 +136,7 @@ func (s *CDJSettings) SetTrackDetail(detail string) {
 	defer s.mu.Unlock()
 	s.cfg.TrackDetail = detail
 	s.persist()
-	log.Printf("settings: track detail set to %q", detail)
+	dlog.Infof("settings: track detail set to %q", detail)
 }
 
 // GetBPMRange returns the configured analysis BPM range (0, 0 = unset/default).
@@ -158,11 +159,11 @@ func (s *CDJSettings) SetBPMRange(min, max float64) {
 	defer s.mu.Unlock()
 	s.cfg.BPMRangeMin, s.cfg.BPMRangeMax = min, max
 	s.persist()
-	log.Printf("settings: BPM range set to %g-%g", min, max)
+	dlog.Infof("settings: BPM range set to %g-%g", min, max)
 }
 
 func (s *CDJSettings) persist() {
 	if err := SaveConfig(s.path, s.cfg); err != nil {
-		log.Printf("settings: failed to write %s: %v", s.path, err)
+		dlog.Errorf("settings: failed to write %s: %v", s.path, err)
 	}
 }

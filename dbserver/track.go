@@ -4,12 +4,12 @@ package dbserver
 
 import (
 	"encoding/binary"
-	"github.com/vynulldev/vynull/internal/dlog"
-	"log"
 	"math"
 	"path/filepath"
 	"strings"
 	"unicode/utf16"
+
+	"github.com/vynulldev/vynull/internal/dlog"
 
 	"github.com/vynulldev/vynull/analysis"
 	"github.com/vynulldev/vynull/library"
@@ -192,7 +192,7 @@ func (h *Handler) handleSetRating(msg *proto.DBMessage) []*proto.DBMessage {
 	trackID := msg.Args[1].Int()
 	rating := msg.Args[2].Int()
 
-	log.Printf("dbserver: rating update track=%d rating=%d", trackID, rating)
+	dlog.Infof("dbserver: rating update track=%d rating=%d", trackID, rating)
 
 	if h.lib != nil {
 		h.lib.SetRating(trackID, uint8(min(rating, 5)))
@@ -238,7 +238,7 @@ func (h *Handler) handleGetArtwork(msg *proto.DBMessage) []*proto.DBMessage {
 	const maxCDJArtBytes = 32 * 1024
 	if art != nil && len(art.Data) > maxCDJArtBytes {
 		if small, err := library.ThumbnailJPEG(art.Data, 240); err == nil && len(small) <= maxCDJArtBytes {
-			log.Printf("dbserver: artwork %d oversized (%d bytes) → resized to %d for CDJ", art.ID, len(art.Data), len(small))
+			dlog.Infof("dbserver: artwork %d oversized (%d bytes) → resized to %d for CDJ", art.ID, len(art.Data), len(small))
 			h.lib.Artwork.AddWithID(art.ID, "image/jpeg", small)
 			art = h.lib.Artwork.Get(art.ID)
 		} else {
@@ -248,7 +248,7 @@ func (h *Handler) handleGetArtwork(msg *proto.DBMessage) []*proto.DBMessage {
 	}
 
 	if art == nil {
-		log.Printf("dbserver: artwork %d not found", artID)
+		dlog.Infof("dbserver: artwork %d not found", artID)
 		// The response is 0x4002 with status=0x32 (not found) + phantom blob arg.
 		return []*proto.DBMessage{{
 			TxID:             msg.TxID,

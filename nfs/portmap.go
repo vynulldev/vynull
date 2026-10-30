@@ -4,8 +4,8 @@ package nfs
 
 import (
 	"context"
+	"errors"
 	"fmt"
-	"log"
 	"net"
 	"time"
 
@@ -35,7 +35,7 @@ func (pm *Portmapper) Start(ctx context.Context) error {
 	for _, port := range ports {
 		conn, err := net.ListenUDP("udp4", &net.UDPAddr{Port: port})
 		if err != nil {
-			log.Printf("portmapper: cannot bind port %d: %v", port, err)
+			dlog.Errorf("portmapper: cannot bind port %d: %v", port, err)
 			continue
 		}
 		conns = append(conns, conn)
@@ -50,7 +50,7 @@ func (pm *Portmapper) Start(ctx context.Context) error {
 		}
 	}()
 
-	log.Printf("portmapper listening on UDP ports %v (mount=%d, nfs=%d)",
+	dlog.Infof("portmapper listening on UDP ports %v (mount=%d, nfs=%d)",
 		bound, pm.mountPort, pm.nfsPort)
 
 	// Port 111 is privileged (<1024). Without it, a deck using us as a CDJ-USB
@@ -94,7 +94,11 @@ func (pm *Portmapper) listenLoop(ctx context.Context, conn *net.UDPConn) {
 			if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
 				continue
 			}
-			log.Printf("portmap read: %v", err)
+			if errors.Is(err, net.ErrClosed) {
+				dlog.Debugf("portmap read: %v", err) // closed at shutdown
+			} else {
+				dlog.Warnf("portmap read: %v", err)
+			}
 			continue
 		}
 
@@ -113,7 +117,7 @@ func (pm *Portmapper) listenLoop(ctx context.Context, conn *net.UDPConn) {
 func (pm *Portmapper) handlePacket(data []byte) []byte {
 	hdr, err := parseRPCCall(data)
 	if err != nil {
-		log.Printf("portmap: %v", err)
+		dlog.Warnf("portmap: %v", err)
 		return nil
 	}
 	dlog.Debugf("portmap: request xid=%08x prog=%d vers=%d proc=%d", hdr.XID, hdr.Program, hdr.Version, hdr.Proc)
@@ -123,7 +127,7 @@ func (pm *Portmapper) handlePacket(data []byte) []byte {
 	}
 
 	if hdr.Proc != pmapGetPort {
-		log.Printf("portmap: unhandled proc %d", hdr.Proc)
+		dlog.Infof("portmap: unhandled proc %d", hdr.Proc)
 		return nil
 	}
 
@@ -147,7 +151,7 @@ func (pm *Portmapper) handleGetPort(hdr *rpcHeader) []byte {
 		port = pm.nfsPort
 		dlog.Debugf("portmap: GETPORT nfs vers=%d proto=%d -> %d", vers, proto, port)
 	default:
-		log.Printf("portmap: GETPORT unknown program %d", prog)
+		dlog.Infof("portmap: GETPORT unknown program %d", prog)
 	}
 
 	w := buildRPCReply(hdr.XID)

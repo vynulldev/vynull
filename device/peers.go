@@ -3,12 +3,12 @@
 package device
 
 import (
-	"log"
 	"net"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/vynulldev/vynull/internal/dlog"
 	"github.com/vynulldev/vynull/proto"
 )
 
@@ -107,7 +107,7 @@ func (pt *PeerTracker) HandlePacket(data []byte) bool {
 	pt.mu.Unlock()
 
 	if shouldWarn {
-		log.Printf("WARNING: rekordbox slot collision — peer %q (device %d at %s) is also advertising as rekordbox (slot 4). CDJs may silently reject track loads after a few minutes of mixed activity. Close the other rekordbox or change one source's mode.",
+		dlog.Warnf("rekordbox slot collision — peer %q (device %d at %s) is also advertising as rekordbox (slot 4). CDJs may silently reject track loads after a few minutes of mixed activity. Close the other rekordbox or change one source's mode.",
 			ka.Name, ka.DeviceNumber, ka.IP)
 	}
 	return true

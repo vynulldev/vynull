@@ -5,10 +5,11 @@ package device
 import (
 	"encoding/binary"
 	"fmt"
-	"log"
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/vynulldev/vynull/internal/dlog"
 )
 
 // ParseSettingsFile strips the 104-byte wrapper from a MYSETTING / MYSETTING2
@@ -75,7 +76,7 @@ func ImportSettingsDir(dir string, cfg *SettingsConfig) ([]string, error) {
 		if err != nil {
 			return fmt.Errorf("%s: %w", name, err)
 		}
-		log.Printf("settings: importing %s (brand=%q software=%q version=%q body=%d bytes)",
+		dlog.Infof("settings: importing %s (brand=%q software=%q version=%q body=%d bytes)",
 			name, brand, software, version, len(body))
 		decode(body, cfg)
 		imported = append(imported, name)

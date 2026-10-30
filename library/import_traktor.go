@@ -5,11 +5,12 @@ package library
 import (
 	"encoding/xml"
 	"fmt"
-	"log"
 	"os"
 	"regexp"
 	"strings"
 	"time"
+
+	"github.com/vynulldev/vynull/internal/dlog"
 )
 
 // Traktor stores its whole library as a single XML file (collection.nml): a
@@ -140,7 +141,7 @@ func ImportTraktorNML(lib *Library, nmlPath string) (*ImportBundle, error) {
 	if err := xml.Unmarshal(data, &doc); err != nil {
 		return nil, fmt.Errorf("parse nml: %w", err)
 	}
-	log.Printf("import: Traktor NML v%d, %d entries declared",
+	dlog.Infof("import: Traktor NML v%d, %d entries declared",
 		doc.Version, doc.Collection.Entries)
 
 	res := &ImportResult{TracksTotal: len(doc.Collection.Tracks)}

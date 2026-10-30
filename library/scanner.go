@@ -4,10 +4,10 @@ package library
 
 import (
 	"io/fs"
-	"log"
 	"path/filepath"
 	"strings"
 
+	"github.com/vynulldev/vynull/internal/dlog"
 	"github.com/vynulldev/vynull/internal/filetype"
 )
 
@@ -34,7 +34,7 @@ func Scan(root string) (*Library, error) {
 
 	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
-			log.Printf("scan: skipping %s: %v", path, err)
+			dlog.Warnf("scan: skipping %s: %v", path, err)
 			return nil
 		}
 		if d.IsDir() {
@@ -59,7 +59,7 @@ func Scan(root string) (*Library, error) {
 		}
 
 		if ft, err := ReadFileTags(path); err != nil {
-			log.Printf("scan: tags for %s: %v", path, err)
+			dlog.Warnf("scan: tags for %s: %v", path, err)
 		} else {
 			ft.ApplyTo(track)
 			if len(ft.Picture) > 0 {
@@ -80,6 +80,6 @@ func Scan(root string) (*Library, error) {
 	}
 
 	lib := NewLibrary(tracks, artwork)
-	log.Printf("scanned %d tracks (%d unique artworks)", len(tracks), len(artwork.byHash))
+	dlog.Infof("scanned %d tracks (%d unique artworks)", len(tracks), len(artwork.byHash))
 	return lib, nil
 }

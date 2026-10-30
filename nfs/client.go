@@ -6,7 +6,6 @@ import (
 	"encoding/binary"
 	"encoding/hex"
 	"fmt"
-	"log"
 	"net"
 	"strings"
 	"sync"
@@ -187,7 +186,7 @@ func (c *Client) resolvePorts() error {
 		}
 		c.mountAddr = &net.UDPAddr{IP: c.ip, Port: mp}
 		c.nfsAddr = &net.UDPAddr{IP: c.ip, Port: np}
-		log.Printf("nfs client: %s portmap :%d -> mount=%d nfs=%d", c.ip, pmp, mp, np)
+		dlog.Infof("nfs client: %s portmap :%d -> mount=%d nfs=%d", c.ip, pmp, mp, np)
 		return nil
 	}
 	return fmt.Errorf("nfs client: %s: could not resolve mount/nfs ports: %w", c.ip, lastErr)
@@ -513,14 +512,14 @@ func (c *Client) FetchExportPDB(preferred string) ([]byte, string, error) {
 		candidates = append(candidates, preferred)
 	}
 	if exports, err := c.Exports(); err == nil {
-		log.Printf("nfs client: %s exports: %v", c.ip, exports)
+		dlog.Infof("nfs client: %s exports: %v", c.ip, exports)
 		for _, e := range exports {
 			if !containsStr(candidates, e) {
 				candidates = append(candidates, e)
 			}
 		}
 	} else {
-		log.Printf("nfs client: %s EXPORT failed (%v); trying common roots", c.ip, err)
+		dlog.Infof("nfs client: %s EXPORT failed (%v); trying common roots", c.ip, err)
 	}
 	for _, root := range []string{"/C/", "/B/", "/"} {
 		if !containsStr(candidates, root) {
@@ -532,11 +531,11 @@ func (c *Client) FetchExportPDB(preferred string) ([]byte, string, error) {
 	for _, ex := range candidates {
 		data, err := c.ReadFile(ex, ExportPDBPath)
 		if err == nil && len(data) > 0 {
-			log.Printf("nfs client: %s%s -> export.pdb (%d bytes)", c.ip, ex, len(data))
+			dlog.Infof("nfs client: %s%s -> export.pdb (%d bytes)", c.ip, ex, len(data))
 			return data, ex, nil
 		}
 		if err != nil && !notFound(err) {
-			log.Printf("nfs client: %s%s export.pdb: %v", c.ip, ex, err)
+			dlog.Infof("nfs client: %s%s export.pdb: %v", c.ip, ex, err)
 		}
 		lastErr = err
 	}

@@ -20,13 +20,13 @@ package export
 
 import (
 	"fmt"
-	"log"
 	"os"
 	"path/filepath"
 	"runtime"
 	"sync"
 
 	"github.com/vynulldev/vynull/analysis"
+	"github.com/vynulldev/vynull/internal/dlog"
 	"github.com/vynulldev/vynull/library"
 	"github.com/vynulldev/vynull/pdb"
 )
@@ -150,7 +150,7 @@ func Run(opts Options) error {
 	}
 
 	phase("analysing", 0)
-	log.Printf("export: analysing %d tracks (workers=%d)", len(tracks), workers)
+	dlog.Infof("export: analysing %d tracks (workers=%d)", len(tracks), workers)
 	store := analysis.AnalyzeAll(tracks, workers, opts.Analysis,
 		func(done, total int) {
 			phase("analysing", wAnalyse*float64(done)/float64(total))
@@ -170,7 +170,7 @@ func Run(opts Options) error {
 		if r != nil {
 			anlzPath, err := analysis.WriteANLZFiles(opts.DestDir, t.ID, t.FilePath, r)
 			if err != nil {
-				log.Printf("export: anlz track %d: %v", t.ID, err)
+				dlog.Warnf("export: anlz track %d: %v", t.ID, err)
 			} else {
 				t.AnalyzePath = anlzPath
 			}
@@ -186,7 +186,7 @@ func Run(opts Options) error {
 		if err != nil {
 			return fmt.Errorf("export: writing artwork: %w", err)
 		}
-		log.Printf("export: wrote %d artworks (%d referenced)", n, len(ids))
+		dlog.Infof("export: wrote %d artworks (%d referenced)", n, len(ids))
 	}
 
 	// Merge with existing PDB if requested. mergeBase carries existing
@@ -199,11 +199,11 @@ func Run(opts Options) error {
 		existingPdbPath := filepath.Join(opts.DestDir, "PIONEER", "rekordbox", "export.pdb")
 		mb, err := pdb.LoadForMerge(existingPdbPath)
 		if err != nil {
-			log.Printf("export: merge requested but could not load %s: %v (proceeding as fresh export)", existingPdbPath, err)
+			dlog.Warnf("export: merge requested but could not load %s: %v (proceeding as fresh export)", existingPdbPath, err)
 		} else if mb != nil {
 			tracks, opts.Playlists = mergeWithExisting(existingPdbPath, tracks, opts.Playlists)
 			mergeBase = mb
-			log.Printf("export: merging with existing PDB — %d total tracks after dedup", len(tracks))
+			dlog.Infof("export: merging with existing PDB — %d total tracks after dedup", len(tracks))
 		}
 	}
 
@@ -235,7 +235,7 @@ func Run(opts Options) error {
 		return fmt.Errorf("export: generating settings: %w", err)
 	}
 
-	log.Printf("export: wrote %d tracks to %s", len(tracks), opts.DestDir)
+	dlog.Infof("export: wrote %d tracks to %s", len(tracks), opts.DestDir)
 	return nil
 }
 
@@ -253,7 +253,7 @@ func Run(opts Options) error {
 func mergeWithExisting(existingPath string, newTracks []*pdb.Track, newPlaylists []*pdb.FolderNode) ([]*pdb.Track, []*pdb.FolderNode) {
 	existing, err := pdb.Open(existingPath)
 	if err != nil {
-		log.Printf("export: merge: cannot load %s: %v", existingPath, err)
+		dlog.Warnf("export: merge: cannot load %s: %v", existingPath, err)
 		return newTracks, newPlaylists
 	}
 

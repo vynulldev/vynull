@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -17,6 +16,7 @@ import (
 
 	"github.com/vynulldev/vynull/analysis"
 	"github.com/vynulldev/vynull/device"
+	"github.com/vynulldev/vynull/internal/dlog"
 	"github.com/vynulldev/vynull/internal/filetype"
 	"github.com/vynulldev/vynull/library"
 	"github.com/vynulldev/vynull/pdb"
@@ -223,7 +223,7 @@ func (s *Server) applyImportBundle(w http.ResponseWriter, bundle *library.Import
 	// well as any already present with the matching prefix.
 	if remapFrom != "" && remapTo != "" {
 		n, _ := s.Library.RemapPaths(remapFrom, remapTo)
-		log.Printf("import: remapped %d track paths %q -> %q", n, remapFrom, remapTo)
+		dlog.Infof("import: remapped %d track paths %q -> %q", n, remapFrom, remapTo)
 	}
 
 	s.Library.Save()
@@ -250,11 +250,11 @@ func (s *Server) applyImportBundle(w http.ResponseWriter, bundle *library.Import
 						// empty, or an all-of set with a condition it cannot
 						// satisfy), while an empty SmartRules would match the
 						// whole library: make a plain empty playlist instead.
-						log.Printf("import: smart playlist %q: matches nothing in rekordbox, creating empty", n.Name)
+						dlog.Infof("import: smart playlist %q: matches nothing in rekordbox, creating empty", n.Name)
 						p, perr = s.Playlists.Create(n.Name, parent, false)
 					} else {
 						if dropped > 0 {
-							log.Printf("import: smart playlist %q: %d condition(s) dropped (unsupported)", n.Name, dropped)
+							dlog.Infof("import: smart playlist %q: %d condition(s) dropped (unsupported)", n.Name, dropped)
 						}
 						p, perr = s.Playlists.CreateSmart(n.Name, parent, rules)
 						smart++
@@ -264,13 +264,13 @@ func (s *Server) applyImportBundle(w http.ResponseWriter, bundle *library.Import
 				}
 				if perr != nil {
 					skipped++
-					log.Printf("import: create playlist %q failed: %v", n.Name, perr)
+					dlog.Infof("import: create playlist %q failed: %v", n.Name, perr)
 					continue
 				}
 				created++
 				if !n.IsFolder && !n.IsSmart && len(n.TrackIDs) > 0 {
 					if terr := s.Playlists.SetTracks(p.ID, n.TrackIDs); terr != nil {
-						log.Printf("import: SetTracks for playlist %q failed: %v", n.Name, terr)
+						dlog.Infof("import: SetTracks for playlist %q failed: %v", n.Name, terr)
 					}
 				}
 				if len(n.Children) > 0 {
@@ -279,7 +279,7 @@ func (s *Server) applyImportBundle(w http.ResponseWriter, bundle *library.Import
 			}
 		}
 		walk(0, playlists)
-		log.Printf("import: materialized %d playlist nodes (%d smart, %d skipped)", created, smart, skipped)
+		dlog.Infof("import: materialized %d playlist nodes (%d smart, %d skipped)", created, smart, skipped)
 	}
 
 	// Materialize MyTags (from the XML's comment encoding). Each tag is
@@ -307,7 +307,7 @@ func (s *Server) applyImportBundle(w http.ResponseWriter, bundle *library.Import
 			}
 			id, err := s.Tags.CreateCategory(name)
 			if err != nil {
-				log.Printf("import: create tag category %q failed: %v", name, err)
+				dlog.Infof("import: create tag category %q failed: %v", name, err)
 				return 0
 			}
 			catByName[name] = id
@@ -325,7 +325,7 @@ func (s *Server) applyImportBundle(w http.ResponseWriter, bundle *library.Import
 			if !ok {
 				newID, err := s.Tags.CreateTag(ti.Name, catID)
 				if err != nil {
-					log.Printf("import: create tag %q failed: %v", ti.Name, err)
+					dlog.Infof("import: create tag %q failed: %v", ti.Name, err)
 					continue
 				}
 				id = newID
@@ -357,7 +357,7 @@ func (s *Server) applyImportBundle(w http.ResponseWriter, bundle *library.Import
 				tagged++
 			}
 		}
-		log.Printf("import: materialized %d MyTag(s), %d track assignments", len(tags), tagged)
+		dlog.Infof("import: materialized %d MyTag(s), %d track assignments", len(tags), tagged)
 	}
 
 	// Track colour labels (from each TRACK's Colour attribute) go to the
@@ -365,7 +365,7 @@ func (s *Server) applyImportBundle(w http.ResponseWriter, bundle *library.Import
 	// into existing ones.
 	if len(colors) > 0 {
 		n := s.Library.SetColors(colors)
-		log.Printf("import: materialized %d track colour label(s)", n)
+		dlog.Infof("import: materialized %d track colour label(s)", n)
 	}
 
 	// The tracks given cues, so the decks holding one re-fetch its cues once
@@ -441,7 +441,7 @@ func (s *Server) applyImportBundle(w http.ResponseWriter, bundle *library.Import
 		result.AnalysisImported = anlzN
 		result.AnalysisLocked = lockN
 		result.CuesImported = cueN
-		log.Printf("import: imported %d artwork image(s), %d ANLZ analysis set(s) (%d locked, %d already-locked kept), %d cue point(s)", artN, anlzN, lockN, keptN, cueN)
+		dlog.Infof("import: imported %d artwork image(s), %d ANLZ analysis set(s) (%d locked, %d already-locked kept), %d cue point(s)", artN, anlzN, lockN, keptN, cueN)
 	}
 
 	// Cue points from the master.db djmdCue table — for imports without an
@@ -470,7 +470,7 @@ func (s *Server) applyImportBundle(w http.ResponseWriter, bundle *library.Import
 			s.Cues.SaveCues(id, cues)
 		}
 		result.CuesImported = len(masterCues)
-		log.Printf("import: imported %d cue point(s) from master.db", len(masterCues))
+		dlog.Infof("import: imported %d cue point(s) from master.db", len(masterCues))
 	}
 	s.refreshLoaded(cueTracks, (*device.VirtualDevice).BroadcastTrackRefresh)
 
@@ -502,7 +502,7 @@ func (s *Server) applyImportBundle(w http.ResponseWriter, bundle *library.Import
 		}
 		if keyFixed > 0 {
 			s.Library.FinalizeBulk()
-			log.Printf("import: standardized %d track key(s) to Camelot notation", keyFixed)
+			dlog.Infof("import: standardized %d track key(s) to Camelot notation", keyFixed)
 		}
 		if missing := s.Library.RefreshMissing(); missing > 0 {
 			var sample []string
@@ -512,7 +512,7 @@ func (s *Server) applyImportBundle(w http.ResponseWriter, bundle *library.Import
 				}
 			}
 			result.FilesMissing = missing
-			log.Printf("import: WARNING — %d track(s) reference files not present on this machine (unplayable). Examples: %v", missing, sample)
+			dlog.Infof("import: WARNING — %d track(s) reference files not present on this machine (unplayable). Examples: %v", missing, sample)
 		}
 	}
 
@@ -525,12 +525,12 @@ func (s *Server) applyImportBundle(w http.ResponseWriter, bundle *library.Import
 		cur := s.Settings.Config()
 		imported, serr := device.ImportSettingsDir(settingsDir, &cur)
 		if serr != nil {
-			log.Printf("import: settings import failed: %v", serr)
+			dlog.Infof("import: settings import failed: %v", serr)
 			result.Errors = append(result.Errors, "settings: "+serr.Error())
 		} else if len(imported) > 0 {
 			s.Settings.SetConfig(cur)
 			result.SettingsImported = len(imported)
-			log.Printf("import: imported %d settings file(s): %v", len(imported), imported)
+			dlog.Infof("import: imported %d settings file(s): %v", len(imported), imported)
 		}
 	}
 	// The deck's SORT menu and track-list column (master.db's djmdSort) are
@@ -571,7 +571,7 @@ func (s *Server) handleRemapPaths(w http.ResponseWriter, r *http.Request) {
 	// FileMissing flags so remapped tracks stop showing as missing.
 	missing := s.Library.RefreshMissing()
 	s.Library.Save()
-	log.Printf("remap-paths: rewrote %d tracks %q -> %q (%d still missing)", n, req.From, req.To, missing)
+	dlog.Infof("remap-paths: rewrote %d tracks %q -> %q (%d still missing)", n, req.From, req.To, missing)
 	writeJSON(w, map[string]any{"changed": n, "missing": missing})
 }
 
@@ -622,7 +622,7 @@ func (s *Server) handleAddTracks(w http.ResponseWriter, r *http.Request) {
 		s.addFiles(files, job)
 		s.Library.FinalizeBulk()
 		job.finish()
-		log.Printf("api: add job %s done: +%d (%d failed, %d already present) of %d",
+		dlog.Infof("api: add job %s done: +%d (%d failed, %d already present) of %d",
 			id, job.added, job.failed, job.skipped, job.total)
 		time.AfterFunc(2*time.Minute, func() { s.addJobs.Delete(id) })
 	}()
@@ -672,7 +672,7 @@ func (s *Server) addFiles(files []string, job *addJob) int {
 			continue
 		}
 		if _, err := s.addTrackByPath(f, true); err != nil {
-			log.Printf("api: skipping %s: %v", f, err)
+			dlog.Infof("api: skipping %s: %v", f, err)
 			if job != nil {
 				job.bumpFailed()
 			}
@@ -788,7 +788,7 @@ func (s *Server) addTrackByPath(path string, bulk bool) (uint32, error) {
 		s.PDB.AddTrack(pdbTrack)
 	}
 
-	log.Printf("api: added track %d: %s — %s", id, track.Artist, track.Title)
+	dlog.Infof("api: added track %d: %s — %s", id, track.Artist, track.Title)
 
 	// Register path for cache lookups. In lazy mode, analysis happens
 	// when the CDJ requests the track. Otherwise, queue for analysis.
@@ -861,7 +861,7 @@ func (s *Server) handleReimportTracks(w http.ResponseWriter, r *http.Request) {
 
 	// One save for the batch, with the artist, album and genre lists rebuilt.
 	s.Library.FinalizeBulk()
-	log.Printf("api: reimported tags for %d tracks", updated)
+	dlog.Infof("api: reimported tags for %d tracks", updated)
 
 	writeJSON(w, map[string]interface{}{
 		"ok":      true,

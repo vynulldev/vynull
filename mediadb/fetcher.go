@@ -15,7 +15,6 @@ package mediadb
 
 import (
 	"fmt"
-	"log"
 	"net"
 	"os"
 	"path/filepath"
@@ -25,6 +24,7 @@ import (
 	"time"
 
 	"github.com/vynulldev/vynull/analysis"
+	"github.com/vynulldev/vynull/internal/dlog"
 	"github.com/vynulldev/vynull/nfs"
 	"github.com/vynulldev/vynull/pdb"
 )
@@ -163,7 +163,7 @@ func (f *Fetcher) logMissOnce(player, slot uint8, trackID uint32, nTracks int) {
 	f.missLogged[k] = true
 	f.mu.Unlock()
 	if !seen {
-		log.Printf("mediadb: player %d slot %d track %d NOT in downloaded pdb (%d tracks)", player, slot, trackID, nTracks)
+		dlog.Infof("mediadb: player %d slot %d track %d NOT in downloaded pdb (%d tracks)", player, slot, trackID, nTracks)
 	}
 }
 
@@ -209,14 +209,14 @@ func (f *Fetcher) doFetch(player, slot uint8) (*pdb.Database, string) {
 	}
 	c, err := nfs.Dial(ip, f.Timeout)
 	if err != nil {
-		log.Printf("mediadb: dial player %d (%s): %v", player, ip, err)
+		dlog.Warnf("mediadb: dial player %d (%s): %v", player, ip, err)
 		return nil, ""
 	}
 	defer c.Close()
 
 	data, export, err := c.FetchExportPDB(slotExport(slot))
 	if err != nil {
-		log.Printf("mediadb: player %d (%s) export.pdb: %v", player, ip, err)
+		dlog.Warnf("mediadb: player %d (%s) export.pdb: %v", player, ip, err)
 		return nil, ""
 	}
 	// Debug: dump the exact bytes we parsed so a rewritten (copy-on-write) pdb
@@ -224,17 +224,17 @@ func (f *Fetcher) doFetch(player, slot uint8) (*pdb.Database, string) {
 	if dir := os.Getenv("VYNULL_DUMP_PDB"); dir != "" {
 		p := filepath.Join(dir, fmt.Sprintf("player%d-slot%d-export.pdb", player, slot))
 		if werr := os.WriteFile(p, data, 0o644); werr == nil {
-			log.Printf("mediadb: wrote downloaded pdb to %s (%d bytes)", p, len(data))
+			dlog.Infof("mediadb: wrote downloaded pdb to %s (%d bytes)", p, len(data))
 		} else {
-			log.Printf("mediadb: dump pdb to %s: %v", p, werr)
+			dlog.Warnf("mediadb: dump pdb to %s: %v", p, werr)
 		}
 	}
 	db, err := pdb.OpenBytes(data, "")
 	if err != nil {
-		log.Printf("mediadb: player %d parse export.pdb: %v", player, err)
+		dlog.Warnf("mediadb: player %d parse export.pdb: %v", player, err)
 		return nil, ""
 	}
-	log.Printf("mediadb: player %d slot %d: %d tracks from %s%s ids=%v", player, slot, len(db.Tracks), ip, export, sortedTrackIDs(db))
+	dlog.Infof("mediadb: player %d slot %d: %d tracks from %s%s ids=%v", player, slot, len(db.Tracks), ip, export, sortedTrackIDs(db))
 	return db, export
 }
 
@@ -305,17 +305,17 @@ func (f *Fetcher) doFetchArt(player uint8, export string, db *pdb.Database, trac
 	}
 	c, err := nfs.Dial(ip, f.Timeout)
 	if err != nil {
-		log.Printf("mediadb: art dial player %d (%s): %v", player, ip, err)
+		dlog.Warnf("mediadb: art dial player %d (%s): %v", player, ip, err)
 		return nil
 	}
 	defer c.Close()
 
 	data, err := c.ReadFile(export, path)
 	if err != nil {
-		log.Printf("mediadb: player %d art %s: %v", player, path, err)
+		dlog.Warnf("mediadb: player %d art %s: %v", player, path, err)
 		return nil
 	}
-	log.Printf("mediadb: player %d track %d art %s (%d bytes)", player, trackID, path, len(data))
+	dlog.Infof("mediadb: player %d track %d art %s (%d bytes)", player, trackID, path, len(data))
 	return data
 }
 
@@ -373,7 +373,7 @@ func (f *Fetcher) doFetchAnalysis(player uint8, export string, db *pdb.Database,
 	}
 	c, err := nfs.Dial(ip, f.Timeout)
 	if err != nil {
-		log.Printf("mediadb: anlz dial player %d (%s): %v", player, ip, err)
+		dlog.Warnf("mediadb: anlz dial player %d (%s): %v", player, ip, err)
 		return nil
 	}
 	defer c.Close()
@@ -383,7 +383,7 @@ func (f *Fetcher) doFetchAnalysis(player uint8, export string, db *pdb.Database,
 	base := strings.TrimSuffix(t.AnalyzePath, ".DAT")
 	dat, err := c.ReadFile(export, t.AnalyzePath)
 	if err != nil {
-		log.Printf("mediadb: player %d anlz %s: %v", player, t.AnalyzePath, err)
+		dlog.Warnf("mediadb: player %d anlz %s: %v", player, t.AnalyzePath, err)
 	}
 	ext, _ := c.ReadFile(export, base+".EXT")
 	twoEX, _ := c.ReadFile(export, base+".2EX")
@@ -395,13 +395,13 @@ func (f *Fetcher) doFetchAnalysis(player uint8, export string, db *pdb.Database,
 				_ = os.WriteFile(filepath.Join(dir, fmt.Sprintf("player%d-track%d.%s", player, trackID, name)), b, 0o644)
 			}
 		}
-		log.Printf("mediadb: dumped ANLZ for player %d track %d to %s", player, trackID, dir)
+		dlog.Infof("mediadb: dumped ANLZ for player %d track %d to %s", player, trackID, dir)
 	}
 
 	res := analysis.ParseANLZBytes(dat, ext, twoEX, float64(t.Tempo)/100, int(t.Duration))
 	cues := analysis.ParseANLZCuesBytes(ext, dat)
 	for _, cu := range cues {
-		log.Printf("mediadb: player %d track %d cue hot=%d time=%dms color_id=%#x loop=%v",
+		dlog.Infof("mediadb: player %d track %d cue hot=%d time=%dms color_id=%#x loop=%v",
 			player, trackID, cu.HotCue, cu.TimeMs, cu.ColorID, cu.IsLoop)
 	}
 	if res == nil && len(cues) == 0 {
@@ -419,7 +419,7 @@ func (f *Fetcher) doFetchAnalysis(player uint8, export string, db *pdb.Database,
 			a.BPM = res.BPM // grid tempo is authoritative when present
 		}
 	}
-	log.Printf("mediadb: player %d track %d analysis: waveform=%dB cues=%d beats=%d",
+	dlog.Infof("mediadb: player %d track %d analysis: waveform=%dB cues=%d beats=%d",
 		player, trackID, len(a.WaveDetail), len(a.Cues), len(a.Beats))
 	return a
 }

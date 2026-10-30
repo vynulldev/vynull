@@ -5,7 +5,6 @@ package nfs
 import (
 	"encoding/hex"
 	"fmt"
-	"log"
 
 	"github.com/vynulldev/vynull/internal/dlog"
 )
@@ -28,7 +27,7 @@ func (s *Server) handleMount(hdr *rpcHeader) []byte {
 	case mountExport:
 		return s.mountExport(hdr)
 	default:
-		log.Printf("mount: unhandled proc %d", hdr.Proc)
+		dlog.Infof("mount: unhandled proc %d", hdr.Proc)
 		return nil
 	}
 }

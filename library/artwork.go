@@ -5,11 +5,11 @@ package library
 import (
 	"crypto/sha256"
 	"fmt"
-	"log"
 	"os"
 	"path/filepath"
 	"sync"
 
+	"github.com/vynulldev/vynull/internal/dlog"
 	"github.com/vynulldev/vynull/internal/fsutil"
 )
 
@@ -130,7 +130,7 @@ func (c *ArtworkCache) artPath(id uint32) string {
 func (c *ArtworkCache) saveToDisk(id uint32, data []byte) {
 	path := c.artPath(id)
 	if err := fsutil.WriteFile(path, data, 0644); err != nil {
-		log.Printf("artwork-cache: write %s: %v", path, err)
+		dlog.Errorf("artwork-cache: write %s: %v", path, err)
 	}
 }
 
@@ -177,6 +177,6 @@ func (c *ArtworkCache) loadIndex() {
 	}
 
 	if count > 0 {
-		log.Printf("artwork-cache: indexed %d cached artworks from %s", count, c.cacheDir)
+		dlog.Infof("artwork-cache: indexed %d cached artworks from %s", count, c.cacheDir)
 	}
 }

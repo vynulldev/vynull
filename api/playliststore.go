@@ -5,7 +5,6 @@ package api
 import (
 	"encoding/json"
 	"fmt"
-	"log"
 	"os"
 	"path/filepath"
 	"slices"
@@ -13,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/vynulldev/vynull/internal/dlog"
 	"github.com/vynulldev/vynull/internal/fsutil"
 	"github.com/vynulldev/vynull/internal/saver"
 	"github.com/vynulldev/vynull/library"
@@ -147,7 +147,7 @@ func (ps *PlaylistStore) create(name string, parentID uint32, isFolder, isSmart 
 	if isSmart {
 		kind = "smart playlist"
 	}
-	log.Printf("api: created %s #%d %q (parent=%d)", kind, p.ID, name, parentID)
+	dlog.Infof("api: created %s #%d %q (parent=%d)", kind, p.ID, name, parentID)
 	cp := *p
 	return &cp, nil
 }
@@ -252,7 +252,7 @@ func (ps *PlaylistStore) Delete(id uint32) error {
 		ps.smart.forget(id)
 	}
 	ps.changed()
-	log.Printf("api: deleted playlist %d (%d removed including descendants)", id, len(toRemove))
+	dlog.Infof("api: deleted playlist %d (%d removed including descendants)", id, len(toRemove))
 	return nil
 }
 
@@ -274,7 +274,7 @@ func (ps *PlaylistStore) SetTracks(id uint32, trackIDs []uint32) error {
 	}
 	p.TrackIDs = append([]uint32(nil), trackIDs...)
 	ps.changed()
-	log.Printf("api: playlist %d (%q) now has %d tracks", id, p.Name, len(trackIDs))
+	dlog.Infof("api: playlist %d (%q) now has %d tracks", id, p.Name, len(trackIDs))
 	return nil
 }
 
@@ -480,12 +480,12 @@ func (ps *PlaylistStore) load() {
 	}
 	var fd playlistFileData
 	if err := json.Unmarshal(data, &fd); err != nil {
-		log.Printf("playlists: parse error: %v", err)
+		dlog.Infof("playlists: parse error: %v", err)
 		return
 	}
 	ps.playlists = fd.Playlists
 	if fd.NextID > 0 {
 		ps.nextID = fd.NextID
 	}
-	log.Printf("api: loaded %d playlists/folders", len(ps.playlists))
+	dlog.Infof("api: loaded %d playlists/folders", len(ps.playlists))
 }

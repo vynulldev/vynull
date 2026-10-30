@@ -6,7 +6,6 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"log"
 	"strconv"
 	"strings"
 	"sync"
@@ -167,19 +166,19 @@ func (t *mp3Transcoder) file(path string) *mp3File {
 // forgets it if the conversion failed, so the next read tries again.
 func (t *mp3Transcoder) convert(path string, f *mp3File) {
 	defer t.running.Done()
-	log.Printf("nfs: transcoding to MP3: %s", path)
+	dlog.Infof("nfs: transcoding to MP3: %s", path)
 	err := f.fill(t.start, path)
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	if err != nil {
-		log.Printf("nfs: transcode error: %s: %v", path, err)
+		dlog.Errorf("nfs: transcode error: %s: %v", path, err)
 		if t.files[path] == f {
 			delete(t.files, path)
 		}
 		return
 	}
 	f.held = f.size // fill set it, on this goroutine, and it no longer changes
-	log.Printf("nfs: transcode complete: %s -> MP3 (%d bytes)", path, f.held)
+	dlog.Infof("nfs: transcode complete: %s -> MP3 (%d bytes)", path, f.held)
 	t.total += f.held
 	t.evictLocked(f)
 }
@@ -234,7 +233,7 @@ func (f *mp3File) fill(start func(string) (conversion, error), path string) erro
 	if err == nil && body >= 0 {
 		f.mu.Lock()
 		if extra > 0 || len(f.data) < body {
-			log.Printf("nfs: transcode of %s came out %d bytes, %d predicted; served as %d",
+			dlog.Infof("nfs: transcode of %s came out %d bytes, %d predicted; served as %d",
 				path, len(f.data)+extra, body, body)
 			f.data = f.data[:body] // the zeros make() left past len
 		}

@@ -5,7 +5,6 @@ package library
 import (
 	"encoding/json"
 	"fmt"
-	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -13,6 +12,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/vynulldev/vynull/internal/dlog"
 )
 
 // MasterDBDump matches tools/rekordbox_dump.py's output schema.
@@ -563,7 +564,7 @@ func runMasterDBDump(dbPath, key string) (*MasterDBDump, error) {
 	if err := json.Unmarshal(out, &dump); err != nil {
 		return nil, fmt.Errorf("parse helper output: %w", err)
 	}
-	log.Printf("import: master.db: %d tracks, %d playlists, %d tags",
+	dlog.Infof("import: master.db: %d tracks, %d playlists, %d tags",
 		len(dump.Tracks), len(dump.Playlists), len(dump.Tags))
 	return &dump, nil
 }

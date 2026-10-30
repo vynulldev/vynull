@@ -6,7 +6,6 @@ import (
 	"context"
 	"fmt"
 	"hash/fnv"
-	"log"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -15,6 +14,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/vynulldev/vynull/internal/dlog"
 	"github.com/vynulldev/vynull/internal/ffmpeg"
 )
 
@@ -90,7 +90,7 @@ func (s *Server) handleAudio(w http.ResponseWriter, r *http.Request) {
 	if !native || r.URL.Query().Get("transcode") == "1" {
 		p, err := s.transcodedAudio(t.FilePath)
 		if err != nil {
-			log.Printf("api: audio transcode track %d: %v", trackID, err)
+			dlog.Errorf("api: audio transcode track %d: %v", trackID, err)
 			jsonError(w, "transcode failed", http.StatusInternalServerError)
 			return
 		}
@@ -156,7 +156,7 @@ func (s *Server) transcodedAudio(src string) (string, error) {
 		os.Remove(tmp)
 		return "", err
 	}
-	log.Printf("api: transcoded %s to WAV in %v", filepath.Base(src), time.Since(start).Round(time.Millisecond))
+	dlog.Infof("api: transcoded %s to WAV in %v", filepath.Base(src), time.Since(start).Round(time.Millisecond))
 	s.sweepAudioCache(dir, key, dst)
 	return dst, nil
 }
@@ -168,7 +168,7 @@ func (s *Server) transcodedAudio(src string) (string, error) {
 func (s *Server) sweepAudioCache(dir, key, keep string) {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
-		log.Printf("api: audio cache sweep: %v", err)
+		dlog.Warnf("api: audio cache sweep: %v", err)
 		return
 	}
 	type cached struct {
@@ -189,7 +189,7 @@ func (s *Server) sweepAudioCache(dir, key, keep string) {
 		// Stale key of the same source: hash matches, size/mtime don't.
 		if strings.HasPrefix(e.Name(), key+"_") && e.Name() != filepath.Base(keep) {
 			if err := os.Remove(filepath.Join(dir, e.Name())); err == nil {
-				log.Printf("api: audio cache: dropped stale entry %s", e.Name())
+				dlog.Infof("api: audio cache: dropped stale entry %s", e.Name())
 				continue
 			}
 		}
