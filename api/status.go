@@ -376,7 +376,7 @@ func betterNowPlaying(a, b *PlayerInfo) bool {
 // next 0x0100 round-trip.
 func (s *Server) handleLink(w http.ResponseWriter, r *http.Request) {
 	if s.Device == nil {
-		http.Error(w, "device not available", http.StatusServiceUnavailable)
+		jsonError(w, "device not available", http.StatusServiceUnavailable)
 		return
 	}
 	switch r.Method {
@@ -387,13 +387,13 @@ func (s *Server) handleLink(w http.ResponseWriter, r *http.Request) {
 			Linked bool `json:"linked"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			http.Error(w, "invalid JSON: "+err.Error(), http.StatusBadRequest)
+			jsonError(w, "invalid JSON: "+err.Error(), http.StatusBadRequest)
 			return
 		}
 		s.Device.SetLinked(req.Linked)
 		writeJSON(w, map[string]bool{"linked": s.Device.Linked()})
 	default:
-		http.Error(w, "GET or POST", http.StatusMethodNotAllowed)
+		notAllowed(w, http.MethodGet, http.MethodPost)
 	}
 }
 
@@ -402,12 +402,11 @@ func (s *Server) handleLink(w http.ResponseWriter, r *http.Request) {
 // seconds later via discovery, so this is a soft disconnect — useful when
 // state has gone weird and the simplest fix is to start over.
 func (s *Server) handleUnlink(w http.ResponseWriter, r *http.Request) {
-	if r.Method != "POST" {
-		http.Error(w, "POST required", http.StatusMethodNotAllowed)
+	if !allow(w, r, http.MethodPost) {
 		return
 	}
 	if s.DBServer == nil {
-		http.Error(w, "dbserver not available", http.StatusServiceUnavailable)
+		jsonError(w, "dbserver not available", http.StatusServiceUnavailable)
 		return
 	}
 	closed := s.DBServer.Unlink()

@@ -149,20 +149,20 @@ func (s *Server) handleOverlayConfig(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, cfg)
 	case http.MethodPut, http.MethodPost:
 		if s.Overlay == nil {
-			http.Error(w, "overlay config not available", http.StatusServiceUnavailable)
+			jsonError(w, "overlay config not available", http.StatusServiceUnavailable)
 			return
 		}
 		var c OverlayConfig
 		if err := json.NewDecoder(r.Body).Decode(&c); err != nil {
-			http.Error(w, "invalid JSON: "+err.Error(), http.StatusBadRequest)
+			jsonError(w, "invalid JSON: "+err.Error(), http.StatusBadRequest)
 			return
 		}
 		if err := s.Overlay.Set(c); err != nil {
-			http.Error(w, "save failed: "+err.Error(), http.StatusInternalServerError)
+			jsonError(w, "save failed: "+err.Error(), http.StatusInternalServerError)
 			return
 		}
 		writeJSON(w, s.Overlay.Get())
 	default:
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		notAllowed(w, http.MethodGet, http.MethodPut, http.MethodPost)
 	}
 }

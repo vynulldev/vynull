@@ -18,8 +18,7 @@ import (
 // POST /api/analysis/beatgrid/adjust {"track_id": 123, "bpm": 130.00}
 // POST /api/analysis/beatgrid/adjust {"track_id": 123, "set_downbeat_ms": 4975.0}
 func (s *Server) handleBeatGridAdjust(w http.ResponseWriter, r *http.Request) {
-	if r.Method != "POST" {
-		http.Error(w, "POST required", http.StatusMethodNotAllowed)
+	if !allow(w, r, http.MethodPost) {
 		return
 	}
 
@@ -30,21 +29,21 @@ func (s *Server) handleBeatGridAdjust(w http.ResponseWriter, r *http.Request) {
 		SetDownbeatMs *float64 `json:"set_downbeat_ms"` // set beat 1 at this position
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "invalid JSON: "+err.Error(), http.StatusBadRequest)
+		jsonError(w, "invalid JSON: "+err.Error(), http.StatusBadRequest)
 		return
 	}
 	if req.TrackID == 0 {
-		http.Error(w, "track_id required", http.StatusBadRequest)
+		jsonError(w, "track_id required", http.StatusBadRequest)
 		return
 	}
 	if s.analysisLocked(req.TrackID) {
-		http.Error(w, "track analysis is locked; unlock it to adjust the beat grid", http.StatusConflict)
+		jsonError(w, "track analysis is locked; unlock it to adjust the beat grid", http.StatusConflict)
 		return
 	}
 
 	stored := s.getOrAnalyze(r.Context(), req.TrackID)
 	if stored == nil {
-		http.Error(w, "analysis not found", http.StatusNotFound)
+		jsonError(w, "analysis not found", http.StatusNotFound)
 		return
 	}
 	// Edit a copy, stored by Set below: the stored result may be being served
@@ -189,17 +188,17 @@ func (s *Server) handleBeatGridAdjust(w http.ResponseWriter, r *http.Request) {
 //	      - clear: true reverts BPM to detected_bpm and phase to 0
 func (s *Server) handleTrackBeats(w http.ResponseWriter, r *http.Request) {
 	if s.Library == nil {
-		http.Error(w, "library not available", http.StatusServiceUnavailable)
+		jsonError(w, "library not available", http.StatusServiceUnavailable)
 		return
 	}
 	trackID := parseTrackIDFromPath(r.URL.Path, "/api/tracks/")
 	if trackID == 0 {
-		http.Error(w, "track ID required", http.StatusBadRequest)
+		jsonError(w, "track ID required", http.StatusBadRequest)
 		return
 	}
 	t := s.Library.Track(trackID)
 	if t == nil {
-		http.Error(w, "track not found", http.StatusNotFound)
+		jsonError(w, "track not found", http.StatusNotFound)
 		return
 	}
 
@@ -213,7 +212,7 @@ func (s *Server) handleTrackBeats(w http.ResponseWriter, r *http.Request) {
 
 	case "PUT", "POST":
 		if t.AnalysisLocked {
-			http.Error(w, "track analysis is locked; unlock it to edit the beat grid", http.StatusConflict)
+			jsonError(w, "track analysis is locked; unlock it to edit the beat grid", http.StatusConflict)
 			return
 		}
 		var req struct {
@@ -222,7 +221,7 @@ func (s *Server) handleTrackBeats(w http.ResponseWriter, r *http.Request) {
 			Clear          bool     `json:"clear"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			http.Error(w, "invalid JSON: "+err.Error(), http.StatusBadRequest)
+			jsonError(w, "invalid JSON: "+err.Error(), http.StatusBadRequest)
 			return
 		}
 		updated, ok := s.updateTrack(w, trackID, func(t *library.Track) error {
@@ -272,7 +271,7 @@ func (s *Server) handleTrackBeats(w http.ResponseWriter, r *http.Request) {
 		}{true, updated.BPM, updated.DetectedBPM, updated.BeatPhaseShift})
 
 	default:
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		notAllowed(w, http.MethodGet, http.MethodPut, http.MethodPost)
 	}
 }
 
@@ -291,17 +290,17 @@ func (s *Server) analysisLocked(trackID uint32) bool {
 // re-analyze the track, so a hand-corrected grid cannot be overwritten.
 func (s *Server) handleTrackLock(w http.ResponseWriter, r *http.Request) {
 	if s.Library == nil {
-		http.Error(w, "library not available", http.StatusServiceUnavailable)
+		jsonError(w, "library not available", http.StatusServiceUnavailable)
 		return
 	}
 	trackID := parseTrackIDFromPath(r.URL.Path, "/api/tracks/")
 	if trackID == 0 {
-		http.Error(w, "track ID required", http.StatusBadRequest)
+		jsonError(w, "track ID required", http.StatusBadRequest)
 		return
 	}
 	t := s.Library.Track(trackID)
 	if t == nil {
-		http.Error(w, "track not found", http.StatusNotFound)
+		jsonError(w, "track not found", http.StatusNotFound)
 		return
 	}
 
@@ -315,15 +314,15 @@ func (s *Server) handleTrackLock(w http.ResponseWriter, r *http.Request) {
 			Locked bool `json:"locked"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			http.Error(w, "invalid JSON: "+err.Error(), http.StatusBadRequest)
+			jsonError(w, "invalid JSON: "+err.Error(), http.StatusBadRequest)
 			return
 		}
 		if _, ok := s.updateTrack(w, trackID, func(t *library.Track) error { t.AnalysisLocked = req.Locked; return nil }); !ok {
 			return
 		}
 		log.Printf("api: track %d analysis lock = %v", trackID, req.Locked)
-		writeJSON(w, map[string]bool{"OK": true})
+		ok(w)
 	default:
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		notAllowed(w, http.MethodGet, http.MethodPut, http.MethodPost)
 	}
 }

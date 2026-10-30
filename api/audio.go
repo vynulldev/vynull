@@ -62,26 +62,25 @@ const audioCacheMaxBytes = 2 << 30
 // natively playable formats, to compare against the analysis decode.
 // Only tracks in the library are served, never arbitrary paths.
 func (s *Server) handleAudio(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet && r.Method != http.MethodHead {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+	if !allow(w, r, http.MethodGet, http.MethodHead) {
 		return
 	}
 	if s.Library == nil {
-		http.Error(w, "library not available", http.StatusServiceUnavailable)
+		jsonError(w, "library not available", http.StatusServiceUnavailable)
 		return
 	}
 	trackID := parseTrackIDFromPath(r.URL.Path, "/api/audio/")
 	if trackID == 0 {
-		http.Error(w, "track ID required", http.StatusBadRequest)
+		jsonError(w, "track ID required", http.StatusBadRequest)
 		return
 	}
 	t := s.Library.Track(trackID)
 	if t == nil || t.FilePath == "" {
-		http.Error(w, "track not found", http.StatusNotFound)
+		jsonError(w, "track not found", http.StatusNotFound)
 		return
 	}
 	if _, err := os.Stat(t.FilePath); err != nil {
-		http.Error(w, "audio file missing", http.StatusNotFound)
+		jsonError(w, "audio file missing", http.StatusNotFound)
 		return
 	}
 
@@ -92,7 +91,7 @@ func (s *Server) handleAudio(w http.ResponseWriter, r *http.Request) {
 		p, err := s.transcodedAudio(t.FilePath)
 		if err != nil {
 			log.Printf("api: audio transcode track %d: %v", trackID, err)
-			http.Error(w, "transcode failed", http.StatusInternalServerError)
+			jsonError(w, "transcode failed", http.StatusInternalServerError)
 			return
 		}
 		path, ctype, source = p, "audio/wav", "transcoded"
@@ -100,13 +99,13 @@ func (s *Server) handleAudio(w http.ResponseWriter, r *http.Request) {
 
 	f, err := os.Open(path)
 	if err != nil {
-		http.Error(w, "audio file unreadable", http.StatusNotFound)
+		jsonError(w, "audio file unreadable", http.StatusNotFound)
 		return
 	}
 	defer f.Close()
 	fi, err := f.Stat()
 	if err != nil {
-		http.Error(w, "audio file unreadable", http.StatusNotFound)
+		jsonError(w, "audio file unreadable", http.StatusNotFound)
 		return
 	}
 	w.Header().Set("Content-Type", ctype)

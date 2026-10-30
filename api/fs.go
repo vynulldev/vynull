@@ -92,7 +92,7 @@ func (s *Server) handleFSList(w http.ResponseWriter, r *http.Request) {
 
 	abs, err := filepath.Abs(q)
 	if err != nil {
-		http.Error(w, "bad path", http.StatusBadRequest)
+		jsonError(w, "bad path", http.StatusBadRequest)
 		return
 	}
 	// Resolve symlinks before the confinement check so a symlink can't escape
@@ -102,19 +102,19 @@ func (s *Server) handleFSList(w http.ResponseWriter, r *http.Request) {
 		resolved = filepath.Clean(abs)
 	}
 	if !withinRoots(resolved, roots) {
-		http.Error(w, "path is outside the allowed browse roots", http.StatusForbidden)
+		jsonError(w, "path is outside the allowed browse roots", http.StatusForbidden)
 		return
 	}
 
 	f, err := os.Open(resolved)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		jsonError(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 	defer f.Close()
 	infos, err := f.Readdir(-1)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		jsonError(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 

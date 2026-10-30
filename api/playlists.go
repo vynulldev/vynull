@@ -19,7 +19,7 @@ import (
 // POST /api/playlists           — create {name, parent_id?, is_folder?}
 func (s *Server) handlePlaylists(w http.ResponseWriter, r *http.Request) {
 	if s.Playlists == nil {
-		http.Error(w, "playlist store not available", http.StatusServiceUnavailable)
+		jsonError(w, "playlist store not available", http.StatusServiceUnavailable)
 		return
 	}
 
@@ -41,15 +41,15 @@ func (s *Server) handlePlaylists(w http.ResponseWriter, r *http.Request) {
 			Rules    *SmartRules `json:"rules,omitempty"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			http.Error(w, "invalid JSON: "+err.Error(), http.StatusBadRequest)
+			jsonError(w, "invalid JSON: "+err.Error(), http.StatusBadRequest)
 			return
 		}
 		if req.Name == "" {
-			http.Error(w, "name is required", http.StatusBadRequest)
+			jsonError(w, "name is required", http.StatusBadRequest)
 			return
 		}
 		if req.IsSmart && req.IsFolder {
-			http.Error(w, "is_smart and is_folder are mutually exclusive", http.StatusBadRequest)
+			jsonError(w, "is_smart and is_folder are mutually exclusive", http.StatusBadRequest)
 			return
 		}
 		var (
@@ -62,12 +62,12 @@ func (s *Server) handlePlaylists(w http.ResponseWriter, r *http.Request) {
 			p, err = s.Playlists.Create(req.Name, req.ParentID, req.IsFolder)
 		}
 		if err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
+			jsonError(w, err.Error(), http.StatusBadRequest)
 			return
 		}
 		writeJSON(w, p)
 	default:
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		notAllowed(w, http.MethodGet, http.MethodPost)
 	}
 }
 
@@ -77,7 +77,7 @@ func (s *Server) handlePlaylists(w http.ResponseWriter, r *http.Request) {
 // POST    /api/playlists/{id}/tracks — replace tracks {track_ids: [...]}
 func (s *Server) handlePlaylistByID(w http.ResponseWriter, r *http.Request) {
 	if s.Playlists == nil {
-		http.Error(w, "playlist store not available", http.StatusServiceUnavailable)
+		jsonError(w, "playlist store not available", http.StatusServiceUnavailable)
 		return
 	}
 
@@ -87,7 +87,7 @@ func (s *Server) handlePlaylistByID(w http.ResponseWriter, r *http.Request) {
 	var id uint32
 	fmt.Sscanf(parts[0], "%d", &id)
 	if id == 0 {
-		http.Error(w, "invalid playlist ID", http.StatusBadRequest)
+		jsonError(w, "invalid playlist ID", http.StatusBadRequest)
 		return
 	}
 
@@ -107,7 +107,7 @@ func (s *Server) handlePlaylistByID(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, out)
 			return
 		}
-		http.Error(w, "playlists on a served rekordbox USB are read-only", http.StatusForbidden)
+		jsonError(w, "playlists on a served rekordbox USB are read-only", http.StatusForbidden)
 		return
 	}
 
@@ -131,12 +131,12 @@ func (s *Server) handlePlaylistByID(w http.ResponseWriter, r *http.Request) {
 			SortOrder *int    `json:"sort_order,omitempty"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			http.Error(w, "invalid JSON: "+err.Error(), http.StatusBadRequest)
+			jsonError(w, "invalid JSON: "+err.Error(), http.StatusBadRequest)
 			return
 		}
 		if req.Name != nil {
 			if err := s.Playlists.Rename(id, *req.Name); err != nil {
-				http.Error(w, err.Error(), http.StatusBadRequest)
+				jsonError(w, err.Error(), http.StatusBadRequest)
 				return
 			}
 		}
@@ -156,21 +156,21 @@ func (s *Server) handlePlaylistByID(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 			if err := s.Playlists.Move(id, parent, order); err != nil {
-				http.Error(w, err.Error(), http.StatusBadRequest)
+				jsonError(w, err.Error(), http.StatusBadRequest)
 				return
 			}
 		}
-		writeJSON(w, struct{ OK bool }{true})
+		ok(w)
 
 	case "DELETE":
 		if err := s.Playlists.Delete(id); err != nil {
-			http.Error(w, err.Error(), http.StatusNotFound)
+			jsonError(w, err.Error(), http.StatusNotFound)
 			return
 		}
-		writeJSON(w, struct{ OK bool }{true})
+		ok(w)
 
 	default:
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		notAllowed(w, http.MethodPut, http.MethodDelete)
 	}
 }
 
@@ -200,16 +200,16 @@ func (s *Server) handlePlaylistTracks(w http.ResponseWriter, r *http.Request, id
 			TrackIDs []uint32 `json:"track_ids"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			http.Error(w, "invalid JSON: "+err.Error(), http.StatusBadRequest)
+			jsonError(w, "invalid JSON: "+err.Error(), http.StatusBadRequest)
 			return
 		}
 		if err := s.Playlists.SetTracks(id, req.TrackIDs); err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
+			jsonError(w, err.Error(), http.StatusBadRequest)
 			return
 		}
-		writeJSON(w, struct{ OK bool }{true})
+		ok(w)
 	default:
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		notAllowed(w, http.MethodGet, http.MethodPost)
 	}
 }
 
@@ -222,22 +222,22 @@ func (s *Server) handlePlaylistRules(w http.ResponseWriter, r *http.Request, id 
 	case "GET":
 		p := s.Playlists.Get(id)
 		if p == nil {
-			http.Error(w, "playlist not found", http.StatusNotFound)
+			jsonError(w, "playlist not found", http.StatusNotFound)
 			return
 		}
 		writeJSON(w, p.Rules)
 	case "PUT":
 		var rules SmartRules
 		if err := json.NewDecoder(r.Body).Decode(&rules); err != nil {
-			http.Error(w, "invalid JSON: "+err.Error(), http.StatusBadRequest)
+			jsonError(w, "invalid JSON: "+err.Error(), http.StatusBadRequest)
 			return
 		}
 		if err := s.Playlists.SetRules(id, &rules); err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
+			jsonError(w, err.Error(), http.StatusBadRequest)
 			return
 		}
-		writeJSON(w, struct{ OK bool }{true})
+		ok(w)
 	default:
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		notAllowed(w, http.MethodGet, http.MethodPut)
 	}
 }

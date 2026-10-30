@@ -18,7 +18,7 @@ import (
 // menu order).
 func (s *Server) handleMenuItems(w http.ResponseWriter, r *http.Request) {
 	if s.Menu == nil {
-		http.Error(w, "menu store not available", http.StatusServiceUnavailable)
+		jsonError(w, "menu store not available", http.StatusServiceUnavailable)
 		return
 	}
 	switch r.Method {
@@ -44,42 +44,41 @@ func (s *Server) handleMenuItems(w http.ResponseWriter, r *http.Request) {
 			Sorts       *[]SortItem `json:"sorts,omitempty"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			http.Error(w, "invalid JSON: "+err.Error(), http.StatusBadRequest)
+			jsonError(w, "invalid JSON: "+err.Error(), http.StatusBadRequest)
 			return
 		}
 		if req.Items != nil {
 			if err := s.Menu.Replace(*req.Items); err != nil {
-				http.Error(w, err.Error(), http.StatusBadRequest)
+				jsonError(w, err.Error(), http.StatusBadRequest)
 				return
 			}
 		}
 		if req.TrackDetail != nil {
 			if err := s.Menu.SetTrackDetail(*req.TrackDetail); err != nil {
-				http.Error(w, err.Error(), http.StatusBadRequest)
+				jsonError(w, err.Error(), http.StatusBadRequest)
 				return
 			}
 		}
 		if req.Sorts != nil {
 			if err := s.Menu.ReplaceSorts(*req.Sorts); err != nil {
-				http.Error(w, err.Error(), http.StatusBadRequest)
+				jsonError(w, err.Error(), http.StatusBadRequest)
 				return
 			}
 		}
-		writeJSON(w, struct{ OK bool }{true})
+		ok(w)
 	default:
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		notAllowed(w, http.MethodGet, http.MethodPut)
 	}
 }
 
 // POST /api/menu-items/reset → restore default order + visibility
 // (?sorts=1: the SORT menu's instead)
 func (s *Server) handleMenuItemsReset(w http.ResponseWriter, r *http.Request) {
-	if r.Method != "POST" {
-		http.Error(w, "POST required", http.StatusMethodNotAllowed)
+	if !allow(w, r, http.MethodPost) {
 		return
 	}
 	if s.Menu == nil {
-		http.Error(w, "menu store not available", http.StatusServiceUnavailable)
+		jsonError(w, "menu store not available", http.StatusServiceUnavailable)
 		return
 	}
 	// ?sorts=1 resets the SORT menu instead of the root menu.
@@ -88,5 +87,5 @@ func (s *Server) handleMenuItemsReset(w http.ResponseWriter, r *http.Request) {
 	} else {
 		s.Menu.ResetToDefaults()
 	}
-	writeJSON(w, struct{ OK bool }{true})
+	ok(w)
 }

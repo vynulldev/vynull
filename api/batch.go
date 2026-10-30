@@ -36,7 +36,7 @@ func (s *Server) handleTracksColor(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if req.ColorID > 8 {
-		http.Error(w, "color_id must be 0-8", http.StatusBadRequest)
+		jsonError(w, "color_id must be 0-8", http.StatusBadRequest)
 		return
 	}
 	colors := make([]library.ColorImport, len(req.TrackIDs))
@@ -77,11 +77,11 @@ func (s *Server) handleTracksTags(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if s.Tags == nil {
-		http.Error(w, "tag store not available", http.StatusServiceUnavailable)
+		jsonError(w, "tag store not available", http.StatusServiceUnavailable)
 		return
 	}
 	if len(req.Add)+len(req.Remove) == 0 {
-		http.Error(w, "add or remove required", http.StatusBadRequest)
+		jsonError(w, "add or remove required", http.StatusBadRequest)
 		return
 	}
 	var known []uint32
@@ -92,7 +92,7 @@ func (s *Server) handleTracksTags(w http.ResponseWriter, r *http.Request) {
 	}
 	changed, err := s.Tags.EditTags(known, req.Add, req.Remove)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		jsonError(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 	if len(changed) > 0 {
@@ -106,20 +106,19 @@ func (s *Server) handleTracksTags(w http.ResponseWriter, r *http.Request) {
 // method, bad JSON or an empty selection. It reports whether the handler
 // should go on.
 func (s *Server) batchRequest(w http.ResponseWriter, r *http.Request, method string, req any, trackIDs *[]uint32) bool {
-	if r.Method != method {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+	if !allow(w, r, method) {
 		return false
 	}
 	if s.Library == nil {
-		http.Error(w, "library not available", http.StatusServiceUnavailable)
+		jsonError(w, "library not available", http.StatusServiceUnavailable)
 		return false
 	}
 	if err := json.NewDecoder(r.Body).Decode(req); err != nil {
-		http.Error(w, "invalid JSON: "+err.Error(), http.StatusBadRequest)
+		jsonError(w, "invalid JSON: "+err.Error(), http.StatusBadRequest)
 		return false
 	}
 	if len(*trackIDs) == 0 {
-		http.Error(w, "track_ids required", http.StatusBadRequest)
+		jsonError(w, "track_ids required", http.StatusBadRequest)
 		return false
 	}
 	slices.Sort(*trackIDs)

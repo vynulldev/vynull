@@ -287,6 +287,8 @@ The API server runs on `http://127.0.0.1:9443`.
 
 The full surface is described by an OpenAPI spec served at `/api/openapi.yaml`, with a browsable Swagger UI at `/api/docs` (both always on, even headless). The endpoints below are a quick reference.
 
+An error keeps its HTTP status and answers `{"error": "message"}`. A write with nothing to return answers `{"ok": true}`.
+
 ### Endpoints
 
 #### `GET /api/status`
@@ -314,7 +316,7 @@ Response:
 
 ```json
 {
-  "status": "ok",
+  "ok": true,
   "added": 2,
   "total": 15
 }
