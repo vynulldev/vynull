@@ -84,3 +84,6 @@ func (a *CueStoreAdapter) DeleteCue(trackID uint32, cueNumber uint16) {
 func (a *CueStoreAdapter) DeleteAllForTrack(trackID uint32) {
 	a.Store.DeleteAllForTrack(trackID)
 }
+
+// Rev returns the cue store's revision.
+func (a *CueStoreAdapter) Rev() uint64 { return a.Store.Rev() }

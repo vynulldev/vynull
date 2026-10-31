@@ -117,7 +117,7 @@ var everyRoute = []string{
 	"/api/export", "/api/export/preview", "/api/diag", "/api/diag/logs", "/api/diag/status",
 	"/api/audio/1", "/api/analysis/1", "/api/analysis/ext/1/2/3", "/api/analysis/reanalyze/1",
 	"/api/analysis/beatgrid/adjust", "/api/analysis/waveform/1", "/api/analysis/waveform-png/1",
-	"/api/artwork/1", "/api/artwork/ext/1/2/3", "/api/cues", "/api/tracks/1/cues",
+	"/api/artwork/1", "/api/artwork/ext/1/2/3", "/api/cues", "/api/cues/rev", "/api/tracks/1/cues",
 	"/api/settings", "/api/settings/enums", "/api/menu-items", "/api/menu-items/reset",
 	"/api/tags", "/api/tags/1", "/api/tag-categories", "/api/tag-categories/1",
 	"/api/playlists", "/api/playlists/1", "/api/hotcuebanks", "/api/hotcuebanks/1",

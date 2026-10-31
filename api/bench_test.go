@@ -69,10 +69,12 @@ func BenchmarkSmartPlaylist(b *testing.B) {
 }
 
 // BenchmarkAPITracks measures GET /api/tracks on a 20k-track library, gzip
-// accepted as a browser does: the full encode the web UI pays on every
-// library revision, and the revalidation when its ETag still matches.
+// accepted as a browser does: a request for the current revision, one right
+// after a change (the encode a revision costs), and the revalidation when the
+// ETag still matches.
 func BenchmarkAPITracks(b *testing.B) {
-	s := &Server{Library: benchlib.Library(benchlib.Size)}
+	lib := benchlib.Library(benchlib.Size)
+	s := &Server{Library: lib}
 	h := s.Handler()
 	get := func(etag string) *httptest.ResponseRecorder {
 		r := httptest.NewRequest(http.MethodGet, "/api/tracks", nil)
@@ -95,8 +97,16 @@ func BenchmarkAPITracks(b *testing.B) {
 			get("")
 		}
 	})
+	b.Run("after-change", func(b *testing.B) {
+		b.SetBytes(int64(first.Body.Len()))
+		b.ReportAllocs()
+		for b.Loop() {
+			lib.Touch()
+			get("")
+		}
+	})
 	b.Run("not-modified", func(b *testing.B) {
-		etag := first.Header().Get("ETag")
+		etag := get("").Header().Get("ETag")
 		if w := get(etag); w.Code != http.StatusNotModified {
 			b.Fatalf("revalidation returned %d", w.Code)
 		}
@@ -136,18 +146,42 @@ func BenchmarkAPICues(b *testing.B) {
 	}
 	s := &Server{Cues: &CueStoreAdapter{Store: dbserver.NewCueStore(dir)}}
 	h := s.Handler()
-	get := func() *httptest.ResponseRecorder {
+	get := func(path, etag string) *httptest.ResponseRecorder {
+		r := httptest.NewRequest(http.MethodGet, path, nil)
+		if etag != "" {
+			r.Header.Set("If-None-Match", etag)
+		}
 		w := httptest.NewRecorder()
-		h.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/api/cues", nil))
+		h.ServeHTTP(w, r)
 		return w
 	}
-	first := get()
+	first := get("/api/cues", "")
 	if first.Code != http.StatusOK || first.Body.Len() < 1<<20 {
 		b.Fatalf("GET /api/cues: %d, %d bytes", first.Code, first.Body.Len())
 	}
-	b.SetBytes(int64(first.Body.Len()))
-	b.ReportAllocs()
-	for b.Loop() {
-		get()
-	}
+	b.Run("full", func(b *testing.B) {
+		b.SetBytes(int64(first.Body.Len()))
+		b.ReportAllocs()
+		for b.Loop() {
+			get("/api/cues", "")
+		}
+	})
+	// What the web UI now asks each second: the revision, and the cues only
+	// when it moved, revalidated against their ETag.
+	b.Run("not-modified", func(b *testing.B) {
+		etag := first.Header().Get("ETag")
+		if w := get("/api/cues", etag); w.Code != http.StatusNotModified {
+			b.Fatalf("revalidation returned %d", w.Code)
+		}
+		b.ReportAllocs()
+		for b.Loop() {
+			get("/api/cues", etag)
+		}
+	})
+	b.Run("rev", func(b *testing.B) {
+		b.ReportAllocs()
+		for b.Loop() {
+			get("/api/cues/rev", "")
+		}
+	})
 }
