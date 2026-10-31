@@ -5,13 +5,13 @@ package api
 import (
 	"context"
 	"fmt"
-	"log"
 	"net/http"
 	"os"
 	"strconv"
 	"strings"
 
 	"github.com/vynulldev/vynull/analysis"
+	"github.com/vynulldev/vynull/internal/dlog"
 	"github.com/vynulldev/vynull/library"
 )
 
@@ -64,7 +64,7 @@ func (s *Server) audioMissing(trackID uint32, filePath string) bool {
 		return false
 	}
 	if s.Library != nil && s.Library.SetFileMissing(trackID, true) {
-		log.Printf("api: track %d's file is missing, not analyzing: %s", trackID, filePath)
+		dlog.Warnf("api: track %d's file is missing, not analyzing: %s", trackID, filePath)
 	}
 	return true
 }
@@ -120,7 +120,7 @@ func (s *Server) getOrAnalyze(ctx context.Context, trackID uint32) *analysis.Res
 			s.applyAnalysisToTrack(trackID, r)
 			return r
 		}
-		log.Printf("api: track %d is locked but has no cached analysis — analyzing once", trackID)
+		dlog.Infof("api: track %d is locked but has no cached analysis — analyzing once", trackID)
 	} else if r := s.Analysis.Get(trackID); r != nil {
 		s.applyAnalysisToTrack(trackID, r)
 		return r // disk cache was valid after SetPath
@@ -131,7 +131,7 @@ func (s *Server) getOrAnalyze(ctx context.Context, trackID uint32) *analysis.Res
 	if s.audioMissing(trackID, filePath) {
 		return nil
 	}
-	log.Printf("api: on-demand analysis for track %d: %s", trackID, filePath)
+	dlog.Infof("api: on-demand analysis for track %d: %s", trackID, filePath)
 	return s.Analysis.Analyze(ctx, trackID, filePath) // written back by the store's OnAnalyzed
 }
 
@@ -175,7 +175,7 @@ func (s *Server) handleReanalyze(w http.ResponseWriter, r *http.Request) {
 	var result *analysis.Result
 	if parts == "all" {
 		s.Analysis.Invalidate(trackID)
-		log.Printf("api: reanalyzing track %d (all, user-requested)", trackID)
+		dlog.Infof("api: reanalyzing track %d (all, user-requested)", trackID)
 		result = s.getOrAnalyze(r.Context(), trackID) // honors the ANLZ importer for served USB tracks
 	} else {
 		filePath := s.trackFilePath(trackID)
@@ -189,7 +189,7 @@ func (s *Server) handleReanalyze(w http.ResponseWriter, r *http.Request) {
 		if parts == "waveform" {
 			pe = analysis.PartsWaveform
 		}
-		log.Printf("api: reanalyzing track %d (%s, user-requested)", trackID, parts)
+		dlog.Infof("api: reanalyzing track %d (%s, user-requested)", trackID, parts)
 		r2, err := analysis.Reanalyze(filePath, existing, pe)
 		if err == nil && r2 != nil {
 			s.Analysis.Set(trackID, r2)

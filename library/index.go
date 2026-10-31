@@ -6,7 +6,6 @@ import (
 	"crypto/sha256"
 	"encoding/binary"
 	"encoding/json"
-	"log"
 	"os"
 	"slices"
 	"sort"
@@ -14,6 +13,7 @@ import (
 	"sync"
 	"sync/atomic"
 
+	"github.com/vynulldev/vynull/internal/dlog"
 	"github.com/vynulldev/vynull/internal/saver"
 )
 
@@ -517,7 +517,7 @@ func (l *Library) loadFromDisk() {
 	}
 	var tracks []*Track
 	if err := json.Unmarshal(data, &tracks); err != nil {
-		log.Printf("library: parse %s: %v", l.dbPath, err)
+		dlog.Errorf("library: parse %s: %v", l.dbPath, err)
 		return
 	}
 	// Bulk-load: build the indexes directly and rebuild the sorted lists once
@@ -538,7 +538,7 @@ func (l *Library) loadFromDisk() {
 	}
 	l.rebuildLists()
 	l.mu.Unlock()
-	log.Printf("library: loaded %d tracks from %s", len(tracks), l.dbPath)
+	dlog.Infof("library: loaded %d tracks from %s", len(tracks), l.dbPath)
 }
 
 // rebuildLists regenerates the sorted artist/album/genre name lists from the maps.

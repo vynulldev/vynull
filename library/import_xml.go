@@ -5,13 +5,14 @@ package library
 import (
 	"encoding/xml"
 	"fmt"
-	"log"
 	"net/url"
 	"os"
 	"regexp"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/vynulldev/vynull/internal/dlog"
 )
 
 // RekordboxXML is the schema for a `File > Export collection in XML` from
@@ -214,7 +215,7 @@ func ImportRekordboxXML(lib *Library, xmlPath string) (*ImportBundle, error) {
 	if err := xml.Unmarshal(data, &doc); err != nil {
 		return nil, fmt.Errorf("parse xml: %w", err)
 	}
-	log.Printf("import: %s v%s, %d tracks declared",
+	dlog.Infof("import: %s v%s, %d tracks declared",
 		doc.Product.Name, doc.Product.Version, doc.Collection.Entries)
 
 	res := &ImportResult{TracksTotal: len(doc.Collection.Tracks)}

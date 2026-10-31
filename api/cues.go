@@ -5,12 +5,12 @@ package api
 import (
 	"encoding/json"
 	"fmt"
-	"log"
 	"net/http"
 	"strconv"
 	"strings"
 
 	"github.com/vynulldev/vynull/analysis"
+	"github.com/vynulldev/vynull/internal/dlog"
 )
 
 // CueInfo is the API representation of a cue point.
@@ -113,7 +113,7 @@ func (s *Server) handleCues(w http.ResponseWriter, r *http.Request) {
 			cue.Type = "cue"
 		}
 		s.Cues.SaveCue(trackID, cue)
-		log.Printf("api: saved cue #%d for track %d at %dms (color=%d)",
+		dlog.Infof("api: saved cue #%d for track %d at %dms (color=%d)",
 			cue.Number, trackID, cue.TimeMs, cue.ColorID)
 		if s.Device != nil {
 			// The deck re-fetches the cues of its loaded track, so a
@@ -136,7 +136,7 @@ func (s *Server) handleCues(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		s.Cues.DeleteCue(trackID, cueNum)
-		log.Printf("api: deleted cue #%d for track %d", cueNum, trackID)
+		dlog.Infof("api: deleted cue #%d for track %d", cueNum, trackID)
 		if s.Device != nil {
 			s.Device.BroadcastTrackRefresh(trackID)
 		}

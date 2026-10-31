@@ -5,8 +5,8 @@ package device
 import (
 	"context"
 	"encoding/hex"
+	"errors"
 	"fmt"
-	"log"
 	"net"
 	"os"
 	"sync"
@@ -147,7 +147,7 @@ func (d *VirtualDevice) LoadTrackOnCDJ(trackID uint32, name string, targetDevice
 		SentAt:       time.Now(),
 	}
 	d.statusMu.Unlock()
-	log.Printf("sent load track command (x2): %s -> device %d (%s)", logTrack(trackID, name), targetDevice, targetIP)
+	dlog.Infof("sent load track command (x2): %s -> device %d (%s)", logTrack(trackID, name), targetDevice, targetIP)
 	return nil
 }
 
@@ -180,13 +180,13 @@ func (d *VirtualDevice) sendEphemeralBroadcastPair(pkt []byte, label string) {
 	src := &net.UDPAddr{IP: d.IP, Port: 0}
 	conn, err := net.ListenUDP("udp4", src)
 	if err != nil {
-		log.Printf("%s trigger: ephemeral socket: %v", label, err)
+		dlog.Errorf("%s trigger: ephemeral socket: %v", label, err)
 		return
 	}
 	defer conn.Close()
 	n1, err1 := conn.WriteToUDP(pkt, dst)
 	n2, err2 := conn.WriteToUDP(pkt, dst)
-	log.Printf("%s sent from %s to %s: %d+%d bytes err=%v,%v",
+	dlog.Infof("%s sent from %s to %s: %d+%d bytes err=%v,%v",
 		label, conn.LocalAddr(), dst, n1, n2, err1, err2)
 }
 
@@ -222,7 +222,7 @@ func (d *VirtualDevice) Start(ctx context.Context) error {
 	// proactive on this port today.
 	beatConn, err := net.ListenPacket("udp4", fmt.Sprintf(":%d", beatPort))
 	if err != nil {
-		log.Printf("bind beat port %d: %v (DJM channel state will be unavailable)", beatPort, err)
+		dlog.Warnf("bind beat port %d: %v (DJM channel state will be unavailable)", beatPort, err)
 	} else {
 		d.beatConn = beatConn.(*net.UDPConn)
 		defer d.beatConn.Close()
@@ -246,7 +246,7 @@ func (d *VirtualDevice) Start(ctx context.Context) error {
 		sample := proto.MarshalKeepAlive(d.Name, d.DeviceNumber, d.DeviceType, d.MAC, d.IP, 0)
 		dlog.Debugf("keep-alive packet (%d bytes):\n%s", len(sample), hex.Dump(sample))
 	}
-	log.Printf("starting claim sequence on %s (device %d, type %s)", d.IP, d.DeviceNumber, d.DeviceType)
+	dlog.Infof("starting claim sequence on %s (device %d, type %s)", d.IP, d.DeviceNumber, d.DeviceType)
 
 	// Claim sequence is synchronous — keep-alive loop must NOT start
 	// until the CDJ has acknowledged our device number. Running them
@@ -255,7 +255,7 @@ func (d *VirtualDevice) Start(ctx context.Context) error {
 	if err := d.claimSequence(ctx); err != nil {
 		return fmt.Errorf("claim sequence: %w", err)
 	}
-	log.Printf("device ready on %s (device %d, type %s) — broadcasting; UNLINKED (MOUNT EXPORT empty until user clicks LINK)", d.IP, d.DeviceNumber, d.DeviceType)
+	dlog.Infof("device ready on %s (device %d, type %s) — broadcasting; UNLINKED (MOUNT EXPORT empty until user clicks LINK)", d.IP, d.DeviceNumber, d.DeviceType)
 
 	return d.keepAliveLoop(ctx)
 }
@@ -300,7 +300,7 @@ func (d *VirtualDevice) SendDisconnectSignal() {
 		d.statusConn.WriteToUDP(pkt, dst)
 		time.Sleep(time.Millisecond)
 		d.statusConn.WriteToUDP(pkt, dst)
-		log.Printf("device: sent unicast 0x16 disconnect signal to %s (device %d)", p.IP, p.DeviceNumber)
+		dlog.Infof("device: sent unicast 0x16 disconnect signal to %s (device %d)", p.IP, p.DeviceNumber)
 	}
 }
 
@@ -323,7 +323,7 @@ func (d *VirtualDevice) SetLinked(on bool) {
 	}
 	if on {
 		d.linked.Store(true)
-		log.Printf("device: LINK on — NFS exports now non-empty, dbserver accepting sessions")
+		dlog.Infof("device: LINK on — NFS exports now non-empty, dbserver accepting sessions")
 		if d.linkOnChange != nil {
 			d.linkOnChange(true)
 		}
@@ -331,7 +331,7 @@ func (d *VirtualDevice) SetLinked(on bool) {
 	}
 	// Unlink: callback first so it can tear down any in-flight TCP
 	// menu sessions while the device is still considered "up".
-	log.Printf("device: LINK off — NFS exports now empty, dbserver sessions torn down")
+	dlog.Infof("device: LINK off — NFS exports now empty, dbserver sessions torn down")
 	if d.linkOnChange != nil {
 		d.linkOnChange(false)
 	}
@@ -444,13 +444,13 @@ func (d *VirtualDevice) keepAliveLoop(ctx context.Context) error {
 	for {
 		select {
 		case <-ctx.Done():
-			log.Printf("shutting down virtual device")
+			dlog.Infof("shutting down virtual device")
 			return nil
 		case <-ticker.C:
 			// Type 0x06 at 1.5s intervals (both modes).
 			pkt := proto.MarshalKeepAlive(d.Name, d.DeviceNumber, d.DeviceType, d.MAC, d.IP, d.Peers.Count()+1)
 			if err := d.send(pkt, dst); err != nil {
-				log.Printf("keep-alive send error: %v", err)
+				dlog.Warnf("keep-alive send error: %v", err)
 			}
 		case <-func() <-chan time.Time {
 			if fastTicker == nil {
@@ -523,14 +523,14 @@ func (d *VirtualDevice) statusBroadcastLoop(ctx context.Context) {
 		// 0x11/0x06 are only sent in response to CDJ requests,
 		// not proactively. The 0x46 handler manages the full link activation.
 		// 0x29 starts at the same time as the first 0x46.
-		log.Printf("waiting for claim to complete before starting 0x29 broadcast...")
+		dlog.Infof("waiting for claim to complete before starting 0x29 broadcast...")
 		select {
 		case <-d.claimDone:
 		case <-ctx.Done():
 			return
 		}
 
-		log.Printf("status broadcast started (type=0x29 to %s)", dst)
+		dlog.Infof("status broadcast started (type=0x29 to %s)", dst)
 
 		// In rekordbox mode, the 0x46 handler manages the full link activation.
 		// No proactive 0x11/0x06/0x47 — only respond to CDJ requests.
@@ -566,7 +566,7 @@ func (d *VirtualDevice) statusBroadcastLoop(ctx context.Context) {
 		mediaPkt := proto.MarshalMediaResponse(d.Name, d.DeviceNumber, d.MediaSlot, d.TrackCount, d.MAC, d.IP)
 		d.sendStatus(cdjPkt, dst)
 		d.sendStatus(mediaPkt, dst)
-		log.Printf("status broadcast started (type=0x0a to %s)", dst)
+		dlog.Infof("status broadcast started (type=0x0a to %s)", dst)
 
 		for {
 			select {
@@ -603,7 +603,11 @@ func (d *VirtualDevice) listenBeats(ctx context.Context) {
 			if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
 				continue
 			}
-			log.Printf("beat read error: %v", err)
+			if errors.Is(err, net.ErrClosed) {
+				dlog.Debugf("beat read error: %v", err) // closed at shutdown
+			} else {
+				dlog.Warnf("beat read error: %v", err)
+			}
 			continue
 		}
 		if addr.IP.Equal(d.IP) {
@@ -715,7 +719,11 @@ func (d *VirtualDevice) listenStatus(ctx context.Context) {
 			if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
 				continue
 			}
-			log.Printf("status read error: %v", err)
+			if errors.Is(err, net.ErrClosed) {
+				dlog.Debugf("status read error: %v", err) // closed at shutdown
+			} else {
+				dlog.Warnf("status read error: %v", err)
+			}
 			continue
 		}
 
@@ -757,7 +765,7 @@ func (d *VirtualDevice) listenStatus(ctx context.Context) {
 			if isMixer {
 				if mx, ok := proto.ParseMixerStatus(buf[:n]); ok {
 					if d.recordMixerStatus(mx) {
-						log.Printf("mixer: first 0x29 from %s (%s) device %d — len=%d masterBPM=%.2f masterDev=%d onAir=%04b beat=%d\n%s",
+						dlog.Infof("mixer: first 0x29 from %s (%s) device %d — len=%d masterBPM=%.2f masterDev=%d onAir=%04b beat=%d\n%s",
 							mx.Name, addr.IP, mx.DeviceNumber, n, mx.MasterBPM, mx.MasterDevice, mx.ChannelOnAir, mx.BeatInBar, hex.Dump(buf[:n]))
 					}
 				}
@@ -780,7 +788,7 @@ func (d *VirtualDevice) listenStatus(ctx context.Context) {
 		default:
 			// One-liner at info so new packet types get noticed; the wire
 			// bytes for reverse-engineering them are trace.
-			log.Printf("status recv unknown type=0x%02x from %s (%d bytes)", pktType, addr, n)
+			dlog.Infof("status recv unknown type=0x%02x from %s (%d bytes)", pktType, addr, n)
 			if dlog.Enabled(dlog.Trace) {
 				dlog.Tracef("status unknown 0x%02x dump:\n%s", pktType, hex.Dump(buf[:n]))
 			}
@@ -804,7 +812,7 @@ func (d *VirtualDevice) listenStatus(ctx context.Context) {
 			pending := d.pendingLoad[addr.IP.String()]
 			d.statusMu.Unlock()
 			if pending != nil {
-				log.Printf("status: 0x1c rejection of load %s from %s (not resending media — deck self-recovers)", logTrack(pending.TrackID, pending.TrackName), addr.IP)
+				dlog.Infof("status: 0x1c rejection of load %s from %s (not resending media — deck self-recovers)", logTrack(pending.TrackID, pending.TrackName), addr.IP)
 			}
 		}
 
@@ -830,7 +838,7 @@ func (d *VirtualDevice) listenStatus(ctx context.Context) {
 
 		// Type 0x35 (My Settings READ request) — CDJ asks to load settings.
 		if pktType == 0x35 {
-			log.Printf("status: settings read request (0x35) from %s — sending 0x36 response", addr)
+			dlog.Infof("status: settings read request (0x35) from %s — sending 0x36 response", addr)
 			var mySetting, mySetting2, devSetting []byte
 			if d.Settings != nil {
 				mySetting = d.Settings.GetMySetting()
@@ -844,7 +852,7 @@ func (d *VirtualDevice) listenStatus(ctx context.Context) {
 		// Type 0x37 (My Settings WRITE) — CDJ saves MYSETTING to us.
 		// Body at offset 0x30 contains 32 bytes of MYSETTING data.
 		if pktType == 0x37 && n >= 0x50 {
-			log.Printf("status: my settings write (0x37) from %s — saving + sending 0x38 ack", addr)
+			dlog.Infof("status: my settings write (0x37) from %s — saving + sending 0x38 ack", addr)
 			if d.Settings != nil {
 				d.Settings.SaveMySetting(buf[0x30:0x50])
 			}
@@ -863,7 +871,7 @@ func (d *VirtualDevice) listenStatus(ctx context.Context) {
 		// Type 0x48 (Device Settings WRITE) — CDJ saves DEVSETTING to us.
 		// Body at offset 0x30 contains 6 bytes of DEVSETTING data.
 		if pktType == 0x48 && n >= 0x36 {
-			log.Printf("status: device settings write (0x48) from %s — saving + sending 0x49 ack", addr)
+			dlog.Infof("status: device settings write (0x48) from %s — saving + sending 0x49 ack", addr)
 			if d.Settings != nil {
 				d.Settings.SaveDevSetting(buf[0x30:0x36])
 			}
@@ -906,7 +914,7 @@ func (d *VirtualDevice) listenStatus(ctx context.Context) {
 
 			if count == 0 {
 				// First 0x46: send 0x16, then another 3s later.
-				log.Printf("status: first 0x46 from %s — sending 0x16", addr)
+				dlog.Infof("status: first 0x46 from %s — sending 0x16", addr)
 				statusPkt := proto.MarshalStatusRekordbox(d.Name, d.DeviceNumber)
 				d.sendStatus(statusPkt, replyAddr)
 				// Delayed second 0x16 triggers CDJ to send 0x05
@@ -914,7 +922,7 @@ func (d *VirtualDevice) listenStatus(ctx context.Context) {
 				go func() {
 					time.Sleep(3 * time.Second)
 					d.sendStatus(statusPkt, peerAddr)
-					log.Printf("status: sent second 0x16 to %s (delayed 3s)", peerAddr)
+					dlog.Infof("status: sent second 0x16 to %s (delayed 3s)", peerAddr)
 				}()
 			} else {
 				// All subsequent 0x46: respond with 0x47 (link activation with DEVSETTING).
@@ -929,7 +937,7 @@ func (d *VirtualDevice) listenStatus(ctx context.Context) {
 				// NFS-mount/link context via this ~5s 0x46→0x47 handshake; if it
 				// stops (e.g. after a track ENDs) a subsequent load can't fetch.
 				// Logging every 0x46 lets us see exactly when the cadence lapses.
-				log.Printf("status: 0x46 #%d from %s — sent 0x47 (link keepalive)", count+1, addr)
+				dlog.Infof("status: 0x46 #%d from %s — sent 0x47 (link keepalive)", count+1, addr)
 			}
 
 			// Settings update: if this peer has pending settings from NotifySettingsChanged,
@@ -947,7 +955,7 @@ func (d *VirtualDevice) listenStatus(ctx context.Context) {
 				}
 				linkPkt := proto.MarshalLinkActivation(d.Name, d.DeviceNumber, d.MediaSlot, ds)
 				d.sendStatus(linkPkt, replyAddr)
-				log.Printf("settings: sent 0x47 with updated DEVSETTING to %s (in response to 0x46)", addr)
+				dlog.Infof("settings: sent 0x47 with updated DEVSETTING to %s (in response to 0x46)", addr)
 			}
 		}
 	}
@@ -972,7 +980,7 @@ func (d *VirtualDevice) NotifySettingsChanged() {
 	for _, p := range d.Peers.Peers() {
 		addr := &net.UDPAddr{IP: p.IP, Port: statusPort}
 		d.sendStatus(notify, addr)
-		log.Printf("settings: sent 0x4a notification to %s", addr)
+		dlog.Infof("settings: sent 0x4a notification to %s", addr)
 	}
 }
 
@@ -997,7 +1005,11 @@ func (d *VirtualDevice) listenAnnouncements(ctx context.Context) {
 			if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
 				continue
 			}
-			log.Printf("announce read error: %v", err)
+			if errors.Is(err, net.ErrClosed) {
+				dlog.Debugf("announce read error: %v", err) // closed at shutdown
+			} else {
+				dlog.Warnf("announce read error: %v", err)
+			}
 			continue
 		}
 
@@ -1007,7 +1019,7 @@ func (d *VirtualDevice) listenAnnouncements(ctx context.Context) {
 				peerKey := fmt.Sprintf("%s/%d", ka.IP, ka.DeviceNumber)
 				if !loggedPeer[peerKey] {
 					loggedPeer[peerKey] = true
-					log.Printf("peer: %s (%s) device %d at %s",
+					dlog.Infof("peer: %s (%s) device %d at %s",
 						ka.Name, ka.DeviceType, ka.DeviceNumber, ka.IP)
 					if ka.DeviceType == proto.DeviceCDJ && dlog.Enabled(dlog.Trace) {
 						dlog.Tracef("CDJ keep-alive (%d bytes):\n%s", n, hex.Dump(buf[:n]))

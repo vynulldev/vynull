@@ -5,12 +5,12 @@ package api
 import (
 	"encoding/json"
 	"fmt"
-	"log"
 	"os"
 	"path/filepath"
 	"sync"
 
 	"github.com/vynulldev/vynull/dbserver"
+	"github.com/vynulldev/vynull/internal/dlog"
 	"github.com/vynulldev/vynull/internal/fsutil"
 	"github.com/vynulldev/vynull/pdb"
 )
@@ -132,7 +132,7 @@ func (ms *MenuStore) SetTrackDetail(key string) error {
 	defer ms.mu.Unlock()
 	ms.trackDetail = key
 	ms.saveLocked()
-	log.Printf("api: CDJ track-detail column set to %q", key)
+	dlog.Infof("api: CDJ track-detail column set to %q", key)
 	return nil
 }
 
@@ -231,7 +231,7 @@ func (ms *MenuStore) Replace(items []MenuItem) error {
 	ms.items = out
 	ms.mergeMissingLocked()
 	ms.saveLocked()
-	log.Printf("api: CDJ menu replaced — %d items (%d visible)",
+	dlog.Infof("api: CDJ menu replaced — %d items (%d visible)",
 		len(ms.items), countVisible(ms.items))
 	return nil
 }
@@ -242,7 +242,7 @@ func (ms *MenuStore) ResetToDefaults() {
 	defer ms.mu.Unlock()
 	ms.items = append(ms.items[:0], defaultMenuItems...)
 	ms.saveLocked()
-	log.Printf("api: CDJ menu reset to defaults (%d items)", len(ms.items))
+	dlog.Infof("api: CDJ menu reset to defaults (%d items)", len(ms.items))
 }
 
 // mergeMissingLocked appends any defaultMenuItems whose key isn't
@@ -291,12 +291,12 @@ func (ms *MenuStore) saveLocked() {
 		Sorts:       ms.sorts,
 	}, "", "  ")
 	if err != nil {
-		log.Printf("menu: marshal: %v", err)
+		dlog.Errorf("menu: marshal: %v", err)
 		return
 	}
 	path := filepath.Join(ms.dir, "menu.json")
 	if err := fsutil.WriteFile(path, b, 0644); err != nil {
-		log.Printf("menu: write %s: %v", path, err)
+		dlog.Errorf("menu: write %s: %v", path, err)
 	}
 }
 
@@ -311,7 +311,7 @@ func (ms *MenuStore) load() {
 	}
 	var fd menuFileData
 	if err := json.Unmarshal(data, &fd); err != nil {
-		log.Printf("menu: parse %s: %v", path, err)
+		dlog.Errorf("menu: parse %s: %v", path, err)
 		return
 	}
 	// Reconcile against current defaults: ID / ItemType / Locked are
@@ -345,6 +345,6 @@ func (ms *MenuStore) load() {
 	}
 	ms.trackDetail = fd.TrackDetail
 	ms.sorts = fd.Sorts
-	log.Printf("api: loaded %d CDJ menu items (%d visible, detail=%q)",
+	dlog.Infof("api: loaded %d CDJ menu items (%d visible, detail=%q)",
 		len(ms.items), countVisible(ms.items), ms.trackDetail)
 }

@@ -8,13 +8,13 @@ import (
 	"crypto/sha256"
 	"encoding/gob"
 	"fmt"
-	"log"
 	"os"
 	"path/filepath"
 	"slices"
 	"sync"
 	"sync/atomic"
 
+	"github.com/vynulldev/vynull/internal/dlog"
 	"github.com/vynulldev/vynull/internal/fsutil"
 	"github.com/vynulldev/vynull/pdb"
 )
@@ -230,7 +230,7 @@ func (s *Store) Get(trackID uint32) *Result {
 			s.putLocked(trackID, cached)
 			s.mu.Unlock()
 			s.incCached()
-			log.Printf("analysis-cache: loaded track %d from disk", trackID)
+			dlog.Infof("analysis-cache: loaded track %d from disk", trackID)
 			return cached
 		}
 	}
@@ -415,7 +415,7 @@ func (s *Store) set(trackID uint32, r *Result, onlyIfAbsent bool) bool {
 		r.BeatGrid = nil // regenerate blobs from the carried beats
 		r.BeatGridPQT2 = nil
 		delete(s.gridCarry, filePath)
-		log.Printf("analysis-cache: re-applied user-edited beat grid for track %d after re-analysis", trackID)
+		dlog.Infof("analysis-cache: re-applied user-edited beat grid for track %d after re-analysis", trackID)
 	}
 	s.putLocked(trackID, r)
 	s.mu.Unlock()
@@ -524,7 +524,7 @@ func (s *Store) keepCurrent(trackID uint32, r *Result) *Result {
 	if cur == nil { // removed meanwhile
 		return r
 	}
-	log.Printf("analysis: track %d gained an analysis while this one ran; keeping it", trackID)
+	dlog.Infof("analysis: track %d gained an analysis while this one ran; keeping it", trackID)
 	return cur
 }
 
@@ -556,7 +556,7 @@ func (s *Store) Invalidate(trackID uint32) {
 	}
 	cacheFile := s.cacheFile(path)
 	if err := os.Remove(cacheFile); err == nil {
-		log.Printf("analysis-cache: invalidated track %d (%s)", trackID, cacheFile)
+		dlog.Infof("analysis-cache: invalidated track %d (%s)", trackID, cacheFile)
 	}
 }
 
@@ -586,7 +586,7 @@ func (s *Store) RenameCachedPath(oldPath, newPath string) {
 		return
 	}
 	if err := os.Rename(from, to); err != nil {
-		log.Printf("analysis-cache: rename %s -> %s: %v", from, to, err)
+		dlog.Warnf("analysis-cache: rename %s -> %s: %v", from, to, err)
 	}
 }
 
@@ -597,11 +597,11 @@ func (s *Store) saveToDisk(filePath string, r *Result) {
 	path := s.cacheFile(filePath)
 	var buf bytes.Buffer
 	if err := gob.NewEncoder(&buf).Encode(r); err != nil {
-		log.Printf("analysis-cache: encode %s: %v", path, err)
+		dlog.Errorf("analysis-cache: encode %s: %v", path, err)
 		return
 	}
 	if err := fsutil.WriteCache(path, buf.Bytes(), 0644); err != nil {
-		log.Printf("analysis-cache: write %s: %v", path, err)
+		dlog.Errorf("analysis-cache: write %s: %v", path, err)
 	}
 }
 
@@ -619,7 +619,7 @@ func (s *Store) loadFromDisk(filePath string, keep bool) *Result {
 	defer f.Close()
 	var r Result
 	if err := gob.NewDecoder(f).Decode(&r); err != nil {
-		log.Printf("analysis-cache: decode %s: %v", path, err)
+		dlog.Warnf("analysis-cache: decode %s: %v", path, err)
 		return nil
 	}
 	stale := r.CacheVersion != cacheVersion
@@ -627,7 +627,7 @@ func (s *Store) loadFromDisk(filePath string, keep bool) *Result {
 		stale = true
 	}
 	if stale && (keep || r.isImported()) {
-		log.Printf("analysis-cache: stale (version %d or tempo range) but the track is locked or imported — keeping %s", r.CacheVersion, filepath.Base(path))
+		dlog.Infof("analysis-cache: stale (version %d or tempo range) but the track is locked or imported — keeping %s", r.CacheVersion, filepath.Base(path))
 		return &r
 	}
 	if r.CacheVersion != cacheVersion {
@@ -642,10 +642,10 @@ func (s *Store) loadFromDisk(filePath string, keep bool) *Result {
 			}
 			s.gridCarry[filePath] = gridCarry{beats: r.Beats, bpm: r.BPM, downbeat: r.DownbeatIndex}
 			s.mu.Unlock()
-			log.Printf("analysis-cache: stale version %d (want %d) but grid is user-edited — re-analyzing %s, keeping the edited grid", r.CacheVersion, cacheVersion, filepath.Base(path))
+			dlog.Infof("analysis-cache: stale version %d (want %d) but grid is user-edited — re-analyzing %s, keeping the edited grid", r.CacheVersion, cacheVersion, filepath.Base(path))
 			return nil
 		}
-		log.Printf("analysis-cache: stale version %d (want %d), discarding %s", r.CacheVersion, cacheVersion, filepath.Base(path))
+		dlog.Infof("analysis-cache: stale version %d (want %d), discarding %s", r.CacheVersion, cacheVersion, filepath.Base(path))
 		os.Remove(path)
 		return nil
 	}
@@ -654,7 +654,7 @@ func (s *Store) loadFromDisk(filePath string, keep bool) *Result {
 		// under the old range, so re-analyze under the new one. Unlike a version
 		// bump we do not carry a user-edited grid across: an edit made at the old
 		// tempo is meaningless once the tempo refolds.
-		log.Printf("analysis-cache: tempo range changed (was %g-%g, now %g-%g), re-analyzing %s",
+		dlog.Infof("analysis-cache: tempo range changed (was %g-%g, now %g-%g), re-analyzing %s",
 			r.TempoMinBPM, r.TempoMaxBPM, curMin, curMax, filepath.Base(path))
 		os.Remove(path)
 		return nil
@@ -826,7 +826,7 @@ func AnalyzeAll(tracks []*pdb.Track, workers int, store *Store, progress func(do
 					result, err = AnalyzeTrack(t.FilePath)
 				}
 				if err != nil {
-					log.Printf("analysis: %s: %v", t.FileName, err)
+					dlog.Errorf("analysis: %s: %v", t.FileName, err)
 				} else {
 					// Set BPM on track if not already set from tags.
 					if t.Tempo == 0 && result.BPM > 0 {
@@ -847,7 +847,7 @@ func AnalyzeAll(tracks []*pdb.Track, workers int, store *Store, progress func(do
 
 					store.Set(t.ID, result)
 					artSize := len(result.Artwork)
-					log.Printf("analysis: %s BPM=%.1f key=%s (%s) dur=%ds art=%dB", t.FileName, result.BPM, result.KeyCamelot, result.KeyStandard, result.Duration, artSize)
+					dlog.Infof("analysis: %s BPM=%.1f key=%s (%s) dur=%ds art=%dB", t.FileName, result.BPM, result.KeyCamelot, result.KeyStandard, result.Duration, artSize)
 				}
 				if progress != nil {
 					n := int(atomic.AddInt64(&done, 1))

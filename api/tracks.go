@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log"
 	"net"
 	"net/http"
 	"os"
@@ -15,6 +14,7 @@ import (
 	"strings"
 
 	"github.com/vynulldev/vynull/analysis"
+	"github.com/vynulldev/vynull/internal/dlog"
 	"github.com/vynulldev/vynull/internal/filetype"
 	"github.com/vynulldev/vynull/library"
 )
@@ -174,7 +174,7 @@ func (s *Server) handleTracks(w http.ResponseWriter, r *http.Request) {
 				s.Analysis.Remove(trackID)
 			}
 			s.Library.RemoveTrack(trackID)
-			log.Printf("api: deleted track %d (library + playlists + tags + cues + analysis)", trackID)
+			dlog.Infof("api: deleted track %d (library + playlists + tags + cues + analysis)", trackID)
 			ok(w)
 			return
 		}
@@ -536,7 +536,7 @@ func (s *Server) handleTrackPath(w http.ResponseWriter, r *http.Request) {
 	if s.Device != nil {
 		s.Device.BroadcastTrackRefresh(trackID)
 	}
-	log.Printf("track %d: path updated %q -> %q (missing=%v)", trackID, oldPath, newPath, miss)
+	dlog.Infof("track %d: path updated %q -> %q (missing=%v)", trackID, oldPath, newPath, miss)
 	writeJSON(w, s.libTrackToInfo(&updated))
 }
 
@@ -578,7 +578,7 @@ func (s *Server) handleTrackColor(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		s.Library.SetColor(trackID, req.ColorID)
-		log.Printf("api: colour %s on track %d", colorLabel(req.ColorID), trackID)
+		dlog.Infof("api: colour %s on track %d", colorLabel(req.ColorID), trackID)
 		if s.Device != nil {
 			s.Device.BroadcastTrackRefresh(trackID)
 		}

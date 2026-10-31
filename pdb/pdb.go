@@ -5,11 +5,12 @@ package pdb
 import (
 	"encoding/binary"
 	"fmt"
-	"log"
 	"os"
 	"path/filepath"
 	"strings"
 	"unicode/utf16"
+
+	"github.com/vynulldev/vynull/internal/dlog"
 )
 
 // Table types in PDB.
@@ -163,7 +164,7 @@ func OpenBytes(data []byte, exportRoot string) (*Database, error) {
 		return nil, fmt.Errorf("invalid page size: %d", pageSize)
 	}
 
-	log.Printf("pdb: page_size=%d num_tables=%d file_size=%d", pageSize, numTables, len(data))
+	dlog.Infof("pdb: page_size=%d num_tables=%d file_size=%d", pageSize, numTables, len(data))
 
 	db := &Database{
 		Artists:    make(map[uint32]string),
@@ -240,7 +241,7 @@ func OpenBytes(data []byte, exportRoot string) (*Database, error) {
 		}
 	}
 
-	log.Printf("pdb: loaded %d tracks, %d artists, %d albums, %d genres, %d keys, %d artwork",
+	dlog.Infof("pdb: loaded %d tracks, %d artists, %d albums, %d genres, %d keys, %d artwork",
 		len(db.Tracks), len(db.Artists), len(db.Albums), len(db.Genres), len(db.Keys), len(db.Artwork))
 
 	return db, nil

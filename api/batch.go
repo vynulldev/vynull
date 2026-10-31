@@ -4,11 +4,11 @@ package api
 
 import (
 	"encoding/json"
-	"log"
 	"net/http"
 	"slices"
 
 	"github.com/vynulldev/vynull/device"
+	"github.com/vynulldev/vynull/internal/dlog"
 	"github.com/vynulldev/vynull/library"
 )
 
@@ -44,7 +44,7 @@ func (s *Server) handleTracksColor(w http.ResponseWriter, r *http.Request) {
 		colors[i] = library.ColorImport{TrackID: id, ColorID: req.ColorID}
 	}
 	n := s.Library.SetColors(colors)
-	log.Printf("api: colour %s on %d tracks", colorLabel(req.ColorID), n)
+	dlog.Infof("api: colour %s on %d tracks", colorLabel(req.ColorID), n)
 	s.refreshLoaded(req.TrackIDs, (*device.VirtualDevice).BroadcastTrackRefresh)
 	writeJSON(w, batchResult{n})
 }
@@ -62,7 +62,7 @@ func (s *Server) handleTracksRating(w http.ResponseWriter, r *http.Request) {
 		ratings[id] = req.Rating // clamped to 5
 	}
 	n := s.Library.SetRatings(ratings)
-	log.Printf("api: rating %d on %d tracks", min(req.Rating, 5), n)
+	dlog.Infof("api: rating %d on %d tracks", min(req.Rating, 5), n)
 	s.refreshLoaded(req.TrackIDs, (*device.VirtualDevice).BroadcastRatingRefresh)
 	writeJSON(w, batchResult{n})
 }

@@ -4,11 +4,11 @@ package api
 
 import (
 	"encoding/json"
-	"log"
 	"math"
 	"net/http"
 
 	"github.com/vynulldev/vynull/analysis"
+	"github.com/vynulldev/vynull/internal/dlog"
 	"github.com/vynulldev/vynull/library"
 	"github.com/vynulldev/vynull/link/prolink"
 )
@@ -69,7 +69,7 @@ func (s *Server) handleBeatGridAdjust(w http.ResponseWriter, r *http.Request) {
 		result.BeatGrid = nil // invalidate cached beat grid blobs
 		result.BeatGridPQT2 = nil
 		modified = true
-		log.Printf("api: beat grid for track %d shifted by %.1fms", req.TrackID, offset)
+		dlog.Infof("api: beat grid for track %d shifted by %.1fms", req.TrackID, offset)
 	}
 
 	// Set new BPM — rebuild grid keeping the same phase.
@@ -89,7 +89,7 @@ func (s *Server) handleBeatGridAdjust(w http.ResponseWriter, r *http.Request) {
 		result.BeatGrid = nil
 		result.BeatGridPQT2 = nil
 		modified = true
-		log.Printf("api: beat grid for track %d BPM set to %.2f", req.TrackID, newBPM)
+		dlog.Infof("api: beat grid for track %d BPM set to %.2f", req.TrackID, newBPM)
 	}
 
 	// Set downbeat position — shift grid so that a beat lands at the given time.
@@ -116,7 +116,7 @@ func (s *Server) handleBeatGridAdjust(w http.ResponseWriter, r *http.Request) {
 			result.BeatGrid = nil
 			result.BeatGridPQT2 = nil
 			modified = true
-			log.Printf("api: beat grid for track %d downbeat set to %.1fms (shifted %.1fms, beat %d)",
+			dlog.Infof("api: beat grid for track %d downbeat set to %.1fms (shifted %.1fms, beat %d)",
 				req.TrackID, target, offset, nearestIdx)
 
 			// Rebuild beats forward/backward from new phase to cover full track.
@@ -320,7 +320,7 @@ func (s *Server) handleTrackLock(w http.ResponseWriter, r *http.Request) {
 		if _, ok := s.updateTrack(w, trackID, func(t *library.Track) error { t.AnalysisLocked = req.Locked; return nil }); !ok {
 			return
 		}
-		log.Printf("api: track %d analysis lock = %v", trackID, req.Locked)
+		dlog.Infof("api: track %d analysis lock = %v", trackID, req.Locked)
 		ok(w)
 	default:
 		notAllowed(w, http.MethodGet, http.MethodPut, http.MethodPost)

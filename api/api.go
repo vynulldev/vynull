@@ -9,7 +9,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
 	"net/http"
 	"strings"
 	"sync"
@@ -17,6 +16,7 @@ import (
 
 	"github.com/vynulldev/vynull/analysis"
 	"github.com/vynulldev/vynull/device"
+	"github.com/vynulldev/vynull/internal/dlog"
 	"github.com/vynulldev/vynull/library"
 	"github.com/vynulldev/vynull/mediadb"
 	"github.com/vynulldev/vynull/pdb"
@@ -251,7 +251,7 @@ func (s *Server) Start(ctx context.Context) error {
 		srv.Shutdown(shutCtx)
 	}()
 
-	log.Printf("api: listening on %s", addr)
+	dlog.Infof("api: listening on %s", addr)
 	if err := srv.ListenAndServe(); err != http.ErrServerClosed {
 		return err
 	}

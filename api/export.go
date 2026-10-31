@@ -5,13 +5,13 @@ package api
 import (
 	"encoding/json"
 	"fmt"
-	"log"
 	"net/http"
 	"path/filepath"
 	"strconv"
 	"strings"
 
 	"github.com/vynulldev/vynull/export"
+	"github.com/vynulldev/vynull/internal/dlog"
 	"github.com/vynulldev/vynull/library"
 	"github.com/vynulldev/vynull/pdb"
 )
@@ -211,9 +211,9 @@ func (s *Server) handleExport(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	log.Printf("export: starting (source=%s dest=%s copy=%v)", sourceLabel, req.Destination, req.CopyFiles)
+	dlog.Infof("export: starting (source=%s dest=%s copy=%v)", sourceLabel, req.Destination, req.CopyFiles)
 	if err := export.Run(opts); err != nil {
-		log.Printf("export: failed: %v", err)
+		dlog.Errorf("export: failed: %v", err)
 		jsonError(w, err.Error(), http.StatusInternalServerError)
 		return
 	}

@@ -4,7 +4,6 @@ package dbserver
 
 import (
 	"fmt"
-	"log"
 	"time"
 
 	"github.com/vynulldev/vynull/analysis"
@@ -120,7 +119,7 @@ func (h *Handler) lazyAnalyze(trackID uint32) *analysis.Result {
 	// loses that race on every first load.
 	if r := h.analysis.TryImport(trackID, filePath); r != nil {
 		h.storeAnalysisResult(trackID, r)
-		log.Printf("dbserver: track %d imported from ANLZ (BPM=%.1f dur=%ds)", trackID, r.BPM, r.Duration)
+		dlog.Infof("dbserver: track %d imported from ANLZ (BPM=%.1f dur=%ds)", trackID, r.BPM, r.Duration)
 		return analysis.ApplyOverrides(r)
 	}
 
@@ -419,7 +418,7 @@ func (h *Handler) Handle(msg *proto.DBMessage) []*proto.DBMessage {
 		return nil
 	case 0x2705: // cue point write — blob is the 5th arg (binary)
 		trackID := msgArg(msg, 1)
-		log.Printf("dbserver: cue write 0x2705 track=%d args=%d", trackID, len(msg.Args))
+		dlog.Infof("dbserver: cue write 0x2705 track=%d args=%d", trackID, len(msg.Args))
 
 		// The 5th arg (index 4) is the binary blob with cue data.
 		var blob []byte
@@ -428,7 +427,7 @@ func (h *Handler) Handle(msg *proto.DBMessage) []*proto.DBMessage {
 			if trackID > 0 && h.cues != nil {
 				cue, err := ParseCueBlob(blob, trackID)
 				if err != nil {
-					log.Printf("dbserver: cue parse error: %v", err)
+					dlog.Infof("dbserver: cue parse error: %v", err)
 				} else {
 					// Decks mark memory cues with number 0 on the wire; our
 					// store keys cues by number, so every deck-saved memory
@@ -468,14 +467,14 @@ func (h *Handler) Handle(msg *proto.DBMessage) []*proto.DBMessage {
 			},
 		}}
 	case 0xffff: // leftover binary blob (shouldn't happen now)
-		log.Printf("dbserver: unexpected binary blob frame")
+		dlog.Infof("dbserver: unexpected binary blob frame")
 		return nil
 	default:
 		argVals := make([]string, len(msg.Args))
 		for i, a := range msg.Args {
 			argVals[i] = fmt.Sprintf("0x%08x(%d)", a.Int(), a.Int())
 		}
-		log.Printf("dbserver: unhandled type 0x%04x args=%v", msg.Type, argVals)
+		dlog.Infof("dbserver: unhandled type 0x%04x args=%v", msg.Type, argVals)
 		// Default: echo type in success response (matches CDJ behavior)
 		return []*proto.DBMessage{{
 			TxID: msg.TxID,

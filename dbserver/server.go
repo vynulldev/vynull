@@ -10,7 +10,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log"
 	"net"
 	"os"
 	"path/filepath"
@@ -224,7 +223,7 @@ func (s *Server) Start(ctx context.Context) error {
 	}
 	s.dynamicPort = uint16(s.dynamicLn.Addr().(*net.TCPAddr).Port)
 
-	log.Printf("dbserver listening on ports %d (discovery) and %d (queries)", discoveryPort, s.dynamicPort)
+	dlog.Infof("dbserver listening on ports %d (discovery) and %d (queries)", discoveryPort, s.dynamicPort)
 
 	// Signal readiness (the conformance server waits on this before reading
 	// QueryPort). nil in normal serving.
@@ -276,11 +275,11 @@ func (s *Server) sendTeardownToActiveConns() {
 		TxID: proto.DBSetupTxID,
 		Type: 0x0100,
 	})
-	log.Printf("dbserver: sending teardown (0x0100) to %d active session(s)", len(conns))
+	dlog.Infof("dbserver: sending teardown (0x0100) to %d active session(s)", len(conns))
 	for _, c := range conns {
 		c.SetWriteDeadline(time.Now().Add(500 * time.Millisecond))
 		if _, err := c.Write(teardown); err != nil {
-			log.Printf("dbserver: teardown write to %s: %v", c.RemoteAddr(), err)
+			dlog.Infof("dbserver: teardown write to %s: %v", c.RemoteAddr(), err)
 		}
 	}
 }
@@ -337,7 +336,7 @@ func (s *Server) Unlink() int {
 		c.Close()
 	}
 	if len(conns) > 0 {
-		log.Printf("dbserver: unlink closed %d session(s)", len(conns))
+		dlog.Infof("dbserver: unlink closed %d session(s)", len(conns))
 	}
 	return len(conns)
 }
@@ -351,12 +350,12 @@ func (s *Server) acceptDiscovery(ctx context.Context) {
 			case <-ctx.Done():
 				return
 			default:
-				log.Printf("dbserver discovery accept: %v", err)
+				dlog.Infof("dbserver discovery accept: %v", err)
 				return
 			}
 		}
 		if s.LinkedFn != nil && !s.LinkedFn() {
-			log.Printf("dbserver discovery: rejecting %s (unlinked)", conn.RemoteAddr())
+			dlog.Infof("dbserver discovery: rejecting %s (unlinked)", conn.RemoteAddr())
 			conn.Close()
 			continue
 		}
@@ -373,12 +372,12 @@ func (s *Server) handleDiscovery(conn net.Conn) {
 	// TCP may deliver in chunks, so use ReadFull for the length, then body.
 	var lenBuf [4]byte
 	if _, err := io.ReadFull(conn, lenBuf[:]); err != nil {
-		log.Printf("dbserver discovery read length: %v", err)
+		dlog.Infof("dbserver discovery read length: %v", err)
 		return
 	}
 	bodyLen := int(binary.BigEndian.Uint32(lenBuf[:]))
 	if bodyLen > 256 || bodyLen < 0 {
-		log.Printf("dbserver discovery: invalid length %d", bodyLen)
+		dlog.Infof("dbserver discovery: invalid length %d", bodyLen)
 		return
 	}
 	buf := make([]byte, bodyLen)
@@ -387,7 +386,7 @@ func (s *Server) handleDiscovery(conn net.Conn) {
 		var err error
 		n, err = io.ReadFull(conn, buf)
 		if err != nil {
-			log.Printf("dbserver discovery read body: %v", err)
+			dlog.Infof("dbserver discovery read body: %v", err)
 			return
 		}
 	}
@@ -400,7 +399,7 @@ func (s *Server) handleDiscovery(conn net.Conn) {
 	binary.BigEndian.PutUint16(resp, s.dynamicPort)
 	dlog.Debugf("dbserver discovery: sent port %d to %s", s.dynamicPort, conn.RemoteAddr())
 	if _, err := conn.Write(resp); err != nil {
-		log.Printf("dbserver discovery write: %v", err)
+		dlog.Infof("dbserver discovery write: %v", err)
 	}
 }
 
@@ -413,12 +412,12 @@ func (s *Server) acceptDynamic(ctx context.Context) {
 			case <-ctx.Done():
 				return
 			default:
-				log.Printf("dbserver dynamic accept: %v", err)
+				dlog.Infof("dbserver dynamic accept: %v", err)
 				return
 			}
 		}
 		if s.LinkedFn != nil && !s.LinkedFn() {
-			log.Printf("dbserver dynamic: rejecting %s (unlinked)", conn.RemoteAddr())
+			dlog.Infof("dbserver dynamic: rejecting %s (unlinked)", conn.RemoteAddr())
 			conn.Close()
 			continue
 		}
@@ -436,10 +435,10 @@ func (s *Server) handleSession(ctx context.Context, conn net.Conn) {
 	// unrecovered, a goroutine panic exits the whole process.
 	defer func() {
 		if r := recover(); r != nil {
-			log.Printf("dbserver: session %s ended by panic: %v\n%s", conn.RemoteAddr(), r, debug.Stack())
+			dlog.Infof("dbserver: session %s ended by panic: %v\n%s", conn.RemoteAddr(), r, debug.Stack())
 		}
 	}()
-	log.Printf("dbserver session from %s", conn.RemoteAddr())
+	dlog.Infof("dbserver session from %s", conn.RemoteAddr())
 
 	// Enable TCP keepalive to prevent idle timeout.
 	if tc, ok := conn.(*net.TCPConn); ok {
@@ -452,15 +451,15 @@ func (s *Server) handleSession(ctx context.Context, conn net.Conn) {
 
 	clientHandshake := make([]byte, 5)
 	if _, err := io.ReadFull(conn, clientHandshake); err != nil {
-		log.Printf("dbserver handshake read: %v", err)
+		dlog.Infof("dbserver handshake read: %v", err)
 		return
 	}
 	if _, err := conn.Write(clientHandshake); err != nil {
-		log.Printf("dbserver handshake write: %v", err)
+		dlog.Infof("dbserver handshake write: %v", err)
 		return
 	}
 	dlog.Tracef("dbserver handshake: echo %s", hex.EncodeToString(clientHandshake))
-	log.Printf("dbserver handshake complete with %s", conn.RemoteAddr())
+	dlog.Infof("dbserver handshake complete with %s", conn.RemoteAddr())
 
 	conn.SetReadDeadline(time.Time{}) // clear deadline
 
@@ -497,15 +496,15 @@ func (s *Server) handleSession(ctx context.Context, conn net.Conn) {
 		if err != nil {
 			switch {
 			case err == io.EOF || err == io.ErrUnexpectedEOF:
-				log.Printf("dbserver: client %s disconnected", conn.RemoteAddr())
+				dlog.Infof("dbserver: client %s disconnected", conn.RemoteAddr())
 			case errors.Is(err, errBadFrame):
 				// As rekordbox does: answer a malformed request with a
 				// teardown, then drop the session.
-				log.Printf("dbserver: %v from %s, sending teardown", err, conn.RemoteAddr())
+				dlog.Infof("dbserver: %v from %s, sending teardown", err, conn.RemoteAddr())
 				conn.SetWriteDeadline(time.Now().Add(500 * time.Millisecond))
 				conn.Write(proto.MarshalDBMessage(&proto.DBMessage{TxID: proto.DBSetupTxID, Type: 0x0100}))
 			default:
-				log.Printf("dbserver read: %v", err)
+				dlog.Infof("dbserver read: %v", err)
 			}
 			return
 		}
@@ -515,7 +514,7 @@ func (s *Server) handleSession(ctx context.Context, conn net.Conn) {
 		// (otherwise we wait up to 5s for keep-alive timeout).
 		if msg.Type == 0x0100 && s.OnPeerTeardown != nil {
 			if tcpAddr, ok := conn.RemoteAddr().(*net.TCPAddr); ok {
-				log.Printf("dbserver: 0x0100 teardown from %s — removing peer", tcpAddr.IP)
+				dlog.Infof("dbserver: 0x0100 teardown from %s — removing peer", tcpAddr.IP)
 				s.OnPeerTeardown(tcpAddr.IP)
 			}
 		}
@@ -554,7 +553,7 @@ func (s *Server) handleSession(ctx context.Context, conn net.Conn) {
 		}
 		if len(combined) > 0 {
 			if _, err := conn.Write(combined); err != nil {
-				log.Printf("dbserver write: %v", err)
+				dlog.Infof("dbserver write: %v", err)
 				return
 			}
 		}
@@ -653,7 +652,7 @@ func readMessage(conn net.Conn) (*proto.DBMessage, error) {
 		peek := make([]byte, 64)
 		peek[0] = first[0]
 		n, _ := conn.Read(peek[1:])
-		log.Printf("dbserver unknown framing, raw bytes:\n%s", hex.Dump(peek[:n+1]))
+		dlog.Infof("dbserver unknown framing, raw bytes:\n%s", hex.Dump(peek[:n+1]))
 		return nil, fmt.Errorf("unexpected byte 0x%02x", first[0])
 	}
 

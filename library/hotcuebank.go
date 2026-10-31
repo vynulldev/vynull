@@ -4,11 +4,11 @@ package library
 
 import (
 	"encoding/json"
-	"log"
 	"os"
 	"path/filepath"
 	"sort"
 
+	"github.com/vynulldev/vynull/internal/dlog"
 	"github.com/vynulldev/vynull/internal/fsutil"
 )
 
@@ -154,11 +154,11 @@ func (l *Library) saveHotCueBanks(set *hotCueBankSet) {
 	}
 	data, err := json.MarshalIndent(set, "", "  ")
 	if err != nil {
-		log.Printf("library: hot cue banks: %v", err)
+		dlog.Errorf("library: hot cue banks: %v", err)
 		return
 	}
 	if err := fsutil.WriteFile(path, data, 0644); err != nil {
-		log.Printf("library: write %s: %v", path, err)
+		dlog.Errorf("library: write %s: %v", path, err)
 	}
 }
 
@@ -173,7 +173,7 @@ func (l *Library) loadHotCueBanks() {
 	}
 	var set hotCueBankSet
 	if err := json.Unmarshal(data, &set); err != nil {
-		log.Printf("library: parse %s: %v", path, err)
+		dlog.Errorf("library: parse %s: %v", path, err)
 		return
 	}
 	l.mu.Lock()

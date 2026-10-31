@@ -4,9 +4,9 @@ package api
 
 import (
 	"fmt"
-	"log"
 
 	"github.com/vynulldev/vynull/dbserver"
+	"github.com/vynulldev/vynull/internal/dlog"
 	"github.com/vynulldev/vynull/library"
 )
 
@@ -106,7 +106,7 @@ func (ms *MenuStore) ReplaceSorts(items []SortItem) error {
 	defer ms.mu.Unlock()
 	ms.sorts = sorts
 	ms.saveLocked()
-	log.Printf("api: CDJ sort menu replaced — %d sorts (%d shown)", len(sorts), shown)
+	dlog.Infof("api: CDJ sort menu replaced — %d sorts (%d shown)", len(sorts), shown)
 	return nil
 }
 
@@ -132,7 +132,7 @@ func (ms *MenuStore) ImportSorts(imp []library.SortImport) {
 	ms.sorts = normalizeSorts(items)
 	ms.trackDetail = column
 	ms.saveLocked()
-	log.Printf("api: imported rekordbox's sort menu (%d sorts) and track column %q", len(imp), column)
+	dlog.Infof("api: imported rekordbox's sort menu (%d sorts) and track column %q", len(imp), column)
 }
 
 // ResetSorts restores rekordbox's default SORT menu.
@@ -141,5 +141,5 @@ func (ms *MenuStore) ResetSorts() {
 	defer ms.mu.Unlock()
 	ms.sorts = defaultSortItems()
 	ms.saveLocked()
-	log.Printf("api: CDJ sort menu reset to defaults")
+	dlog.Infof("api: CDJ sort menu reset to defaults")
 }
