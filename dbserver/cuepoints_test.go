@@ -152,3 +152,25 @@ func TestParseCueBlobLoopEnd(t *testing.T) {
 		t.Errorf("plain cue loop end %d, want -1", plain.LoopMs)
 	}
 }
+
+// TestCueStoreRev checks the revision moves on every change to the cues, and
+// not on a delete that finds nothing to delete.
+func TestCueStoreRev(t *testing.T) {
+	cs := NewCueStore(t.TempDir())
+	last := cs.Rev()
+	step := func(what string, moves bool, change func()) {
+		t.Helper()
+		change()
+		if now := cs.Rev(); (now != last) != moves {
+			t.Errorf("%s: revision %d -> %d, want moved=%v", what, last, now, moves)
+		}
+		last = cs.Rev()
+	}
+	step("save a cue", true, func() { cs.SaveCue(1, &CuePoint{Number: 1, Type: 1, TimeMs: 1000, LoopMs: -1}, nil) })
+	step("save a track's cues", true, func() { cs.SaveCues(2, []CuePoint{{Number: 2, Type: 1, TimeMs: 2000, LoopMs: -1}}) })
+	step("delete a cue", true, func() { cs.DeleteCue(1, 1) })
+	step("delete a cue that isn't there", false, func() { cs.DeleteCue(1, 9) })
+	step("delete a track's cues", true, func() { cs.DeleteAllForTrack(2) })
+	step("delete the cues of a track without any", false, func() { cs.DeleteAllForTrack(3) })
+	cs.Close()
+}

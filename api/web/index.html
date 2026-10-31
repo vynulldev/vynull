@@ -7341,7 +7341,8 @@ async function loadTrack(trackID, deviceNumber) {
 // ───────── SETTINGS ─────────
 let lastSettingsKey = '';
 let lastTracksKey = '';
-let lastTracksRev = -1; // last library revision seen; gates full track refetch
+let lastTracksRev = -1; // last track list revision seen; gates full track refetch
+let lastCuesRev = -1;   // last cue revision seen; gates the full cue refetch
 let pollCount = 0;      // poll ticks, for the periodic forced-refetch fallback
 
 // ───────── CDJ MENU CONFIG (modal) ─────────
@@ -13011,47 +13012,53 @@ document.querySelector('.tab[data-tab="tags"]').addEventListener('click', () => 
 
 // ───────── polling ─────────
 async function refresh() {
-  const [players, trackRev, settings, enums, cues, peers] = await Promise.all([
+  const [players, trackRev, settings, enums, cueRev, peers] = await Promise.all([
     fetchJSON('/api/players'),
     fetchJSON('/api/tracks/rev'),
     fetchJSON('/api/settings'),
     settingsEnums ? Promise.resolve(settingsEnums) : fetchJSON('/api/settings/enums'),
-    fetchJSON('/api/cues'),
+    fetchJSON('/api/cues/rev'),
     fetchJSON('/api/peers'),
   ]);
   if (enums && !settingsEnums) settingsEnums = enums;
+  // The track list and every cue are fetched only when their revision moved,
+  // and revalidated against their ETag (no-cache), so an unchanged one costs a
+  // 304. A low-frequency forced refetch self-heals if any change ever forgot
+  // to move a revision.
+  pollCount++;
+  const forced = pollCount % 120 === 0;
   // Cues first — both renderPlayers and renderLibrary read from cuesCache.
   // Snapshot-skip so we only mutate the cache + trigger a re-render when
   // the CDJ (or our own API) has actually saved/deleted a cue.
   let cuesChanged = false;
-  if (cues && typeof cues === 'object') {
-    const key = JSON.stringify(cues);
-    if (key !== lastCuesKey) {
-      lastCuesKey = key;
-      cuesCache.clear();
-      for (const [tid, list] of Object.entries(cues)) {
-        cuesCache.set(Number(tid), list);
+  const cuesRev = (cueRev && typeof cueRev.rev === 'number') ? cueRev.rev : null;
+  if (cuesRev === null || cuesRev !== lastCuesRev || forced) {
+    const cues = await fetchJSON('/api/cues', { cache: 'no-cache' });
+    if (cues && typeof cues === 'object') {
+      if (cuesRev !== null) lastCuesRev = cuesRev;
+      const key = JSON.stringify(cues);
+      if (key !== lastCuesKey) {
+        lastCuesKey = key;
+        cuesCache.clear();
+        for (const [tid, list] of Object.entries(cues)) {
+          cuesCache.set(Number(tid), list);
+        }
+        cuesChanged = true;
       }
-      cuesChanged = true;
     }
   }
   updateLinkStatus(peers);
   if (Array.isArray(peers))   renderMixerStrip(peers);
   if (Array.isArray(players)) renderPlayers(players);
-  // Only refetch the (potentially large) track list when the library
-  // revision actually moved — otherwise the per-second poll costs one tiny
-  // /api/tracks/rev fetch instead of transferring + parsing + diffing the
-  // whole library every tick. A low-frequency forced refetch self-heals if
-  // any mutation ever forgot to bump the rev (the ETag keeps it a cheap 304
-  // when nothing changed).
-  pollCount++;
+  // Only refetch the (potentially large) track list when its revision moved
+  // — otherwise the per-second poll costs one tiny /api/tracks/rev fetch
+  // instead of transferring + parsing + diffing the whole library every tick.
   const rev = (trackRev && typeof trackRev.rev === 'number') ? trackRev.rev : null;
   const revMoved = rev === null || rev !== lastTracksRev;
-  const forced = pollCount % 120 === 0;
   if (revMoved || forced) {
-    if (rev !== null) lastTracksRev = rev;
-    const tracks = await fetchJSON('/api/tracks');
+    const tracks = await fetchJSON('/api/tracks', { cache: 'no-cache' });
     if (Array.isArray(tracks)) {
+      if (rev !== null) lastTracksRev = rev;
       // Overlay any locally-pending mutations the server may not have
       // committed yet (race between PUT and this GET), then diff so an
       // edit we already rendered optimistically doesn't re-render the

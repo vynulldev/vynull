@@ -46,15 +46,36 @@ func importedCuesToInfo(cues []analysis.ImportedCue) []CueInfo {
 	return out
 }
 
+// handleCuesRev serves just the cue store's revision, which the web UI polls
+// to fetch every cue only when one changed.
+func (s *Server) handleCuesRev(w http.ResponseWriter, r *http.Request) {
+	if !allow(w, r, http.MethodGet) {
+		return
+	}
+	var rev uint64
+	if s.Cues != nil {
+		rev = s.Cues.Rev()
+	}
+	writeJSON(w, map[string]uint64{"rev": rev})
+}
+
 // handleAllCues returns a {trackID: [cue, ...]} map of every track that has
 // cues. Used by the web UI's library page to overlay cue markers on every
-// waveform thumbnail in a single round-trip instead of per-row fetches.
+// waveform thumbnail in a single round-trip instead of per-row fetches. Its
+// ETag is the cue store's revision, so an unchanged If-None-Match gets 304.
 func (s *Server) handleAllCues(w http.ResponseWriter, r *http.Request) {
 	if !allow(w, r, http.MethodGet) {
 		return
 	}
 	if s.Cues == nil {
 		writeJSON(w, map[string][]CueInfo{})
+		return
+	}
+	etag := fmt.Sprintf(`"cues-%d"`, s.Cues.Rev())
+	w.Header().Set("ETag", etag)
+	w.Header().Set("Cache-Control", "no-cache")
+	if r.Header.Get("If-None-Match") == etag {
+		w.WriteHeader(http.StatusNotModified)
 		return
 	}
 	all := s.Cues.AllCues()

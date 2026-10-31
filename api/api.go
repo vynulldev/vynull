@@ -5,7 +5,6 @@
 package api
 
 import (
-	"compress/gzip"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -67,6 +66,8 @@ type Server struct {
 	// (large folder adds). Keyed by job ID; value is *addJob.
 	addJobs sync.Map
 
+	trackList trackListCache // GET /api/tracks's body, per revision
+
 	// importProg is the pollable phase/progress of an in-flight rekordbox import.
 	// The import POST is synchronous; the web UI polls /api/import/status while
 	// it runs to drive a progress bar. Guarded by importProgMu.
@@ -89,6 +90,7 @@ type CueStoreInterface interface {
 	SaveCues(trackID uint32, cues []CueInfo)
 	DeleteCue(trackID uint32, cueNumber uint16)
 	DeleteAllForTrack(trackID uint32)
+	Rev() uint64 // moves on every change to any track's cues
 }
 
 // Handler builds the mux with every API endpoint registered. Extracted
@@ -145,6 +147,7 @@ func (s *Server) Handler() http.Handler {
 
 	// Tags endpoints
 	mux.HandleFunc("/api/cues", s.handleAllCues)
+	mux.HandleFunc("/api/cues/rev", s.handleCuesRev)
 	mux.HandleFunc("/api/unlink", s.handleUnlink)
 	mux.HandleFunc("/api/tags", s.handleTags)
 	mux.HandleFunc("/api/tags/", s.handleTagByID)
@@ -269,22 +272,5 @@ func parseTrackIDFromPath(path, prefix string) uint32 {
 
 func writeJSON(w http.ResponseWriter, v interface{}) {
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(v)
-}
-
-// writeJSONGzip is writeJSON that gzip-compresses the body when the client
-// accepts it. Worth it for the large, highly repetitive track-list payload
-// (keys and long file paths compress well); small responses stay on
-// writeJSON. Content negotiation is advertised via Vary so caches key on it.
-func writeJSONGzip(w http.ResponseWriter, r *http.Request, v interface{}) {
-	w.Header().Set("Content-Type", "application/json")
-	if strings.Contains(r.Header.Get("Accept-Encoding"), "gzip") {
-		w.Header().Set("Content-Encoding", "gzip")
-		w.Header().Add("Vary", "Accept-Encoding")
-		gz := gzip.NewWriter(w)
-		defer gz.Close()
-		json.NewEncoder(gz).Encode(v)
-		return
-	}
 	json.NewEncoder(w).Encode(v)
 }

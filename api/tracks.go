@@ -3,15 +3,19 @@
 package api
 
 import (
+	"bytes"
+	"compress/gzip"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/vynulldev/vynull/analysis"
 	"github.com/vynulldev/vynull/internal/dlog"
@@ -188,39 +192,86 @@ func (s *Server) handleTracks(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// All tracks. Tag the response with an ETag keyed to the library
-	// revision; an unchanged If-None-Match lets us skip serializing the
-	// whole list (and lets HTTP caches revalidate cheaply).
-	if s.Library != nil {
-		etag := fmt.Sprintf(`"tracks-%d"`, s.Library.Rev())
-		w.Header().Set("ETag", etag)
-		w.Header().Set("Cache-Control", "no-cache")
-		if r.Header.Get("If-None-Match") == etag {
-			w.WriteHeader(http.StatusNotModified)
-			return
-		}
+	// All tracks, tagged with an ETag for the list's revision: an unchanged
+	// If-None-Match is answered 304, and otherwise the body comes from
+	// trackList, encoded once per revision.
+	if s.Library == nil {
+		writeJSON(w, []TrackInfo{})
+		return
 	}
-	var tracks []TrackInfo
-	if s.Library != nil {
-		for _, t := range s.Library.Tracks() {
-			tracks = append(tracks, s.libTrackListInfo(t))
-		}
+	lib, tags := s.tracksRev()
+	etag := fmt.Sprintf(`"tracks-%d-%d"`, lib, tags)
+	w.Header().Set("ETag", etag)
+	w.Header().Set("Cache-Control", "no-cache")
+	if r.Header.Get("If-None-Match") == etag {
+		w.WriteHeader(http.StatusNotModified)
+		return
 	}
-	if tracks == nil {
-		tracks = []TrackInfo{}
+	body := s.trackList.gzipped(etag, s.trackListRows)
+	w.Header().Set("Content-Type", "application/json")
+	if !strings.Contains(r.Header.Get("Accept-Encoding"), "gzip") {
+		zr, _ := gzip.NewReader(bytes.NewReader(body)) // ours, so it reads
+		io.Copy(w, zr)
+		return
 	}
-	writeJSONGzip(w, r, tracks)
+	w.Header().Set("Content-Encoding", "gzip")
+	w.Header().Add("Vary", "Accept-Encoding")
+	w.Write(body)
 }
 
-// handleTracksRev serves just the library revision — a tiny payload the web
-// UI polls every tick to decide whether the full track list is worth
-// refetching. Cheap on both ends compared to diffing the whole library.
-func (s *Server) handleTracksRev(w http.ResponseWriter, r *http.Request) {
-	var rev uint64
+// tracksRev is the track list's revision, in its two parts: the library's
+// and the tag store's, since each row carries the track's tag names.
+func (s *Server) tracksRev() (lib, tags uint64) {
 	if s.Library != nil {
-		rev = s.Library.Rev()
+		lib = s.Library.Rev()
 	}
-	writeJSON(w, map[string]uint64{"rev": rev})
+	if t, ok := s.Tags.(interface{ Rev() uint64 }); ok {
+		tags = t.Rev()
+	}
+	return lib, tags
+}
+
+// trackListRows is what GET /api/tracks answers: every track's list row.
+func (s *Server) trackListRows() any {
+	tracks := []TrackInfo{}
+	for _, t := range s.Library.Tracks() {
+		tracks = append(tracks, s.libTrackListInfo(t))
+	}
+	return tracks
+}
+
+// trackListCache holds the body of GET /api/tracks for one revision of the
+// track list, encoded and gzipped once, so the polls and refetches of every
+// client don't each serialize the whole library. Only the gzipped body is
+// kept (1.2 MB for 20k tracks, against ten times that as plain JSON); the
+// rare client not accepting gzip gets it decompressed as it is sent.
+type trackListCache struct {
+	mu   sync.Mutex
+	etag string // the revision gz is for
+	gz   []byte
+}
+
+// gzipped returns the gzipped body for etag, encoding what rows returns,
+// as writeJSON would, when the cache holds another revision.
+func (c *trackListCache) gzipped(etag string, rows func() any) []byte {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.etag != etag {
+		var b bytes.Buffer
+		gz := gzip.NewWriter(&b)
+		json.NewEncoder(gz).Encode(rows())
+		gz.Close()
+		c.etag, c.gz = etag, b.Bytes()
+	}
+	return c.gz
+}
+
+// handleTracksRev serves just the track list's revision (the library's and
+// the tag store's, summed): a tiny payload the web UI polls every tick to
+// decide whether the full track list is worth refetching.
+func (s *Server) handleTracksRev(w http.ResponseWriter, r *http.Request) {
+	lib, tags := s.tracksRev()
+	writeJSON(w, map[string]uint64{"rev": lib + tags})
 }
 
 func (s *Server) handleLoadTrack(w http.ResponseWriter, r *http.Request) {

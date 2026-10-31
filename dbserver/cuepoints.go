@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"slices"
 	"sync"
+	"sync/atomic"
 
 	"github.com/vynulldev/vynull/analysis"
 	"github.com/vynulldev/vynull/internal/dlog"
@@ -43,6 +44,7 @@ type CueStore struct {
 	rawBlobs map[uint32]map[uint16][]byte // trackID → cueNumber → raw blob
 	dirty    map[uint32]bool              // tracks changed since the last write
 	saver    *saver.Saver                 // writes the dirty tracks in the background
+	rev      atomic.Uint64                // moves on every change to the cues
 
 	// onDisk is the writer's record of the blob files each track has on
 	// disk, so a write skips unchanged blobs and removes stale ones. Only
@@ -342,12 +344,17 @@ func (cs *CueStore) DeleteAllForTrack(trackID uint32) {
 	cs.changedLocked(trackID)
 }
 
-// changedLocked records a change to a track's cues for the background
-// writer. Callers hold cs.mu.
+// changedLocked records a change to a track's cues: it moves the revision
+// and marks the track for the background writer. Callers hold cs.mu.
 func (cs *CueStore) changedLocked(trackID uint32) {
+	cs.rev.Add(1)
 	cs.dirty[trackID] = true
 	cs.saver.Mark()
 }
+
+// Rev returns the store's revision, which moves on every change to any
+// track's cues, from the decks or the API.
+func (cs *CueStore) Rev() uint64 { return cs.rev.Load() }
 
 // Flush writes the changed tracks' cue files now.
 func (cs *CueStore) Flush() error {

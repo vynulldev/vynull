@@ -297,7 +297,7 @@ Returns device status, connected peers, and player states.
 
 #### `GET /api/tracks`
 
-Returns all tracks in the library with metadata.
+Returns all tracks in the library with metadata. Its ETag follows the track list's revision, so a client revalidating with `If-None-Match` gets 304 while nothing changed; `GET /api/tracks/rev` returns that revision on its own, for cheap polling.
 
 #### `POST /api/tracks/add`
 
@@ -493,6 +493,10 @@ Color IDs: 0=default, 1=pink, 2=red, 3=orange, 4=yellow, 5=green, 6=aqua, 7=blue
 #### `DELETE /api/tracks/{trackID}/cues/{number}`
 
 Delete a cue point by number (1=A, 2=B, 3=C, ...).
+
+#### `GET /api/cues` and `GET /api/cues/rev`
+
+Every track's cues, keyed by track ID, and the cue revision, which moves on every saved or deleted cue (from a deck or the API). `GET /api/cues` has an ETag on that revision, like the track list.
 
 ### Tag Endpoints
 

@@ -150,7 +150,7 @@ paths:
   /api/tracks/rev:
     get:
       tags: [Library]
-      summary: Library revision counter (poll to detect changes).
+      summary: The track list's revision (poll to detect changes). It moves when the library or the tags change, since each row carries its tags' names.
       responses:
         "200": { description: OK, content: { application/json: { schema: { type: object, properties: { rev: { type: integer, format: int64 } } } } } }
 
@@ -428,8 +428,15 @@ paths:
   /api/cues:
     get:
       tags: [Analysis]
-      summary: All cues, keyed by track ID.
-      responses: { "200": { description: "object: trackID → []CueInfo", content: { application/json: { schema: { type: object, additionalProperties: { type: array, items: { $ref: "#/components/schemas/CueInfo" } } } } } } }
+      summary: All cues, keyed by track ID. Supports ETag / If-None-Match, keyed to the cue revision.
+      responses: { "304": { description: Not modified (ETag match). }, "200": { description: "object: trackID → []CueInfo", content: { application/json: { schema: { type: object, additionalProperties: { type: array, items: { $ref: "#/components/schemas/CueInfo" } } } } } } }
+
+  /api/cues/rev:
+    get:
+      tags: [Analysis]
+      summary: The cue revision (poll to detect changes). It moves on every saved or deleted cue, from a deck or the API.
+      responses:
+        "200": { description: OK, content: { application/json: { schema: { type: object, properties: { rev: { type: integer, format: int64 } } } } } }
 
   /api/analysis/{id}:
     parameters: [ { name: id, in: path, required: true, schema: { type: integer, format: int64 } } ]
