@@ -19,7 +19,7 @@ function ensureWaveform(trackID, type) {
   if (!inflightWaveforms.has(key)) {
     inflightWaveforms.set(key, (async () => {
       try {
-        const data = await fetchJSON(`/api/analysis/waveform/${trackID}?type=${type}`);
+        const data = await maybeJSON(`/api/analysis/waveform/${trackID}?type=${type}`);
         if (data && data.entries) waveformCache.set(key, data);
         return data;
       } finally {
@@ -70,7 +70,7 @@ function ensureDetailWave(trackID) {
   if (!inflightWaveforms.has(key)) {
     inflightWaveforms.set(key, (async () => {
       try {
-        const data = await fetchJSON(`/api/analysis/waveform/${trackID}?type=detail&style=3band`);
+        const data = await maybeJSON(`/api/analysis/waveform/${trackID}?type=detail&style=3band`);
         if (data && data.entries && data.entries.length) { smooth3Band(data.entries); waveformCache.set(key, data); return data; }
         // No 3-band data (or the fetch failed, which is retried next time):
         // fall back to spectral so the track still draws.

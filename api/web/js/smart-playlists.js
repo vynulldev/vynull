@@ -121,7 +121,13 @@ function hidePlaylistDropOverlay() {
 // posts back. Avoids clobbering concurrent edits (vs. caching the array
 // client-side and racing with another tab).
 async function appendTrackToPlaylist(playlistID, trackID) {
-  const cur = await fetchJSON(`/api/playlists/${playlistID}/tracks`);
+  let cur;
+  try {
+    cur = await fetchJSON(`/api/playlists/${playlistID}/tracks`);
+  } catch (e) {
+    toast('ADD FAILED · ' + e.message.toUpperCase(), 'error');
+    return; // writing the membership back now would drop its tracks
+  }
   const ids = Array.isArray(cur) ? cur.map(t => t.id) : [];
   if (ids.includes(trackID)) {
     toast('ALREADY IN PLAYLIST', 'info');
@@ -132,7 +138,7 @@ async function appendTrackToPlaylist(playlistID, trackID) {
     method: 'POST', headers: {'Content-Type':'application/json'},
     body: JSON.stringify({ track_ids: ids }),
   });
-  if (!r.ok) { toast('ADD FAILED', 'error'); return; }
+  if (!r.ok) { toast('ADD FAILED · ' + (await errorText(r)).toUpperCase(), 'error'); return; }
   const t = (allTracks || []).find(x => x.id === trackID);
   const pl = (playlistsCache || []).find(x => x.id === playlistID);
   toast(`+ ${(t && t.title || 'TRACK').toUpperCase()} → ${(pl && pl.name || 'PLAYLIST').toUpperCase()}`, 'success');

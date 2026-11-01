@@ -19,8 +19,19 @@ let menuItemsCache = [];
 let trackDetailCache = 'bpm';
 let trackDetailFieldsCache = [];
 
+// menuLoaded is whether the menus came from the server: they are saved whole,
+// so a save waits for a successful load.
+let menuLoaded = false;
+
 async function loadMenuItems() {
-  const r = await fetchJSON('/api/menu-items');
+  let r;
+  try {
+    r = await fetchJSON('/api/menu-items');
+  } catch (e) {
+    toast('CDJ MENU NOT LOADED · ' + e.message.toUpperCase(), 'error');
+    return;
+  }
+  menuLoaded = true;
   menuItemsCache = (r && Array.isArray(r.items)) ? r.items : [];
   trackDetailCache = (r && r.track_detail) ? r.track_detail : 'bpm';
   trackDetailFieldsCache = (r && Array.isArray(r.track_detail_fields)) ? r.track_detail_fields : [];
@@ -234,6 +245,7 @@ function wireMenuItems() {
 }
 
 async function saveMenuItems() {
+  if (!menuLoaded) { toast('CDJ MENU NOT LOADED · NOT SAVED', 'error'); return; }
   const r = await fetch('/api/menu-items', {
     method: 'PUT', headers: {'Content-Type':'application/json'},
     body: JSON.stringify({ items: menuItemsCache }),
@@ -367,6 +379,7 @@ function wireSortItems(host) {
 }
 
 async function saveSortItems() {
+  if (!menuLoaded) { toast('CDJ MENU NOT LOADED · NOT SAVED', 'error'); return; }
   const r = await fetch('/api/menu-items', {
     method: 'PUT', headers: {'Content-Type':'application/json'},
     body: JSON.stringify({ sorts: sortItemsCache.map(s => ({ id: s.id, visible: s.visible })) }),

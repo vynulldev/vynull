@@ -2,16 +2,27 @@
 'use strict';
 
 // ───────── helpers ─────────
+// fetchJSON fetches url and returns its JSON. A failure throws an Error saying
+// why (the API's {"error": "..."}, an HTTP status, or the network's reason),
+// with err.status the HTTP status, 0 when no answer came. Callers that would
+// go on to write after a read must not mistake a failure for an empty answer.
 async function fetchJSON(url, opts) {
+  let r;
   try {
-    // The server doesn't set cache-control headers, so without no-store
-    // the browser happily returns a stale /api/tracks (etc.) on every
-    // poll — causing colour/rating edits to "revert" visually a second
-    // after they save.
-    const r = await fetch(url, { cache: 'no-store', ...(opts || {}) });
-    if (!r.ok) return null;
-    return await r.json();
-  } catch (e) { return null; }
+    // Most endpoints send no cache headers, so without no-store the browser
+    // would answer a poll from its cache, and an edit would seem to revert a
+    // second after it saved. The track list and cues revalidate (no-cache).
+    r = await fetch(url, { cache: 'no-store', ...(opts || {}) });
+  } catch (e) {
+    throw Object.assign(new Error(e.message || 'network error'), { status: 0 });
+  }
+  if (!r.ok) throw Object.assign(new Error((await errorText(r)) || `HTTP ${r.status}`), { status: r.status });
+  return await r.json();
+}
+// maybeJSON is fetchJSON answering null instead of throwing, for polls and
+// loads that simply try again later.
+function maybeJSON(url, opts) {
+  return fetchJSON(url, opts).catch(() => null);
 }
 // errorText is why a failed request failed: the API's {"error": "..."}, or
 // the body as it came from anything answering otherwise.

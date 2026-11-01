@@ -524,11 +524,12 @@ function openBulkColorPicker(anchorEl) {
   menu.querySelectorAll('.swatch').forEach(sw => sw.addEventListener('click', async () => {
     const cid = parseInt(sw.getAttribute('data-color'), 10);
     const ids = Array.from(bulkSelectedIDs);
-    const res = await fetchJSON('/api/tracks/color', {
-      method: 'PUT', headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({ track_ids: ids, color_id: cid }),
-    });
-    if (!res) { closeColorPicker(); toast('COLOR FAILED', 'error'); return; }
+    try {
+      await fetchJSON('/api/tracks/color', {
+        method: 'PUT', headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({ track_ids: ids, color_id: cid }),
+      });
+    } catch (e) { closeColorPicker(); toast('COLOR FAILED · ' + e.message.toUpperCase(), 'error'); return; }
     const patch = { color_id: cid, color_name: COLOR_NAMES[cid] || '' };
     ids.forEach(id => {
       markPendingTrackEdit(id, patch);
@@ -557,11 +558,12 @@ function openBulkRatingPicker(anchorEl) {
   menu.querySelectorAll('[data-rating]').forEach(sw => sw.addEventListener('click', async () => {
     const rating = parseInt(sw.getAttribute('data-rating'), 10);
     const ids = Array.from(bulkSelectedIDs);
-    const res = await fetchJSON('/api/tracks/rating', {
-      method: 'PUT', headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({ track_ids: ids, rating }),
-    });
-    if (!res) { closeColorPicker(); toast('RATING FAILED', 'error'); return; }
+    try {
+      await fetchJSON('/api/tracks/rating', {
+        method: 'PUT', headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({ track_ids: ids, rating }),
+      });
+    } catch (e) { closeColorPicker(); toast('RATING FAILED · ' + e.message.toUpperCase(), 'error'); return; }
     ids.forEach(id => {
       markPendingTrackEdit(id, { rating });
       const t = allTracks.find(x => x.id === id);
@@ -598,12 +600,13 @@ async function openBulkTagPicker(anchorEl, mode) {
   menu.querySelectorAll('.picker-item').forEach(item => item.addEventListener('click', async () => {
     const tagID = parseInt(item.getAttribute('data-tag-id'), 10);
     const ids = Array.from(bulkSelectedIDs);
-    const res = await fetchJSON('/api/tracks/tags', {
+    let failed = '';
+    await fetchJSON('/api/tracks/tags', {
       method: 'POST', headers: {'Content-Type':'application/json'},
       body: JSON.stringify({ track_ids: ids, [mode]: [tagID] }),
-    });
+    }).catch(e => { failed = e.message; });
     closeColorPicker();
-    if (!res) { toast('TAG FAILED', 'error'); return; }
+    if (failed) { toast('TAG FAILED · ' + failed.toUpperCase(), 'error'); return; }
     const tagName = (tags.find(t => t.id === tagID) || {}).name || 'TAG';
     toast(`${mode === 'add' ? '+ ' : '− '}${tagName.toUpperCase()} · ${ids.length} TRACK${ids.length === 1 ? '' : 'S'}`, 'success');
   }));
@@ -629,18 +632,26 @@ function openBulkPlaylistPicker(anchorEl) {
   menu.querySelectorAll('.picker-item').forEach(item => item.addEventListener('click', async () => {
     const plID = parseInt(item.getAttribute('data-pl-id'), 10);
     const ids = Array.from(bulkSelectedIDs);
-    const cur = await fetchJSON(`/api/playlists/${plID}/tracks`);
+    let cur;
+    try {
+      cur = await fetchJSON(`/api/playlists/${plID}/tracks`);
+    } catch (e) {
+      closeColorPicker();
+      toast('ADD FAILED · ' + e.message.toUpperCase(), 'error');
+      return; // writing the membership back now would drop its tracks
+    }
     const have = Array.isArray(cur) ? cur.map(t => t.id) : [];
     const next = [...have];
     let added = 0;
     for (const tid of ids) {
       if (!next.includes(tid)) { next.push(tid); added++; }
     }
-    await fetch(`/api/playlists/${plID}/tracks`, {
+    const w = await fetch(`/api/playlists/${plID}/tracks`, {
       method: 'POST', headers: {'Content-Type':'application/json'},
       body: JSON.stringify({ track_ids: next }),
     });
     closeColorPicker();
+    if (!w.ok) { toast('ADD FAILED · ' + (await errorText(w)).toUpperCase(), 'error'); return; }
     await loadPlaylists(true);
     const pl = (playlistsCache || []).find(p => p.id === plID);
     toast(`+ ${added} → ${(pl && pl.name || '').toUpperCase()}`, 'success');
