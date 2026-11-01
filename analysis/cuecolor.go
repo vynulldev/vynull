@@ -3,7 +3,7 @@
 package analysis
 
 // CueColorPalette maps a rekordbox hot-cue palette index to its RGB triplet,
-// mirroring the CUE_COLORS palette in the web UI (api/web/index.html). A deck
+// mirroring the CUE_COLORS palette in the web UI (api/web/js/drawer.js). A deck
 // renders whatever RGB it is handed, so the only requirement is that the web
 // swatch and the on-deck colour stay consistent. Index 0x00 is "no colour set";
 // rekordbox renders that as its default green (not the Pioneer orange the picker

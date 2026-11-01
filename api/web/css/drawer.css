@@ -1,0 +1,832 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
+  /* ───────── LIBRARY ROW SELECTION ───────── */
+  table.lib tbody tr { cursor: pointer; }
+  table.lib tbody tr.selected td {
+    background: var(--sel-bg);
+    box-shadow: inset 3px 0 0 var(--orange);
+  }
+  table.lib tbody tr.selected:hover td { background: var(--sel-bg-hover); }
+
+  /* ───────── TRACK DETAIL DRAWER ───────── */
+  /* Subtle dim behind the drawer so the eye lands on it, but pointer-events
+     stay disabled so the library remains interactive (color chips, LOAD, row
+     selection). Drawer closes via the X button or Esc. */
+  .detail-backdrop {
+    position: fixed; inset: 0;
+    background: linear-gradient(to bottom, transparent 0%, transparent 40%, rgba(0,0,0,0.35) 100%);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity .2s ease;
+    z-index: 80;
+  }
+  .detail-backdrop.open { opacity: 1; }
+
+  .detail-drawer {
+    position: fixed;
+    left: 0; right: 0; bottom: 0;
+    height: min(540px, 70vh);
+    background:
+      linear-gradient(180deg, var(--panel) 0%, var(--ink) 100%);
+    border-top: 1px solid var(--orange);
+    box-shadow: 0 -20px 60px rgba(0,0,0,.7), 0 -1px 0 rgba(255,106,0,.25);
+    transform: translateY(100%);
+    transition: transform .25s cubic-bezier(.22,.61,.36,1);
+    z-index: 90;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+  .detail-drawer.open { transform: translateY(0); }
+  /* Closed, the drawer's top edge rests exactly at the viewport bottom, but its
+     top border and upward box-shadow still project into the page as an orange
+     sliver + glow. Suppress both until it's open. */
+  .detail-drawer:not(.open) { box-shadow: none; border-top-color: transparent; }
+  /* Drag handle at the top edge — pull up/down to resize the drawer height. */
+  .detail-resize {
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 8px;
+    cursor: ns-resize;
+    z-index: 3;
+    touch-action: none;
+  }
+  .detail-resize::after {
+    content: '';
+    position: absolute;
+    top: 2px; left: 50%; transform: translateX(-50%);
+    width: 44px; height: 3px; border-radius: 2px;
+    background: var(--orange); opacity: .45;
+    transition: opacity .15s;
+  }
+  .detail-resize:hover::after { opacity: .9; }
+  .detail-drawer::before {
+    content: '';
+    position: absolute; inset: 0;
+    background: repeating-linear-gradient(
+      0deg, rgba(255,255,255,0.012) 0 1px, transparent 1px 3px);
+    pointer-events: none;
+    z-index: 1;
+  }
+
+  .detail-head {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 14px 20px;
+    background: var(--ink);
+    border-bottom: 1px solid var(--wire);
+    z-index: 2; position: relative;
+    flex-shrink: 0;
+  }
+  .detail-head .label {
+    font-family: 'Geist Mono', monospace;
+    font-size: 11px;
+    font-weight: 500;
+    letter-spacing: 0.16em;
+    color: var(--text2);
+    text-transform: uppercase;
+  }
+  .detail-head .id-chip {
+    color: var(--orange);
+    font-weight: 700;
+    margin-left: 12px;
+  }
+  .detail-close {
+    background: transparent;
+    border: 1px solid var(--wire);
+    color: var(--text2);
+    width: 28px; height: 28px;
+    cursor: pointer;
+    font-family: inherit;
+    font-size: 14px;
+    line-height: 1;
+    padding: 0;
+    transition: all .12s ease;
+  }
+  .detail-close:hover {
+    background: var(--red);
+    color: var(--black);
+    border-color: var(--red);
+  }
+
+  .detail-body {
+    overflow-y: auto;
+    overflow-x: hidden;
+    padding: 16px 22px 26px;
+    z-index: 2; position: relative;
+    flex: 1 1 auto;
+    scrollbar-width: thin;
+    scrollbar-color: var(--wire) transparent;
+  }
+  .detail-body::-webkit-scrollbar { width: 6px; }
+  .detail-body::-webkit-scrollbar-track { background: transparent; }
+  .detail-body::-webkit-scrollbar-thumb { background: var(--wire); }
+
+  .detail-title {
+    font-size: 20px;
+    font-weight: 700;
+    color: var(--text);
+    line-height: 1.25;
+    margin-bottom: 4px;
+    word-break: break-word;
+  }
+  .detail-byline {
+    color: var(--text2);
+    font-size: 12px;
+    margin-bottom: 14px;
+    word-break: break-word;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px 16px;
+    align-items: center;
+  }
+  .detail-byline .dot {
+    color: var(--text3);
+    margin: 0 8px;
+  }
+  /* Each Artist/Album/Year/Genre cell gets a tiny icon to its left. */
+  .detail-byline .meta-cell {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    white-space: nowrap;
+    min-width: 0;
+  }
+  .detail-byline .meta-icon {
+    width: 12px;
+    height: 12px;
+    color: var(--text3);
+    flex-shrink: 0;
+  }
+  .detail-byline .meta-val {
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .color-chip {
+    display: inline-block;
+    width: 12px; height: 12px;
+    border: 1px solid var(--wire);
+    margin-right: 10px;
+    vertical-align: middle;
+    cursor: pointer;
+    transition: transform .12s ease, box-shadow .12s ease;
+  }
+  .color-chip:hover {
+    transform: scale(1.2);
+    box-shadow: 0 0 8px currentColor;
+  }
+  .color-chip.empty {
+    background:
+      repeating-linear-gradient(45deg,
+        var(--text3) 0 2px, transparent 2px 4px);
+  }
+  .color-picker {
+    /* fixed (viewport-relative) so it stays anchored to the dot/chip even when
+       the library is scrolled — getBoundingClientRect already returns viewport
+       coords, and position:absolute would offset them by document scrollY. */
+    position: fixed;
+    background: var(--ink);
+    border: 1px solid var(--orange);
+    box-shadow: 0 8px 28px rgba(0,0,0,.8), 0 0 0 1px rgba(255,106,0,.18);
+    z-index: 130;
+    padding: 8px 10px;
+    display: flex;
+    gap: 6px;
+    align-items: center;
+  }
+  /* Wider picker for the 16-colour CDJ cue palette (9 cells per row). */
+  .color-picker.wrap {
+    flex-wrap: wrap;
+    max-width: 232px;
+  }
+  .color-picker .swatch {
+    width: 18px; height: 18px;
+    border: 1px solid var(--wire);
+    cursor: pointer;
+    transition: transform .1s ease, border-color .1s ease;
+  }
+  .color-picker .swatch:hover {
+    transform: scale(1.15);
+    border-color: var(--text);
+  }
+  .color-picker .swatch.selected {
+    border-color: var(--orange);
+    box-shadow: 0 0 6px var(--orange);
+  }
+  .color-picker .swatch.none {
+    background:
+      repeating-linear-gradient(45deg,
+        var(--text3) 0 2px, transparent 2px 4px);
+  }
+  /* Rating picker items: unlike the fixed 18px colour squares, these size to
+     their star content (1–5 stars) so the stars don't overflow. */
+  .color-picker .rating-swatch {
+    height: 22px;
+    min-width: 22px;
+    padding: 0 8px;
+    display: inline-flex; align-items: center; justify-content: center;
+    border: 1px solid var(--wire);
+    background: var(--ink);
+    color: var(--text2);
+    font-size: 11px; letter-spacing: 1px;
+    white-space: nowrap;
+    cursor: pointer;
+    transition: border-color .1s ease, color .1s ease;
+  }
+  .color-picker .rating-swatch:hover { border-color: var(--orange); color: var(--orange); }
+
+  .detail-actions {
+    display: flex; gap: 6px; flex-wrap: wrap;
+    margin-bottom: 22px;
+  }
+  /* Bottom-drawer header row: title + byline left, load buttons right. */
+  .detail-track-head {
+    display: flex; align-items: flex-start; gap: 16px;
+    margin-bottom: 12px;
+  }
+  .detail-track-head .left { flex: 1 1 auto; min-width: 0; }
+  .detail-track-head .right { flex: 0 0 auto; }
+  .detail-art {
+    flex: 0 0 auto;
+    width: 64px; height: 64px;
+    background: #020102;
+    border: 1px solid var(--wire);
+    object-fit: cover;
+    display: block;
+  }
+  .detail-art.empty {
+    background: repeating-linear-gradient(45deg, #1a1a1d 0 6px, #0a0a0c 6px 12px);
+  }
+  .detail-track-head .detail-title,
+  .detail-track-head .detail-byline { margin-bottom: 2px; }
+  .detail-track-head .detail-actions { margin-bottom: 0; }
+  .detail-actions .load-btn {
+    background: transparent;
+    border: 1px solid var(--orange);
+    color: var(--orange);
+    font-family: inherit;
+    font-size: 10px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    padding: 8px 14px;
+    cursor: pointer;
+    transition: all .12s ease;
+  }
+  .detail-actions .load-btn:hover {
+    background: var(--orange); color: var(--black);
+  }
+  .detail-actions .load-btn .pnum { font-weight: 700; margin-right: 6px; }
+  .detail-actions .none {
+    font-size: 10px;
+    letter-spacing: 0.12em;
+    color: var(--text3);
+    text-transform: uppercase;
+    padding: 8px 0;
+  }
+
+  .detail-wave {
+    position: relative;
+    border: 1px solid var(--wire);
+    background: #030203;
+    margin-bottom: 22px;
+  }
+  .detail-wave::before, .detail-wave::after {
+    content: ''; position: absolute; top: 50%; width: 6px; height: 1px;
+    background: var(--orange);
+  }
+  .detail-wave::before { left: -1px; }
+  .detail-wave::after  { right: -1px; }
+  .detail-wave canvas.overview {
+    display: block; width: 100%; height: 40px;
+    image-rendering: auto;
+    filter: saturate(1.25) brightness(1.05);
+    cursor: crosshair;
+    border-bottom: 1px solid var(--wire);
+  }
+  .detail-wave canvas.zoom {
+    display: block; width: 100%; height: 96px;
+    image-rendering: auto;
+    filter: saturate(1.35) brightness(1.1);
+  }
+  .detail-wave .zoom-controls {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 6px;
+    padding: 4px 8px;
+    background: var(--ink);
+    border-top: 1px solid var(--wire);
+    border-bottom: 1px solid var(--wire);
+    font-size: 10px;
+    letter-spacing: 0.12em;
+    color: var(--text3);
+    text-transform: uppercase;
+  }
+  .detail-wave .zoom-controls .zoom-label {
+    min-width: 48px;
+    text-align: center;
+    color: var(--text2);
+    font-variant-numeric: tabular-nums;
+  }
+  .detail-wave .zoom-controls button {
+    background: transparent;
+    border: 1px solid var(--wire);
+    color: var(--text2);
+    font-family: inherit;
+    font-size: 13px;
+    line-height: 1;
+    padding: 2px 9px;
+    cursor: pointer;
+    transition: all .1s ease;
+  }
+  .detail-wave .zoom-controls button:hover {
+    color: var(--orange);
+    border-color: var(--orange);
+  }
+  .detail-wave .player-controls .active {
+    color: var(--orange);
+    border-color: var(--orange);
+  }
+  .detail-wave .player-controls .pl-pads { display: inline-flex; flex-wrap: wrap; gap: 4px; margin-left: 6px; }
+  .detail-wave .player-controls .pl-pads button { font-size: 11px; padding: 2px 7px; }
+  .detail-wave .player-controls .pl-info { color: var(--text3); font-variant-numeric: tabular-nums; text-transform: none; letter-spacing: 0; }
+  .detail-wave .beat-jump {
+    display: flex; align-items: center; justify-content: center;
+    flex-wrap: wrap; gap: 4px;
+    padding: 5px 8px;
+    background: var(--ink);
+    border-bottom: 1px solid var(--wire);
+  }
+  .detail-wave .beat-jump .bj-sep {
+    font-size: 9px; letter-spacing: 0.14em; color: var(--text3);
+    text-transform: uppercase; margin: 0 6px;
+  }
+  .detail-wave .beat-jump button {
+    background: transparent; border: 1px solid var(--wire); color: var(--text2);
+    font-family: inherit; font-size: 11px; line-height: 1;
+    padding: 3px 7px; cursor: pointer; transition: all .1s ease;
+    font-variant-numeric: tabular-nums;
+  }
+  .detail-wave .beat-jump button:hover { color: var(--orange); border-color: var(--orange); }
+  .detail-wave .timeline {
+    display: flex; justify-content: space-between;
+    font-size: 10px; letter-spacing: 0.12em;
+    color: var(--text3);
+    padding: 3px 6px;
+    border-top: 1px solid var(--wire);
+    background: var(--ink);
+  }
+
+  /* Phrase strip: a row of coloured segments below the waveform showing
+     detected sections (intro/up/down/chorus/outro). Each segment's width
+     is proportional to its duration; the label shows the phrase name. */
+  .detail-phrases {
+    position: relative;
+    height: 18px;
+    border-top: 1px solid var(--wire);
+    background: var(--ink);
+    overflow: hidden;
+    display: flex;
+  }
+  .detail-phrases .phrase {
+    height: 100%;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 9px; letter-spacing: 0.14em; text-transform: uppercase;
+    color: rgba(0,0,0,.78);
+    font-weight: 700;
+    overflow: hidden;
+    white-space: nowrap;
+    border-right: 1px solid rgba(0,0,0,.25);
+    transition: filter .12s ease;
+    user-select: none;
+  }
+  .detail-phrases .phrase:last-child { border-right: none; }
+  .detail-phrases .phrase:hover { filter: brightness(1.15); }
+  .detail-phrases .phrase.kind-1 { background: #5cdada; }                  /* intro - aqua */
+  .detail-phrases .phrase.kind-2 { background: #ffd84d; }                  /* up - yellow */
+  .detail-phrases .phrase.kind-3 { background: #5aa8ff; color: rgba(0,0,0,.8); } /* down - blue */
+  .detail-phrases .phrase.kind-5 { background: #ff6a00; color: var(--ink); }     /* chorus - orange */
+  .detail-phrases .phrase.kind-6 { background: #8a8a92; }                  /* outro - grey */
+  .detail-phrases .phrase.kind-0 { background: var(--wire); color: var(--text3); }
+  .detail-phrases .phrase.too-narrow { font-size: 0; }
+  /* Vocal marker (our lightweight VAD): a small mic in the corner. Explicit
+     font-size so it still shows on too-narrow phrases (font-size:0). */
+  .detail-phrases .phrase.has-vocal::after {
+    content: '🎤';
+    position: absolute;
+    top: 0; right: 1px;
+    font-size: 8px;
+    line-height: 1.3;
+    opacity: .9;
+    pointer-events: none;
+  }
+  /* Zoom-aligned phrase strip: segments are positioned absolutely so
+     they line up with the same time on the waveform above. Flex
+     layout (used by the full-track strip) doesn't work here because
+     visible-window segments don't tile from 0%. */
+  .detail-phrases.zoom-aligned {
+    display: block;
+    position: relative;
+  }
+  .detail-phrases.zoom-aligned .phrase {
+    position: absolute; top: 0; bottom: 0;
+    border-right: none;
+  }
+  .detail-phrases-empty {
+    height: 18px;
+    border-top: 1px solid var(--wire);
+    background: var(--ink);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 9px; letter-spacing: 0.14em;
+    color: var(--text3);
+  }
+  /* Phrase strip under each player-card waveform. Reuses .detail-phrases for
+     the segment layout/colours; sits flush below the wave-wrap. Collapses to
+     nothing when the track has no phrases so cards without them don't gap. */
+  .player-phrases.detail-phrases { border-top: none; }
+  .player-phrases.empty { display: none; }
+
+  .detail-section {
+    margin-bottom: 22px;
+  }
+  /* Bottom-drawer layout: METADATA (the long field list) is pinned to a
+     fixed-width left column; the remaining sections pack into a masonry on
+     the right at their natural height — so nothing stretches to METADATA's
+     height and no big gaps open under the shorter boxes. */
+  .detail-sections {
+    display: flex;
+    gap: 32px;
+    align-items: flex-start;
+  }
+  .detail-col-meta { flex: 0 0 33%; }
+  .detail-col-rest {
+    flex: 1;
+    column-count: 2;
+    column-gap: 32px;
+  }
+  .detail-sections .detail-section {
+    margin: 0 0 18px;
+    break-inside: avoid;       /* keep each section whole within a column */
+    -webkit-column-break-inside: avoid;
+  }
+  @media (max-width: 1100px) {
+    .detail-sections { flex-direction: column; align-items: stretch; }
+    .detail-col-meta { flex: none; }
+    .detail-col-rest { column-count: 1; }
+  }
+  .detail-section h4 {
+    font-family: 'Geist Mono', monospace;
+    font-size: 10px;
+    font-weight: 500;
+    letter-spacing: 0.16em;
+    color: var(--text2);
+    text-transform: uppercase;
+    margin: 0 0 10px 0;
+    display: flex; align-items: center; gap: 8px;
+  }
+  .detail-section h4::before { content: '['; color: var(--orange); }
+  .detail-section h4::after  { content: ']'; color: var(--orange); }
+  .bg-row {
+    display: flex; align-items: center; gap: 8px;
+    margin: 8px 0;
+  }
+  .bg-row.bg-foot { margin-top: 4px; font-size: 10px; color: var(--text3); letter-spacing: 0.06em; }
+  .bg-label {
+    font-size: 10px; letter-spacing: 0.14em; color: var(--text2);
+    text-transform: uppercase; min-width: 50px;
+  }
+  .bg-num {
+    background: var(--ink); border: 1px solid var(--wire);
+    color: var(--text); font-family: inherit; font-size: 12px;
+    padding: 5px 8px; width: 90px; text-align: center;
+    font-variant-numeric: tabular-nums;
+  }
+  .bg-num:focus { outline: none; border-color: var(--orange); }
+  .bg-quick, .bg-save, .bg-phase, .bg-clear, .bg-tap {
+    background: transparent; border: 1px solid var(--wire);
+    color: var(--text2); font-family: inherit; font-size: 10px;
+    padding: 5px 10px; cursor: pointer;
+    letter-spacing: 0.12em; text-transform: uppercase;
+  }
+  .bg-quick:hover, .bg-save:hover, .bg-phase:hover, .bg-tap:hover { color: var(--orange); border-color: var(--orange); }
+  .bg-tap.on { background: var(--orange-soft); color: var(--black); border-color: var(--orange); }
+  .bg-tap-hint { color: var(--text3); margin-left: 4px; font-size: 9px; }
+  .bg-tap.on .bg-tap-hint { color: var(--black); }
+  .bg-phase.active {
+    background: var(--orange-soft); color: var(--black); border-color: var(--orange);
+  }
+  .bg-phase-group { display: inline-flex; gap: 4px; }
+  .bg-save { color: var(--orange); border-color: var(--orange-soft); }
+  .bg-clear { color: var(--red); border-color: rgba(255,80,80,.4); }
+  .bg-clear:hover { background: var(--red); color: var(--black); border-color: var(--red); }
+  /* Lock toggle: neutral when unlocked, amber when engaged (overrides the red). */
+  .bg-lock { color: var(--text2); border-color: var(--line); }
+  .bg-lock:hover { color: var(--orange); border-color: var(--orange); background: none; }
+  .bg-lock.active { color: var(--black); background: var(--orange); border-color: var(--orange); }
+  .bg-det { color: var(--text2); }
+  .bg-det.dim { color: var(--text3); }
+
+  .detail-section h4 .count {
+    color: var(--text3);
+    font-weight: 400;
+  }
+
+  .meta-table {
+    display: grid;
+    grid-template-columns: 110px 1fr;
+    gap: 6px 16px;
+    font-size: 11px;
+  }
+  .meta-table .k {
+    color: var(--text3);
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    font-size: 10px;
+    align-self: center;
+  }
+  .meta-table .v {
+    color: var(--text);
+    font-family: 'Geist Mono', monospace;
+    word-break: break-word;
+  }
+  .meta-table .v.dim { color: var(--text2); }
+  .meta-table .v.path { font-size: 10px; color: var(--text2); }
+  /* Inline-editable metadata fields: look like text, reveal a border on
+     hover/focus. Saves to the library DB only — never the audio file. */
+  .meta-table .meta-edit {
+    width: 100%;
+    background: transparent;
+    border: 1px solid transparent;
+    color: var(--text);
+    font-family: 'Geist Mono', monospace;
+    font-size: 11px;
+    padding: 2px 5px;
+    margin: -2px 0;
+  }
+  .meta-table .meta-edit::placeholder { color: var(--text3); }
+  .meta-table .meta-edit:hover { border-color: var(--wire); }
+  .meta-table .meta-edit:focus { outline: none; border-color: var(--orange); background: var(--ink); }
+  .meta-table .meta-edit.path-edit { font-size: 10px; }
+  .meta-table .meta-edit.missing { color: var(--red); }
+  /* Missing-file indicators — library row warning glyph + tint, detail badge. */
+  .missing-flag { color: var(--red); margin-right: 6px; cursor: help; font-size: 11px; }
+  tr.file-missing { background: rgba(255,46,76,0.06); }
+  tr.file-missing:hover { background: rgba(255,46,76,0.11); }
+  .missing-badge {
+    display: inline-block; margin-left: 10px;
+    color: var(--red); border: 1px solid rgba(255,80,80,.5);
+    font-size: 9px; font-weight: 700; letter-spacing: 0.14em;
+    padding: 2px 6px; vertical-align: middle; white-space: nowrap;
+  }
+  .meta-table .v.path.missing { color: var(--red); }
+
+  .cue-list { display: flex; flex-direction: column; gap: 1px; }
+  .related-list { display: flex; flex-direction: column; gap: 1px; }
+  .related-row {
+    display: grid;
+    grid-template-columns: 36px 1fr auto;
+    align-items: center;
+    gap: 2px 10px;
+    padding: 8px 10px;
+    background: var(--panel);
+    border: 1px solid var(--wire);
+    color: var(--text);
+    font: inherit;
+    font-size: 11px;
+    text-align: left;
+    cursor: pointer;
+  }
+  .related-row:hover { border-color: var(--text3); background: var(--panel2); }
+  .related-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .related-artist { color: var(--text2); margin-left: 8px; }
+  .related-meta { color: var(--text2); white-space: nowrap; }
+  .related-art {
+    grid-row: 1 / span 2;
+    width: 36px; height: 36px;
+    object-fit: cover;
+    background: var(--ink);
+  }
+  .related-art.empty {
+    display: flex; align-items: center; justify-content: center;
+    color: var(--text3); font-size: 14px;
+  }
+  .related-why { grid-column: 2 / -1; color: var(--text3); font-size: 10px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .related-empty { color: var(--text3); font-size: 11px; padding: 4px 0; }
+  .cue-row {
+    display: grid;
+    grid-template-columns: auto auto 1fr auto;
+    align-items: center;
+    gap: 12px;
+    padding: 8px 10px;
+    background: var(--panel);
+    border: 1px solid var(--wire);
+    font-size: 11px;
+    cursor: pointer;
+  }
+  .cue-row:hover { border-color: var(--text3); background: var(--panel2); }
+  .cue-row .num {
+    font-weight: 700;
+    color: var(--orange);
+    width: 16px; text-align: center;
+    font-family: 'Geist Mono', monospace;
+  }
+  .cue-row .dot-color {
+    width: 10px; height: 10px;
+    box-shadow: 0 0 6px currentColor;
+    border: 0; padding: 0;
+    cursor: pointer;
+    outline: 1px solid transparent;
+    transition: outline-color .1s;
+  }
+  .cue-row .dot-color:hover { outline-color: var(--text); }
+  .cue-row .time {
+    color: var(--text2);
+    font-variant-numeric: tabular-nums;
+    font-size: 10px;
+  }
+  .cue-row .label { color: var(--text); }
+  .cue-row .loop-tag {
+    font-size: 10px;
+    letter-spacing: 0.12em;
+    color: var(--cyan);
+    border: 1px solid var(--cyan);
+    padding: 1px 6px;
+  }
+  .cue-row .cue-delete {
+    margin-left: auto;
+    background: transparent;
+    border: 1px solid transparent;
+    color: var(--text3);
+    font-family: inherit;
+    font-size: 13px;
+    line-height: 1;
+    padding: 1px 6px;
+    cursor: pointer;
+    transition: all .1s ease;
+  }
+  .cue-row .cue-delete:hover {
+    color: var(--red);
+    border-color: var(--red);
+  }
+
+  .tag-chips { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+  .tag-chip {
+    position: relative;
+    background: var(--panel);
+    border: 1px solid var(--wire);
+    padding: 4px 10px;
+    font-size: 10px;
+    letter-spacing: 0.14em;
+    color: var(--text);
+    text-transform: uppercase;
+    display: inline-flex; align-items: center;
+    transition: padding-right .15s ease, background .15s ease;
+  }
+  .tag-chip:not(.add)::before { content: '◆'; color: var(--chip-color, var(--orange)); margin-right: 6px; }
+  .tag-chip.removable .chip-x {
+    display: none;
+    position: absolute;
+    top: 50%; right: 2px;
+    transform: translateY(-50%);
+    background: transparent;
+    border: 0;
+    color: var(--red);
+    cursor: pointer;
+    font-size: 14px; line-height: 1;
+    padding: 0 4px;
+    font-family: inherit;
+  }
+  .tag-chip.removable:hover {
+    padding-right: 22px;
+    border-color: var(--red);
+  }
+  .tag-chip.removable:hover .chip-x { display: block; }
+  .tag-chip.add {
+    background: transparent;
+    border: 1px dashed var(--wire);
+    color: var(--text2);
+    cursor: pointer;
+    padding: 4px 12px;
+    font-family: inherit;
+    transition: color .15s, border-color .15s;
+  }
+  .tag-chip.add:hover {
+    color: var(--orange);
+    border-color: var(--orange);
+    border-style: solid;
+  }
+
+  /* Tag picker popover (anchored to the + ADD button) */
+  .tag-picker {
+    /* fixed (viewport-relative): openTagPicker positions it from
+       getBoundingClientRect (viewport coords) and clamps against innerWidth/
+       Height, so position:absolute would offset it by document scrollY and
+       fling the focused input — scrolling the library to the top. */
+    position: fixed;
+    background: var(--ink);
+    border: 1px solid var(--orange);
+    box-shadow: 0 10px 36px rgba(0,0,0,.8), 0 0 0 1px rgba(255,106,0,.18);
+    z-index: 120;
+    min-width: 240px;
+    max-width: 320px;
+  }
+  .tag-picker .head {
+    padding: 7px 10px;
+    background: var(--panel);
+    border-bottom: 1px solid var(--wire);
+    font-size: 10px;
+    letter-spacing: 0.16em;
+    color: var(--text3);
+    text-transform: uppercase;
+  }
+  .tag-picker .list {
+    max-height: 220px;
+    overflow-y: auto;
+    padding: 4px 0;
+  }
+  .tag-picker .picker-cat-head {
+    padding: 6px 12px 3px;
+    font-size: 9px; letter-spacing: 0.16em;
+    color: var(--text3); text-transform: uppercase;
+    border-top: 1px solid var(--wire);
+  }
+  .tag-picker .list > .picker-cat-head:first-child { border-top: none; }
+  .tag-picker .picker-item {
+    padding: 7px 12px;
+    cursor: pointer;
+    font-size: 11px;
+    color: var(--text);
+    display: flex; align-items: center; justify-content: space-between; gap: 8px;
+    transition: background .1s;
+  }
+  .tag-picker .picker-name { flex: 1; display: flex; align-items: center; gap: 8px; min-width: 0; }
+  .tag-picker .picker-dot {
+    width: 8px; height: 8px;
+    background: var(--orange);
+    transform: rotate(45deg);
+    flex: 0 0 auto;
+  }
+  .tag-picker .picker-dot.empty {
+    background: transparent;
+    border: 1px solid var(--wire);
+  }
+  .tag-picker .picker-item:hover { background: var(--orange); color: var(--black); }
+  .tag-picker .picker-item.assigned {
+    color: var(--text3);
+    cursor: pointer;
+  }
+  .tag-picker .picker-item.assigned::after {
+    content: '✓ ASSIGNED';
+    font-size: 9px;
+    letter-spacing: 0.12em;
+    color: var(--orange);
+  }
+  /* Assigned rows toggle off on click — hover hints removal. */
+  .tag-picker .picker-item.assigned:hover { background: var(--red); color: var(--black); }
+  .tag-picker .picker-item.assigned:hover::after { content: '✕ REMOVE'; color: var(--black); }
+  .tag-picker .picker-empty {
+    padding: 14px;
+    font-size: 10px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--text3);
+    text-align: center;
+  }
+  .tag-picker .picker-create {
+    display: flex;
+    border-top: 1px solid var(--wire);
+    background: var(--panel);
+  }
+  .tag-picker .picker-create input {
+    flex: 1;
+    background: transparent;
+    border: 0;
+    color: var(--text);
+    font-family: inherit;
+    font-size: 11px;
+    padding: 9px 12px;
+    letter-spacing: 0.05em;
+  }
+  .tag-picker .picker-create input:focus { outline: none; }
+  .tag-picker .picker-create button {
+    background: var(--orange);
+    border: 0;
+    color: var(--black);
+    font-family: inherit;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    padding: 0 14px;
+    cursor: pointer;
+  }
+  .tag-picker .picker-create button:hover { background: var(--text); }
+  .tag-picker .picker-create button:disabled {
+    background: var(--wire); color: var(--text3); cursor: not-allowed;
+  }
+
+  .detail-empty {
+    color: var(--text3);
+    font-size: 10px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    padding: 14px 0;
+  }
+

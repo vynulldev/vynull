@@ -1,0 +1,327 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
+  /* Self-hosted fonts (no external CDN — works offline on the link-local net). */
+  @font-face {
+    font-family: 'Geist Mono';
+    font-style: normal;
+    font-weight: 300;
+    font-display: swap;
+    src: url(/fonts/geistmono-300-latinext.woff2) format('woff2');
+    unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+  }
+  @font-face {
+    font-family: 'Geist Mono';
+    font-style: normal;
+    font-weight: 300;
+    font-display: swap;
+    src: url(/fonts/geistmono-300-latin.woff2) format('woff2');
+    unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+  }
+  @font-face {
+    font-family: 'Geist Mono';
+    font-style: normal;
+    font-weight: 400;
+    font-display: swap;
+    src: url(/fonts/geistmono-400-latinext.woff2) format('woff2');
+    unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+  }
+  @font-face {
+    font-family: 'Geist Mono';
+    font-style: normal;
+    font-weight: 400;
+    font-display: swap;
+    src: url(/fonts/geistmono-400-latin.woff2) format('woff2');
+    unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+  }
+  @font-face {
+    font-family: 'Geist Mono';
+    font-style: normal;
+    font-weight: 500;
+    font-display: swap;
+    src: url(/fonts/geistmono-500-latinext.woff2) format('woff2');
+    unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+  }
+  @font-face {
+    font-family: 'Geist Mono';
+    font-style: normal;
+    font-weight: 500;
+    font-display: swap;
+    src: url(/fonts/geistmono-500-latin.woff2) format('woff2');
+    unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+  }
+  @font-face {
+    font-family: 'Geist Mono';
+    font-style: normal;
+    font-weight: 700;
+    font-display: swap;
+    src: url(/fonts/geistmono-700-latinext.woff2) format('woff2');
+    unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+  }
+  @font-face {
+    font-family: 'Geist Mono';
+    font-style: normal;
+    font-weight: 700;
+    font-display: swap;
+    src: url(/fonts/geistmono-700-latin.woff2) format('woff2');
+    unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+  }
+  @font-face {
+    font-family: 'VT323';
+    font-style: normal;
+    font-weight: 400;
+    font-display: swap;
+    src: url(/fonts/vt323-400-latin.woff2) format('woff2');
+    unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+  }
+  :root {
+    /* --black is "contrast ink on bright accents" — it stays dark in every
+       theme. Page/structural surfaces use --bg-base + the --ink…--wire ramp,
+       which themes override. */
+    --black:  #000;
+    --bg-base: #000;   /* page base colour */
+    --bg-glow: #161614; /* radial glow centre behind the page */
+    --sel-bg:       #1a1308; /* selected library row (orange-tinted) */
+    --sel-bg-hover: #221b10;
+    --divider: #0a0a0c; /* subtle row/section separators (recessed in dark) */
+    --ink:    #08080a;
+    --panel:  #0c0c0e;
+    --panel2: #131316;
+    --rail:   #1c1c20;
+    --wire:   #2a2a30;
+    --text:   #e8e6e0;
+    --text2:  #8a8880;
+    --text3:  #4a4a50;
+    --orange: #ff6a00;
+    --orange-soft: #c75300;
+    --amber:  #ffae00;
+    --cyan:   #4ee8ff;
+    --green:  #62ff7d;
+    --red:    #ff2e4c;
+    --grain: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160'><filter id='n'><feTurbulence baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 0.05  0 0 0 0 0.05  0 0 0 0 0.05  0 0 0 1 0'/></filter><rect width='100%25' height='100%25' filter='url(%23n)' opacity='0.55'/></svg>");
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  /* ───────── THEMES (override the palette variables) ───────── */
+  /* Light. --black stays dark (contrast ink on accents); surfaces flip to
+     light and accents darken so they stay readable on white. */
+  html[data-theme="light"] {
+    --bg-base: #eceae6;
+    --bg-glow: #ffffff;
+    --ink:    #f6f5f2;
+    --panel:  #ffffff;
+    --panel2: #f0eeea;
+    --rail:   #e4e2dd;
+    --wire:   #d2d0c9;
+    --text:   #1b1b18;
+    --text2:  #5c5b53;
+    --text3:  #9b9a8f;
+    --orange: #d95a00;
+    --orange-soft: #b34a00;
+    --amber:  #b07600;
+    --cyan:   #0e7c99;
+    --green:  #1d9b4b;
+    --red:    #d61f3a;
+    --sel-bg:       #fbe7d2;
+    --sel-bg-hover: #f6dabd;
+    --divider: #e6e4df;
+    --grain: none;
+  }
+  /* Slate — a softer, cooler dark (blue-grey surfaces, no pure black), same
+     orange accent. */
+  html[data-theme="slate"] {
+    --bg-base: #13151a;
+    --bg-glow: #20242c;
+    --ink:    #181b21;
+    --panel:  #1d2026;
+    --panel2: #262a31;
+    --rail:   #2f343d;
+    --wire:   #3a404a;
+    --text:   #e6e8ec;
+    --text2:  #99a0ab;
+    --text3:  #59616c;
+  }
+
+  html, body {
+    background: var(--bg-base);
+    color: var(--text);
+    font-family: 'Geist Mono', ui-monospace, monospace;
+    font-weight: 400;
+    font-size: 14px;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: geometricPrecision;
+  }
+  body {
+    background-image: var(--grain), radial-gradient(ellipse at 50% 0%, var(--bg-glow) 0%, var(--bg-base) 60%);
+    min-height: 100vh;
+  }
+  ::selection { background: var(--orange); color: var(--black); }
+
+  /* ───────── HEADER ───────── */
+  .topbar {
+    display: grid;
+    grid-template-columns: auto 1fr auto auto;
+    align-items: center;
+    gap: 24px;
+    padding: 14px 24px 12px;
+    border-bottom: 1px solid var(--wire);
+    background: linear-gradient(180deg, var(--ink) 0%, var(--bg-base) 100%);
+    position: sticky; top: 0; z-index: 30;
+  }
+  .wordmark {
+    font-family: 'Geist Mono', ui-monospace, monospace;
+    font-size: 18px;
+    font-weight: 700;
+    letter-spacing: 0.14em;
+    color: var(--text);
+    display: flex;
+    align-items: baseline;
+    gap: 14px;
+    text-transform: uppercase;
+  }
+  .wordmark .dot {
+    width: 8px; height: 8px;
+    background: var(--orange);
+    box-shadow: 0 0 8px var(--orange), 0 0 14px var(--orange-soft);
+    display: inline-block;
+    animation: pulse 2s ease-in-out infinite;
+  }
+  .wordmark sub {
+    font-family: 'Geist Mono', monospace;
+    font-size: 10px;
+    letter-spacing: 0.24em;
+    color: var(--text3);
+    font-weight: 500;
+    text-transform: uppercase;
+  }
+  .topbar .status-cluster {
+    justify-self: end;
+    display: flex;
+    align-items: center;
+    gap: 18px;
+    font-size: 10px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--text2);
+  }
+  .lcd-chip {
+    display: inline-flex; align-items: center; gap: 7px;
+    padding: 4px 9px;
+    border: 1px solid var(--wire);
+    background: var(--ink);
+  }
+  select.theme-select {
+    font-family: inherit; font-size: 10px; letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--text2); background: var(--ink);
+    border: 1px solid var(--wire);
+    padding: 4px 9px; cursor: pointer;
+  }
+  select.theme-select:hover { color: var(--orange); border-color: var(--orange); }
+  select.theme-select:focus { outline: none; border-color: var(--orange); }
+  .unlink-btn {
+    color: var(--text2);
+    font-family: inherit;
+    font-size: inherit;
+    letter-spacing: inherit;
+    text-transform: uppercase;
+    cursor: pointer;
+    transition: all .12s ease;
+  }
+  .unlink-btn:hover {
+    border-color: var(--red);
+    color: var(--red);
+  }
+  .unlink-btn:active { background: var(--red); color: var(--black); }
+  .unlink-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+  /* Toggle states: when unlinked, button reads "LINK" and goes green. */
+  .unlink-btn.is-unlinked          { color: var(--orange); border-color: var(--wire); }
+  .unlink-btn.is-unlinked:hover    { border-color: var(--orange); color: var(--orange); }
+  .unlink-btn.is-unlinked:active   { background: var(--orange); color: var(--black); }
+  .led {
+    width: 6px; height: 6px;
+    background: var(--text3);
+    box-shadow: none;
+    display: inline-block;
+  }
+  .led.green  { background: var(--green); box-shadow: 0 0 6px var(--green); }
+  .led.amber  { background: var(--amber); box-shadow: 0 0 6px var(--amber); }
+  .led.red    { background: var(--red);   box-shadow: 0 0 6px var(--red); }
+  .led.cyan   { background: var(--cyan);  box-shadow: 0 0 6px var(--cyan); }
+  .led.orange { background: var(--orange);box-shadow: 0 0 6px var(--orange); }
+  .led.pulse  { animation: pulse 1.6s ease-in-out infinite; }
+
+  /* ───────── TABS ───────── */
+  .tabs {
+    display: flex;
+    border-bottom: 1px solid var(--wire);
+    background: var(--ink);
+    padding: 0 24px;
+    position: sticky; top: 49px; z-index: 29;
+  }
+  .tab {
+    position: relative;
+    font-family: 'Geist Mono', ui-monospace, monospace;
+    font-size: 11px;
+    font-weight: 500;
+    letter-spacing: 0.16em;
+    color: var(--text3);
+    padding: 16px 22px;
+    cursor: pointer;
+    user-select: none;
+    text-transform: uppercase;
+    transition: color .15s ease;
+  }
+  .tab:hover { color: var(--text); }
+  .tab.active { color: var(--text); }
+  .tab.active::after {
+    content: '';
+    position: absolute; left: 14px; right: 14px; bottom: -1px;
+    height: 2px;
+    background: var(--orange);
+    box-shadow: 0 0 10px var(--orange-soft);
+    animation: glow 2.5s ease-in-out infinite;
+  }
+  .tab .tick {
+    color: var(--text3);
+    margin-right: 8px;
+    font-size: 9px;
+  }
+  .tab.active .tick { color: var(--orange); }
+
+  /* ───────── MAIN ───────── */
+  main {
+    max-width: 1320px;
+    margin: 0 auto;
+    padding: 28px 24px 80px;
+    transition: padding-bottom .25s cubic-bezier(.22,.61,.36,1);
+  }
+  /* LIBRARY tab benefits from extra horizontal room — 280px sidebar
+     eats into the table, and the table itself wants width for the
+     many configurable columns. When LIBRARY is active, break out of
+     the global 1320px cap and stretch to the viewport (minus the
+     existing 24px gutters). Other tabs (Players, Tags, Settings)
+     keep the readable max-width. */
+  main:has(#library.active) {
+    max-width: none;
+  }
+  /* When the detail drawer is open, extend the page's bottom padding so the
+     last library rows remain reachable above the drawer (which floats over). */
+  body.drawer-open main { padding-bottom: calc(min(540px, 70vh) + 28px); }
+  .panel { display: none; }
+  .panel.active { display: block; animation: rise .3s ease both; }
+
+  /* Decorative section header bracket */
+  .section-label {
+    font-family: 'Geist Mono', monospace;
+    font-size: 10px;
+    letter-spacing: 0.12em;
+    color: var(--text2);
+    text-transform: uppercase;
+    margin: 0 0 14px 0;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .section-label::before { content: '['; color: var(--orange); }
+  .section-label::after  { content: ']'; color: var(--orange); }
+  .section-label::before, .section-label::after { font-weight: 700; }
+

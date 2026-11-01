@@ -1,0 +1,112 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
+  /* ───────── DIAG TAB ───────── */
+  #diag.panel { padding: 20px 24px; }
+  .diag-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+    gap: 14px;
+    margin-bottom: 18px;
+  }
+  .diag-card {
+    background: var(--ink);
+    border: 1px solid var(--wire);
+    padding: 12px 14px;
+  }
+  .diag-card-head {
+    font-size: 10px;
+    letter-spacing: 0.18em;
+    color: var(--text3);
+    text-transform: uppercase;
+    padding-bottom: 8px;
+    border-bottom: 1px solid var(--wire);
+    margin-bottom: 8px;
+  }
+  .diag-list {
+    margin: 0;
+    display: grid;
+    grid-template-columns: max-content 1fr;
+    gap: 4px 14px;
+    font-size: 12px;
+  }
+  .diag-list dt { color: var(--text3); letter-spacing: 0.08em; text-transform: uppercase; font-size: 10px; align-self: center; }
+  .diag-list dd { margin: 0; color: var(--text); font-variant-numeric: tabular-nums; }
+  .diag-logs { background: var(--ink); border: 1px solid var(--wire); padding: 12px 14px; }
+  .diag-log-filters {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 8px;
+    flex-wrap: wrap;
+  }
+  .diag-log-filters .input {
+    flex: 1;
+    min-width: 180px;
+    font-size: 11px;
+    padding: 4px 8px;
+  }
+  .diag-log-toggle {
+    font-size: 10px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--text2);
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    user-select: none;
+    cursor: pointer;
+  }
+  .diag-log-sources {
+    display: inline-flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    position: relative; /* anchors the overflow .src-menu popover */
+  }
+  .diag-log-sources .src-pill {
+    font-size: 10px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    padding: 2px 8px;
+    border: 1px solid var(--wire);
+    background: transparent;
+    color: var(--text3);
+    cursor: pointer;
+    font-family: inherit;
+    transition: all .1s ease;
+  }
+  .diag-log-sources .src-pill:hover { color: var(--text); border-color: var(--text3); }
+  .diag-log-sources .src-pill.on    { color: var(--orange); border-color: var(--orange); background: rgba(255,140,0,0.06); }
+  /* Overflow menu for the lesser-used sources (mostly one-shot startup
+     prefixes) so the filter row stays one line. */
+  .src-pill.src-more { border-style: dashed; }
+  .src-pill.src-more.muted-some { color: var(--orange); border-color: var(--orange); }
+  .src-menu {
+    position: absolute;
+    top: calc(100% + 4px);
+    right: 0;
+    z-index: 20;
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 4px;
+    padding: 6px;
+    min-width: 150px;
+    background: var(--panel);
+    border: 1px solid var(--wire);
+    box-shadow: 0 8px 24px rgba(0,0,0,0.5);
+  }
+  .src-menu.hidden { display: none; }
+  .src-menu .src-pill { text-align: left; }
+  .diag-log {
+    margin: 0;
+    height: 360px;
+    overflow-y: scroll;
+    background: #000;
+    color: var(--text2);
+    border: 1px solid var(--wire);
+    padding: 8px 10px;
+    font-size: 11px;
+    line-height: 1.45;
+    white-space: pre-wrap;
+    font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  }
+

@@ -183,7 +183,7 @@ func MarshalCueBlob(cue *CuePoint) []byte {
 
 // cueColorRGB returns the RGB triplet the CDJ should paint for a given
 // hot-cue palette index. The full table mirrors the JS CUE_COLORS palette
-// in api/web/index.html — the deck literally renders whatever 3 bytes we
+// in api/web/js/drawer.js — the deck literally renders whatever 3 bytes we
 // hand it at 0x4f-0x51, so the only requirement is that web UI swatch and
 // on-deck colour stay consistent.
 func cueColorRGB(idx uint32) (r, g, b byte) {

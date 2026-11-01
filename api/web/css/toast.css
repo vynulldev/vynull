@@ -1,0 +1,48 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
+  /* ───────── TOAST ───────── */
+  #toast {
+    position: fixed;
+    bottom: 38px; right: 24px;
+    background: var(--ink);
+    border: 1px solid var(--wire);
+    border-left: 3px solid var(--orange);
+    color: var(--text);
+    padding: 10px 18px;
+    font-size: 11px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    opacity: 0;
+    transform: translateY(10px);
+    transition: opacity .25s ease, transform .25s ease;
+    pointer-events: none;
+    z-index: 200;
+    box-shadow: 0 6px 24px rgba(0,0,0,.7);
+  }
+  #toast.show { opacity: 1; transform: translateY(0); }
+  #toast.error   { border-left-color: var(--red); }
+  #toast.success { border-left-color: var(--green); }
+
+  /* ───────── ANIMATIONS ───────── */
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.45; }
+  }
+  @keyframes glow {
+    0%, 100% { box-shadow: 0 0 8px var(--orange-soft); }
+    50% { box-shadow: 0 0 16px var(--orange); }
+  }
+  @keyframes rotate {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+  }
+  @keyframes rise {
+    0% { opacity: 0; transform: translateY(6px); }
+    100% { opacity: 1; transform: translateY(0); }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+      animation-duration: 0.001ms !important;
+      transition-duration: 0.001ms !important;
+    }
+  }
+

@@ -1,0 +1,166 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
+  /* ───────── MOBILE / TABLET (touch) ─────────
+     Additive touch layout: a bottom tab bar, a card-based library, and a
+     full-screen detail sheet. It applies to phones (≤640px) AND to any
+     coarse-pointer device (touch tablets — iPad mini, iPad, etc., in either
+     orientation), since the dense hover/drag table is poor on touch. Every
+     rule is scoped to the media query, so mouse-driven desktops (pointer:
+     fine) are completely untouched. The cards reuse the same filtered/sorted
+     rows and helpers (waveform, rating, colour, LOAD-to-deck) as the desktop
+     table — see renderLibraryCards(). */
+  @media (max-width: 640px), (pointer: coarse) {
+    /* Header: wordmark left, trimmed status cluster right. */
+    .topbar {
+      display: flex; align-items: center; justify-content: space-between;
+      gap: 8px; padding: 9px 12px;
+    }
+    .topbar > div:nth-child(2) { display: none; }        /* the 1fr spacer */
+    .wordmark sub { display: none; }
+    .status-cluster { gap: 6px; flex-shrink: 0; }
+    .status-cluster > *:nth-child(4),                    /* uptime */
+    .status-cluster > *:nth-child(5) { display: none; }  /* theme select (use Settings) */
+
+    /* Tabs → fixed bottom nav. */
+    nav.tabs {
+      /* Above the detail drawer (z 90) so the tabs stay visible and tappable
+         while a track sheet is open; still below the playlist panel + its
+         backdrop (z 100/101), which are meant to cover the nav. */
+      position: fixed; left: 0; right: 0; bottom: 0; top: auto; z-index: 95;
+      display: flex; gap: 0; margin: 0;
+      background: var(--panel); border-top: 1px solid var(--line);
+      padding-bottom: env(safe-area-inset-bottom, 0px);
+    }
+    nav.tabs .tab {
+      flex: 1; justify-content: center; text-align: center;
+      padding: 12px 2px; font-size: 10px; letter-spacing: .04em; border: none;
+    }
+    nav.tabs .tab .tick { display: none; }
+    nav.tabs .tab.active::after { top: 0; bottom: auto; }  /* indicator on top edge */
+    main { padding: 0 0 calc(58px + env(safe-area-inset-bottom, 0px)); }
+
+    /* Library: full width. The playlist sidebar becomes an off-canvas panel
+       slid in from the left (opened by the toolbar's source button), so
+       playlist view/select/manage all reuse the desktop tree + actions. */
+    .lib-layout { display: block; min-height: 0; gap: 0; }
+    .lib-sidebar {
+      position: fixed; top: 0; left: 0;
+      /* Stop above the bottom nav so the footer create buttons clear it.
+         Relocated to <body> at runtime (see placeMobileSidebar) so the fixed
+         positioning escapes the library panel's animation transform. */
+      bottom: calc(44px + env(safe-area-inset-bottom, 0px));
+      width: min(340px, 86vw); max-height: none; z-index: 101;
+      transform: translateX(-100%);
+      transition: transform .22s cubic-bezier(.22,.61,.36,1);
+      box-shadow: 2px 0 28px rgba(0,0,0,.6);
+      overflow-y: auto;
+    }
+    .lib-sidebar.open { transform: translateX(0); }
+    .lib-sidebar-backdrop {
+      display: block; position: fixed; inset: 0; z-index: 100;
+      background: rgba(0,0,0,.5);
+      opacity: 0; pointer-events: none; transition: opacity .22s;
+    }
+    .lib-sidebar-backdrop.open { opacity: 1; pointer-events: auto; }
+    .lib-src-toggle { display: inline-flex; }
+    .lib-main { padding: 0 8px; }
+    /* The desktop toolbar is sticky at top:96px (below the top tab bar).
+       On touch the tabs are a bottom nav, so that offset is stale and the
+       floating search box overlaps the filter bar — make it flow normally.
+       Also drop the filter bar's -6px top margin that tucked it underneath. */
+    .lib-toolbar { flex-wrap: wrap; gap: 8px; padding: 8px 4px; position: static; margin-bottom: 8px; z-index: auto; }
+    .lib-filterbar { margin: 0 0 8px 0; }
+    /* The desktop source label + column config are hidden on mobile (the
+       source button replaces the label; cards ignore columns), but the
+       per-playlist action buttons stay so RENAME/DELETE/EXPORT/ADD work. */
+    .lib-toolbar .lib-source-name,
+    .lib-toolbar #lib-columns-btn { display: none; }
+    .lib-toolbar .lib-playlist-actions { flex-wrap: wrap; }
+    .lib-toolbar .input-wrap { flex: 1 1 100%; max-width: none; }
+    .lib-stats { font-size: 10px; margin-left: auto; }
+
+    /* Cards. Responsive grid: 1 column on phones, more as width allows
+       (≈2 on an iPad mini portrait, 3+ in landscape) so tablets use their
+       width instead of stretching a single column. */
+    .lib-cards {
+      display: grid; gap: 8px; padding: 8px 0 4px;
+      grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+    }
+    .lib-card {
+      display: grid; grid-template-columns: 46px minmax(0, 1fr) auto;
+      gap: 10px; align-items: center;
+      background: var(--panel); border: 1px solid var(--line);
+      border-radius: 12px; padding: 8px 10px;
+    }
+    .lib-card.file-missing { opacity: .5; }
+    .lib-card .lib-art {
+      width: 46px; height: 46px; border-radius: 8px; object-fit: cover; align-self: start;
+    }
+    .lib-card .lib-art.placeholder {
+      display: flex; align-items: center; justify-content: center;
+      color: var(--text3); background: var(--ink); font-size: 18px;
+    }
+    .lib-card-main { min-width: 0; }
+    .lib-card-title {
+      font-weight: 600; font-size: 14px; color: var(--text);
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    .lib-card-artist {
+      font-size: 12px; color: var(--text2);
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    .lib-card-meta {
+      display: flex; align-items: center; gap: 10px;
+      font-size: 11px; color: var(--text3); margin-top: 3px;
+    }
+    .lib-card-meta .mc-facts { white-space: nowrap; }
+    .lib-card-meta .stars { transform: scale(.9); transform-origin: left center; }
+    .lib-card-meta .col-color-chip { width: 14px; height: 14px; flex-shrink: 0; }
+    .lib-card-wave {
+      position: relative; height: 22px; margin-top: 6px;
+      border-radius: 4px; overflow: hidden;
+    }
+    .lib-card-wave img { width: 100%; height: 100%; object-fit: fill; display: block; }
+    .lib-card .load-btn {
+      align-self: center; min-width: 48px; height: 44px;
+      border-radius: 10px; font-size: 15px; padding: 0 14px;
+    }
+
+    /* Detail drawer → full-height sheet. The bottom nav is given a higher
+       z-index (see nav.tabs below) so it paints *over* the drawer and stays
+       tappable on every device — stopping the drawer above the nav with pixel
+       math was unreliable on iOS Safari (safe-area / dynamic-toolbar
+       differences left the nav covered). The body reserves padding so no
+       content hides under the nav. Closed, it slides fully below the viewport
+       (115vh — vh is the largest viewport, plus margin so the header never
+       peeks even under iOS toolbar/safe-area shifts); .detail-drawer.open
+       (higher specificity) reveals it. */
+    .detail-drawer {
+      top: 0; bottom: auto; height: 100dvh;
+      border-top: none; transform: translateY(115vh);
+    }
+    .detail-resize { display: none; }
+    /* Reserve space at the bottom so the last content clears the nav, which
+       now paints over the drawer. */
+    .detail-drawer .detail-body { overflow-y: auto; padding-bottom: calc(64px + env(safe-area-inset-bottom, 0px)); }
+    .detail-drawer canvas { max-width: 100%; }
+
+    /* Settings: the 200px sidebar + 1fr grid squeezes the content to a sliver
+       on a phone. Stack it — the section nav becomes a horizontal scroller
+       above a full-width content column. */
+    .settings-layout { display: block; }
+    .settings-nav {
+      position: static; top: auto;
+      flex-direction: row; flex-wrap: nowrap;
+      gap: 4px; margin-bottom: 12px;
+      overflow-x: auto; -webkit-overflow-scrolling: touch;
+    }
+    .settings-nav button { flex: 0 0 auto; white-space: nowrap; }
+    .settings-row { padding: 9px 12px; gap: 10px; }
+
+    /* Players: the mixer strip is a single nowrap flex row, so the channel
+       chips + MASTER line overflow off the right edge on a phone. Let it wrap,
+       and drop the margin-left:auto that shoved them off-screen. */
+    .mixer-card { flex-wrap: wrap; gap: 6px 10px; }
+    .mixer-card .ch-row, .mixer-card .dim { margin-left: 0; }
+    .mixer-card .mxr-master { flex-basis: 100%; }
+  }
