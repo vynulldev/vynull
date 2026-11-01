@@ -1,0 +1,772 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
+  /* ───────── LIBRARY ───────── */
+  /* Two-column layout: sidebar (Collection + playlist tree) + main
+     (toolbar + track table). Mirrors rekordbox's left-nav + table view
+     so users see playlist contents in the same rich table they get for
+     the full collection — column config, search, drag-to-add, etc. */
+  .lib-layout {
+    display: grid;
+    grid-template-columns: 280px 1fr;
+    gap: 14px;
+    align-items: start;
+    min-height: 80vh;
+  }
+  .lib-sidebar {
+    border: 1px solid var(--wire);
+    background: var(--panel);
+    display: flex; flex-direction: column;
+    /* Sticks to the viewport top below the page header (49px) + tabs
+       (~44px). Stays visible as the user scrolls a long track table.
+       Self-scrolls internally when the tree overflows the available
+       viewport height. */
+    position: sticky;
+    top: 96px;
+    max-height: calc(100vh - 96px - 16px);
+  }
+  .lib-sidebar-head { padding: 6px 0; border-bottom: 1px solid var(--wire); }
+  .lib-sidebar-section {
+    padding: 10px 14px 6px;
+    color: var(--text3);
+    font-size: 9px; letter-spacing: .18em;
+    text-transform: uppercase;
+  }
+  .lib-sidebar-tree {
+    flex: 1;
+    overflow-y: auto;
+    padding-bottom: 8px;
+  }
+  .lib-sidebar-foot {
+    border-top: 1px solid var(--wire);
+    padding: 8px 10px;
+    display: flex; gap: 4px;
+  }
+  .lib-sidebar-foot button {
+    flex: 1;
+    background: transparent;
+    border: 1px solid var(--wire);
+    color: var(--text2);
+    font-family: inherit; font-size: 9px;
+    padding: 5px 0;
+    cursor: pointer;
+    letter-spacing: .14em; text-transform: uppercase;
+  }
+  .lib-sidebar-foot button:hover { color: var(--orange); border-color: var(--orange); }
+  /* Mobile-only source button (opens the off-canvas playlist panel) and its
+     backdrop. Hidden on desktop, where the sidebar is always visible. */
+  .lib-src-toggle {
+    display: none; align-items: center; gap: 7px;
+    background: var(--panel); border: 1px solid var(--wire);
+    color: var(--text); font-family: inherit; font-size: 11px;
+    letter-spacing: .1em; padding: 7px 12px; cursor: pointer;
+    border-radius: 8px; max-width: 60%;
+  }
+  .lib-src-toggle .icon { color: var(--orange); font-size: 12px; }
+  .lib-src-toggle .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .lib-sidebar-backdrop { display: none; }
+  .lib-src {
+    display: flex; align-items: center; gap: 8px;
+    width: 100%;
+    background: transparent; border: 0;
+    color: var(--text2);
+    font-family: inherit; font-size: 12px;
+    padding: 8px 14px;
+    cursor: pointer;
+    border-left: 2px solid transparent;
+    text-align: left;
+  }
+  .lib-src:hover { background: var(--panel2); color: var(--text); }
+  .lib-src.active {
+    color: var(--text);
+    background: var(--panel2);
+    border-left-color: var(--orange);
+  }
+  .lib-src .icon { color: var(--orange); font-size: 11px; }
+  .lib-src .name { flex: 1; }
+  .lib-src .count { color: var(--text3); font-size: 9px; }
+  .lib-main { display: flex; flex-direction: column; min-width: 0; }
+  .lib-source-name {
+    color: var(--text);
+    font-size: 11px; letter-spacing: .18em; text-transform: uppercase;
+    margin-right: 4px;
+    min-width: 110px;
+  }
+  .lib-playlist-actions { display: flex; gap: 6px; }
+  .lib-playlist-actions button {
+    background: transparent;
+    border: 1px solid var(--wire);
+    color: var(--text2);
+    font-family: inherit; font-size: 10px;
+    padding: 4px 10px;
+    cursor: pointer;
+    letter-spacing: .14em; text-transform: uppercase;
+  }
+  .lib-playlist-actions button:hover { color: var(--orange); border-color: var(--orange); }
+  .lib-playlist-actions button.danger { color: var(--red); border-color: rgba(255,80,80,.4); }
+  .lib-playlist-actions button.danger:hover { background: var(--red); color: var(--black); border-color: var(--red); }
+
+  .lib-toolbar {
+    display: flex; align-items: center; gap: 14px;
+    margin-bottom: 14px;
+    /* Sticks below the tabs (top: 96px, same offset as the sidebar)
+       so the filter input, source label, and playlist action buttons
+       stay reachable while scrolling a long track table. ink-coloured
+       background keeps the table rows from showing through. */
+    position: sticky;
+    top: 96px;
+    z-index: 5;
+    background: var(--ink);
+    padding: 6px 0;
+  }
+  .input {
+    flex: 1; max-width: 360px;
+    background: var(--ink);
+    border: 1px solid var(--wire);
+    color: var(--text);
+    font-family: inherit;
+    font-size: 12px;
+    padding: 9px 12px 9px 32px;
+    letter-spacing: 0.04em;
+    transition: border-color .15s ease;
+    position: relative;
+  }
+  .input:focus { outline: none; border-color: var(--orange); }
+  .input-wrap { position: relative; flex: 1; max-width: 360px; }
+  .input-wrap::before {
+    content: '⌕';
+    position: absolute; left: 10px; top: 50%; transform: translateY(-50%);
+    color: var(--text3);
+    font-size: 16px;
+    pointer-events: none;
+  }
+  .input-wrap .input { width: 100%; max-width: none; padding-right: 30px; }
+  .input-clear {
+    position: absolute; right: 6px; top: 50%; transform: translateY(-50%);
+    background: none; border: 0;
+    color: var(--text3);
+    font-size: 18px; line-height: 1;
+    padding: 4px 8px; cursor: pointer;
+    display: none;
+    font-family: inherit;
+  }
+  .input-clear.show { display: block; }
+  .input-clear:hover { color: var(--orange); }
+  .lib-stats {
+    font-size: 10px; color: var(--text3);
+    letter-spacing: 0.12em; text-transform: uppercase;
+  }
+  .lib-stats strong { color: var(--orange); font-weight: 500; }
+
+  .lib-tool-btn {
+    background: transparent;
+    border: 1px solid var(--wire);
+    color: var(--text2);
+    padding: 8px 12px;
+    font-family: inherit;
+    font-size: 10px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    cursor: pointer;
+    transition: all .12s ease;
+    display: inline-flex; align-items: center; gap: 6px;
+  }
+  .lib-tool-btn:hover {
+    border-color: var(--orange);
+    color: var(--orange);
+  }
+  .lib-tool-btn.active {
+    border-color: var(--orange);
+    color: var(--orange);
+  }
+  .lib-tool-btn .icon {
+    color: var(--orange);
+    font-size: 13px;
+    line-height: 1;
+  }
+
+  .lib-filterbar {
+    display: flex; align-items: center; flex-wrap: wrap;
+    gap: 14px;
+    margin: -6px 0 12px 0;
+    padding: 8px 10px;
+    background: var(--ink);
+    border: 1px solid var(--wire);
+    border-left: 2px solid var(--orange-soft);
+  }
+  .lib-fb-label {
+    font-size: 10px; letter-spacing: 0.18em; color: var(--text3);
+    text-transform: uppercase;
+  }
+  .lib-fb-group {
+    display: inline-flex; align-items: center; gap: 6px;
+  }
+  .lib-fb-name {
+    font-size: 10px; letter-spacing: 0.14em; color: var(--text2);
+    text-transform: uppercase;
+  }
+  .lib-fb-color {
+    width: 18px; height: 18px;
+    border-radius: 50%;
+    border: 1px solid var(--wire);
+    cursor: pointer;
+    transition: transform .1s ease, box-shadow .1s ease;
+    padding: 0;
+  }
+  .lib-fb-color:hover { transform: scale(1.12); }
+  .lib-fb-color.selected {
+    box-shadow: 0 0 0 2px var(--orange), 0 0 6px var(--orange-soft);
+    transform: scale(1.12);
+  }
+  .lib-fb-color.empty {
+    background:
+      linear-gradient(45deg, transparent 45%, var(--text3) 47%, var(--text3) 53%, transparent 55%);
+    background-color: transparent;
+  }
+  /* Tag filter combo box (replaces inline chips that overflowed the bar). */
+  .lib-fb-tagbtn {
+    background: transparent;
+    border: 1px solid var(--wire);
+    color: var(--text2);
+    font-family: inherit; font-size: 10px;
+    padding: 3px 9px;
+    cursor: pointer;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    display: inline-flex; align-items: center; gap: 6px;
+  }
+  .lib-fb-tagbtn:hover { color: var(--orange); border-color: var(--orange); }
+  .lib-fb-tagbtn.has-sel {
+    background: var(--orange-soft); color: var(--black); border-color: var(--orange);
+  }
+  .lib-fb-tagbtn .caret { font-size: 8px; opacity: 0.75; }
+  .lib-fb-tagpop {
+    position: fixed;
+    background: var(--ink);
+    border: 1px solid var(--orange);
+    box-shadow: 0 10px 36px rgba(0,0,0,.8), 0 0 0 1px rgba(255,106,0,.18);
+    z-index: 200;
+    width: 260px;
+    display: flex; flex-direction: column;
+  }
+  .lib-fb-tagpop .head {
+    padding: 7px 10px; background: var(--panel); border-bottom: 1px solid var(--wire);
+    font-size: 10px; letter-spacing: 0.16em; color: var(--text3); text-transform: uppercase;
+  }
+  .lib-fb-tagpop .tagpop-search {
+    background: var(--ink); border: 0; border-bottom: 1px solid var(--wire);
+    color: var(--text); font-family: inherit; font-size: 11px;
+    padding: 8px 10px; letter-spacing: 0.05em;
+  }
+  .lib-fb-tagpop .tagpop-search:focus { outline: none; border-bottom-color: var(--orange); }
+  .lib-fb-tagpop .tagpop-list { max-height: 260px; overflow-y: auto; padding: 4px 0; }
+  .lib-fb-tagpop .tagpop-cat-head {
+    padding: 6px 12px 3px;
+    font-size: 9px; letter-spacing: 0.16em;
+    color: var(--text3); text-transform: uppercase;
+    border-top: 1px solid var(--wire);
+  }
+  .lib-fb-tagpop .tagpop-list > .tagpop-cat-head:first-child { border-top: none; }
+  .lib-fb-tagpop .tagpop-item {
+    padding: 6px 12px; cursor: pointer; font-size: 11px; color: var(--text);
+    display: flex; align-items: center; gap: 8px;
+    overflow: hidden; white-space: nowrap;
+  }
+  .lib-fb-tagpop .tagpop-item:hover { background: var(--orange); color: var(--black); }
+  .lib-fb-tagpop .tagpop-item .cb { flex: 0 0 auto; font-size: 12px; }
+  .lib-fb-tagpop .tagpop-item.sel { color: var(--orange); }
+  .lib-fb-tagpop .tagpop-item.sel:hover { color: var(--black); }
+  .lib-fb-tagpop .tagpop-item .nm { flex: 1; overflow: hidden; text-overflow: ellipsis; }
+  .lib-fb-tagpop .tagpop-empty {
+    padding: 14px; font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase;
+    color: var(--text3); text-align: center;
+  }
+  .lib-fb-tagpop .tagpop-foot { border-top: 1px solid var(--wire); background: var(--panel); }
+  .lib-fb-tagpop .tagpop-clear {
+    width: 100%; background: transparent; border: 0; color: var(--text3);
+    font-family: inherit; font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase;
+    padding: 8px; cursor: pointer;
+  }
+  .lib-fb-tagpop .tagpop-clear:hover { color: var(--red); }
+  .lib-fb-num {
+    background: var(--ink);
+    border: 1px solid var(--wire);
+    color: var(--text);
+    font-family: inherit; font-size: 11px;
+    padding: 4px 6px;
+    width: 56px;
+    text-align: center;
+  }
+  .lib-fb-num:focus { outline: none; border-color: var(--orange); }
+  .lib-fb-dash { color: var(--text3); font-size: 11px; }
+  .lib-fb-select {
+    background: var(--ink);
+    border: 1px solid var(--wire);
+    color: var(--text);
+    font-family: inherit; font-size: 10px;
+    padding: 4px 6px;
+    letter-spacing: 0.06em;
+    cursor: pointer;
+    text-transform: uppercase;
+  }
+  .lib-fb-select:focus { outline: none; border-color: var(--orange); }
+  .lib-fb-ref {
+    color: var(--orange);
+    font-size: 10px; letter-spacing: 0.08em;
+    font-feature-settings: "tnum";
+  }
+  .lib-fb-clear {
+    margin-left: auto;
+    background: transparent;
+    border: 1px solid rgba(255,80,80,.4);
+    color: var(--red);
+    font-family: inherit; font-size: 10px;
+    padding: 4px 10px;
+    cursor: pointer;
+    letter-spacing: 0.12em; text-transform: uppercase;
+  }
+  .lib-fb-clear:hover:not(:disabled) { background: var(--red); color: var(--black); border-color: var(--red); }
+  .lib-fb-clear:disabled { opacity: .3; cursor: default; }
+
+  .cols-popover {
+    /* fixed (viewport-relative) so it stays anchored to the COLUMNS button
+       when the library scrolls — positioned from getBoundingClientRect, which
+       already returns viewport coords (see .color-picker / .tag-picker). */
+    position: fixed;
+    z-index: 50;
+    background: var(--ink);
+    border: 1px solid var(--orange);
+    box-shadow: 0 8px 24px rgba(0,0,0,.7), 0 0 0 1px rgba(255,106,0,.15);
+    padding: 4px 0;
+    min-width: 200px;
+    max-height: 70vh;
+    overflow-y: auto;
+  }
+  .cols-popover .head {
+    padding: 8px 14px 6px;
+    font-size: 10px;
+    color: var(--text3);
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    border-bottom: 1px solid var(--wire);
+    display: flex; justify-content: space-between; align-items: center;
+  }
+  .cols-popover .head .reset {
+    background: none; border: none; color: var(--text3);
+    font-family: inherit; font-size: 10px; letter-spacing: 0.12em;
+    text-transform: uppercase; cursor: pointer; padding: 0;
+  }
+  .cols-popover .head .reset:hover { color: var(--orange); }
+  .cols-popover label {
+    display: flex; align-items: center; gap: 10px;
+    padding: 6px 14px;
+    font-size: 11px;
+    color: var(--text);
+    cursor: pointer;
+    letter-spacing: 0.05em;
+    user-select: none;
+  }
+  .cols-popover label:hover { background: rgba(255,106,0,.08); }
+  /* Drag-to-reorder rows in the COLUMNS popover (mirrors the header drag). */
+  .cols-popover .col-pop-row { cursor: grab; }
+  .cols-popover .col-pop-row:active { cursor: grabbing; }
+  .cols-popover .col-pop-row.col-dragging { opacity: 0.4; }
+  .cols-popover .col-pop-row.col-drop-before { box-shadow: inset 0 3px 0 var(--orange); }
+  .cols-popover .col-pop-row.col-drop-after  { box-shadow: inset 0 -3px 0 var(--orange); }
+  .cols-popover label input[type="checkbox"] {
+    appearance: none;
+    width: 12px; height: 12px;
+    border: 1px solid var(--wire);
+    background: transparent;
+    cursor: pointer;
+    position: relative;
+    flex-shrink: 0;
+  }
+  .cols-popover label input[type="checkbox"]:checked {
+    background: var(--orange);
+    border-color: var(--orange);
+  }
+  .cols-popover label input[type="checkbox"]:checked::after {
+    content: '✓';
+    position: absolute; inset: 0;
+    color: var(--black);
+    font-size: 10px; line-height: 12px; text-align: center;
+    font-weight: 700;
+  }
+  .cols-popover label.locked {
+    color: var(--text3);
+    cursor: not-allowed;
+  }
+  .cols-popover label.locked input { opacity: 0.4; }
+  .cols-popover .row-h-row {
+    display: flex; align-items: center; gap: 8px;
+    margin: 8px 4px 0 4px; padding-top: 8px;
+    border-top: 1px solid var(--wire);
+  }
+  .cols-popover .row-h-label {
+    font-size: 9px; letter-spacing: 0.16em; color: var(--text2);
+    text-transform: uppercase;
+  }
+  .cols-popover .row-h-slider { flex: 1; min-width: 80px; accent-color: var(--orange); }
+  .cols-popover .row-h-val {
+    font-size: 10px; color: var(--text3); min-width: 38px; text-align: right;
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* extra column cell visuals */
+  .col-rating { color: var(--orange); letter-spacing: 1px; font-size: 11px; white-space: nowrap; }
+  .col-rating .off { color: var(--wire); }
+
+  /* Interactive star rating widget. row-reverse + :hover ~ .star is the
+     classic CSS trick that lets hovering star N highlight stars 1..N
+     without JS. Click on the currently-set rating clears it (see
+     setTrackRating). */
+  .stars {
+    display: inline-flex;
+    flex-direction: row-reverse;
+    justify-content: flex-end;
+    font-size: 14px;
+    letter-spacing: 1px;
+    user-select: none;
+    line-height: 1;
+  }
+  .stars .star {
+    background: none;
+    border: none;
+    padding: 0 1px;
+    margin: 0;
+    font: inherit;
+    font-size: 14px;
+    color: var(--wire);
+    cursor: pointer;
+    transition: color .08s ease, transform .08s ease;
+  }
+  .stars .star.filled { color: var(--orange); }
+  .stars .star:hover,
+  .stars .star:hover ~ .star { color: var(--orange); }
+  .stars .star:active { transform: scale(1.2); }
+  .col-color-chip {
+    display: inline-block;
+    width: 16px; height: 16px;
+    border-radius: 50%;
+    border: 1px solid var(--wire);
+    vertical-align: middle;
+    padding: 0;
+    cursor: pointer;
+    transition: transform .12s ease, border-color .12s ease, box-shadow .12s ease;
+  }
+  .col-color-chip:hover {
+    border-color: var(--orange);
+    transform: scale(1.15);
+    box-shadow: 0 0 0 2px rgba(255,106,0,.18);
+  }
+  .col-color-chip.empty {
+    background: transparent;
+    border: 1px dashed var(--wire);
+  }
+  .col-color-chip.empty:hover {
+    border: 1px dashed var(--orange);
+  }
+  .col-tag-chips { display: flex; flex-wrap: wrap; gap: 3px; max-width: 220px; }
+  .col-tag-chips .chip {
+    background: var(--ink); border: 1px solid var(--wire);
+    color: var(--text2);
+    font-size: 10px; padding: 1px 5px;
+    letter-spacing: 0.08em; text-transform: uppercase;
+  }
+  .col-path {
+    color: var(--text3); font-size: 11px;
+    max-width: 320px; overflow: hidden; text-overflow: ellipsis;
+    white-space: nowrap; direction: rtl; text-align: left;
+  }
+
+  /* Selection checkbox column (always first, locked off from column
+     config). Narrow + centered so it doesn't crowd the title. */
+  table.lib th.sel-col, table.lib td.sel-col {
+    width: 28px; padding: 0; text-align: center;
+  }
+  table.lib td.sel-col input, table.lib th.sel-col input { cursor: pointer; }
+  table.lib tbody tr.selected-bulk td { background: rgba(255,106,0,.10); }
+
+  /* Sticky bulk-action bar at the bottom of the viewport. Pops up when
+     at least one row is checked; covers the bottom of the table so
+     actions are reachable while scrolling. */
+  .bulk-bar {
+    position: fixed;
+    left: 24px; right: 24px; bottom: 14px;
+    background: var(--ink);
+    border: 1px solid var(--orange);
+    box-shadow: 0 10px 36px rgba(0,0,0,.7), 0 0 0 1px rgba(255,106,0,.18);
+    padding: 10px 16px;
+    display: none;
+    align-items: center;
+    gap: 12px;
+    z-index: 110;
+  }
+  .bulk-bar.show { display: flex; }
+  .bulk-bar .count {
+    color: var(--orange);
+    font-size: 11px; letter-spacing: 0.18em; text-transform: uppercase;
+    min-width: 140px;
+  }
+  .bulk-bar button {
+    background: transparent; border: 1px solid var(--wire); color: var(--text2);
+    font-family: inherit; font-size: 10px;
+    padding: 5px 12px; cursor: pointer;
+    letter-spacing: 0.14em; text-transform: uppercase;
+  }
+  .bulk-bar button:hover { color: var(--orange); border-color: var(--orange); }
+  .bulk-bar button.danger { color: var(--red); border-color: rgba(255,80,80,.4); }
+  .bulk-bar button.danger:hover { background: var(--red); color: var(--black); border-color: var(--red); }
+  .bulk-bar .spacer { flex: 1; }
+
+  .lib-table-wrap {
+    border: 1px solid var(--wire);
+    background: var(--panel);
+    /* Fit mode: no overflow here — any non-visible overflow value (including
+       overflow-x: auto) makes browsers treat this element as the sticky
+       scroll-context, so the thead's top:Npx then measures from the wrap's top
+       rather than the viewport's. Fit mode keeps the table within the panel, so
+       no scroll is needed. */
+  }
+  /* Scroll mode: make the table its own bounded scroll viewport (both axes
+     internal) so a wide column set scrolls horizontally while the sticky header
+     — now sticky to the wrap's top (see syncStickyOffsets) — keeps working. */
+  html[data-lib-colmode="scroll"] #library .lib-table-wrap {
+    overflow: auto;
+    /* max-height is set precisely by syncStickyOffsets() from the wrap's
+       measured top, so the viewport fills exactly to the window bottom. */
+  }
+  table.lib {
+    width: 100%; border-collapse: collapse; font-size: 12px;
+    table-layout: fixed;
+  }
+  table.lib colgroup col.c-sel { width: 34px; }
+  /* Load column has no fixed width: it's the auto column that soaks up any
+     slack so the data columns keep their exact widths and the table fills the
+     panel (button is right-aligned, so it stays at the right edge). */
+  /* Draggable column-resize handle on each header's right edge. */
+  .col-resize {
+    position: absolute; top: 0; right: 0; z-index: 3;
+    width: 8px; height: 100%; cursor: col-resize;
+  }
+  .col-resize:hover, .col-resize.dragging { background: var(--orange); opacity: 0.5; }
+  table.lib thead th {
+    background: var(--ink);
+    border-bottom: 1px solid var(--wire);
+    text-align: left;
+    padding: 8px 10px;
+    font-weight: 500;
+    color: var(--text3);
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    font-size: 10px;
+    /* Sticky directly below the sticky toolbar. Actual `top` is set
+       by syncStickyOffsets() at runtime, because the toolbar's
+       intrinsic height changes when playlist action buttons appear
+       (RENAME / DELETE / EDIT RULES / + ADD TRACKS) — a hardcoded
+       offset would either gap or overlap depending on what's active. */
+    position: sticky;
+    /* Above the positioned tbody cells (the .wave-thumb waveform column is
+       position:relative, so without this it paints over the sticky header when
+       scrolling), but below the sticky toolbars (z 29/30) so it tucks under
+       them. */
+    z-index: 20;
+    user-select: none;
+  }
+  table.lib thead th.sortable { cursor: pointer; transition: color .12s ease; }
+  table.lib thead th.sortable:hover { color: var(--orange); }
+  table.lib thead th.sortable.active { color: var(--orange); }
+  /* Column drag-to-reorder. Headers are grab-able; a vertical orange edge
+     marks where the dragged column will land. */
+  table.lib thead th.col-reorder { cursor: grab; }
+  table.lib thead th.col-reorder:active { cursor: grabbing; }
+  table.lib thead th.col-dragging { opacity: 0.4; }
+  table.lib thead th.col-drop-before { box-shadow: inset 3px 0 0 var(--orange); }
+  table.lib thead th.col-drop-after  { box-shadow: inset -3px 0 0 var(--orange); }
+  table.lib thead th .sort-ind {
+    display: inline-block;
+    margin-left: 4px;
+    color: var(--orange);
+    font-size: 9px;
+    width: 8px;
+  }
+  table.lib thead th .sort-ind.hint {
+    color: var(--wire);
+    opacity: 0;
+    transition: opacity .12s ease;
+  }
+  table.lib thead th.sortable:hover .sort-ind.hint { opacity: 1; }
+  table.lib tbody td {
+    padding: 6px 10px;
+    border-bottom: 1px solid #0e0e10;
+    vertical-align: middle;
+    height: var(--lib-row-h, 36px);
+    /* table-layout:fixed clips overflow, so text columns ellipsize. */
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  /* Cells with positioned overlays / controls must not clip. */
+  table.lib tbody td.wave-cell, table.lib tbody td.art-cell,
+  table.lib tbody td.sel-col, table.lib tbody td.load-cell { overflow: visible; }
+  table.lib thead th { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  /* Render the whole (uncapped) library cheaply: off-screen rows get
+     content-visibility:auto so the browser skips their layout & paint until
+     they scroll near the viewport. contain-intrinsic-size with the `auto`
+     keyword reserves each row's height (remembering the real size after it
+     has rendered once) so the scrollbar geometry stays correct for the full
+     list. Modern Chromium honours this on table rows; on engines that don't,
+     it harmlessly no-ops and the table just renders normally. */
+  table.lib tbody tr[data-track-row] {
+    content-visibility: auto;
+    contain-intrinsic-size: auto var(--lib-row-h, 36px);
+  }
+  /* Art column. Two modes, picked by html[data-art-fit]:
+       cover-top (default): fixed visual width, vertically cropped from
+         the top — matches rekordbox's library list view.
+       square: art tracks the row height (W × W), object-fit:cover
+         center-crops non-square covers into a square thumbnail. */
+  td.art-cell {
+    width: var(--lib-art-w, 88px);
+    padding: 0 0 0 8px;
+  }
+  td.art-cell .lib-art {
+    display: block;
+    /* Fill the (possibly squished) column so the image never spills past its
+       cell into the next column. */
+    width: 100%;
+    height: var(--lib-row-h, 36px);
+    background: #020102;
+    object-fit: cover;
+    object-position: top;
+  }
+  html[data-art-fit="square"] td.art-cell {
+    width: var(--lib-row-h, 36px);
+    padding: 2px 4px 2px 8px;
+  }
+  html[data-art-fit="square"] td.art-cell .lib-art {
+    width: 100%;
+    aspect-ratio: 1 / 1;
+    height: auto;
+    object-position: center;
+    border: 1px solid var(--divider);
+  }
+  td.art-cell .lib-art.empty {
+    background: repeating-linear-gradient(45deg, #0a0a0c 0 4px, #050506 4px 8px);
+  }
+  table.lib tbody tr:hover td {
+    background: var(--panel2);
+  }
+  table.lib tbody tr:hover .load-btn {
+    color: var(--orange);
+    border-color: var(--orange);
+  }
+  td.num { text-align: right; color: var(--text2); font-variant-numeric: tabular-nums; }
+  td.wave-cell { width: 156px; padding: 4px 8px 4px 10px; }
+  td.wave-cell img {
+    display: block;
+    width: 100%; height: 100%;
+    background: #020102;
+    border: 1px solid var(--divider);
+    image-rendering: pixelated;
+    filter: saturate(1.35) brightness(1.1);
+  }
+  td.wave-cell img.loading { opacity: 0; }
+  td.wave-cell img.loaded  { opacity: 1; transition: opacity .15s ease; }
+  /* Wrapper for the library waveform thumbnail so we can position cue markers
+     absolutely over it. Fills its (resizable) column width and scales its
+     height with the row height; the PNG is re-fetched at the displayed size. */
+  .wave-thumb {
+    position: relative;
+    width: 100%;
+    height: calc(var(--lib-row-h, 36px) - 8px);
+    min-height: 14px;
+    display: block;
+  }
+  .wave-thumb .cue-mark {
+    position: absolute;
+    top: -2px; bottom: -2px;
+    width: 2px;
+    pointer-events: none;
+    /* Black halo on each side keeps the marker visible against any
+       waveform colour, plus a coloured outer glow for accent. */
+    box-shadow:
+      -1px 0 0 rgba(0,0,0,0.7),
+       1px 0 0 rgba(0,0,0,0.7),
+       0 0 3px currentColor;
+  }
+  .wave-thumb .cue-loop {
+    position: absolute;
+    top: 0; bottom: 0;
+    background: currentColor;
+    opacity: 0.18;
+    pointer-events: none;
+  }
+  td.load-cell { white-space: nowrap; padding-right: 14px; text-align: right; }
+  .load-btn {
+    background: transparent;
+    border: 1px solid var(--wire);
+    color: var(--text2);
+    padding: 4px 12px;
+    font-family: inherit;
+    font-size: 10px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    cursor: pointer;
+    transition: all .12s ease;
+  }
+  .load-btn:hover {
+    background: var(--orange);
+    color: var(--black);
+    border-color: var(--orange);
+  }
+  .load-btn .arrow { color: var(--orange); margin-right: 4px; }
+  .load-btn:hover .arrow { color: var(--black); }
+  /* Per-row "remove from playlist" × — only rendered when the active
+     source is a regular playlist (see renderLibrary's reorderMode). */
+  .pl-rm-btn {
+    background: transparent;
+    border: 1px solid var(--wire);
+    color: var(--text3);
+    width: 22px; height: 22px; padding: 0;
+    margin-right: 6px;
+    vertical-align: middle;
+    font-family: inherit;
+    font-size: 12px;
+    line-height: 1;
+    cursor: pointer;
+    transition: all .12s ease;
+  }
+  .pl-rm-btn:hover { background: var(--red); color: var(--black); border-color: var(--red); }
+
+  .load-menu {
+    position: fixed;
+    background: var(--ink);
+    border: 1px solid var(--orange);
+    box-shadow: 0 8px 24px rgba(0,0,0,.7), 0 0 0 1px rgba(255,106,0,.15);
+    z-index: 100;
+    min-width: 200px;
+    padding: 4px;
+  }
+  .load-menu .head {
+    padding: 6px 10px 8px;
+    border-bottom: 1px solid var(--wire);
+    font-size: 10px;
+    letter-spacing: 0.16em;
+    color: var(--text3);
+    text-transform: uppercase;
+  }
+  .load-menu div.item {
+    padding: 8px 12px;
+    cursor: pointer;
+    font-size: 11px;
+    color: var(--text);
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    transition: background .1s ease;
+  }
+  .load-menu div.item:hover {
+    background: var(--orange);
+    color: var(--black);
+  }
+  .load-menu .pnum { color: var(--orange); font-weight: 700; }
+  .load-menu div.item:hover .pnum { color: var(--black); }
+

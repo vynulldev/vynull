@@ -3,7 +3,9 @@
 package api
 
 import (
+	"crypto/sha256"
 	"embed"
+	"encoding/hex"
 	"io/fs"
 	"net/http"
 	"strings"
@@ -30,6 +32,12 @@ func registerAPIDocs(mux *http.ServeMux) {
 
 //go:embed web/index.html
 var webIndexHTML []byte
+
+// The page's stylesheets and scripts, one file per feature, linked from
+// index.html in the order they apply.
+//
+//go:embed web/css/*.css web/js/*.js
+var webAssetsFS embed.FS
 
 //go:embed web/overlay.html
 var webOverlayHTML []byte
@@ -68,6 +76,9 @@ func RegisterWebUI(mux *http.ServeMux) {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		w.Write(webIndexHTML)
 	})
+
+	serveAssets(mux, "css", "text/css; charset=utf-8")
+	serveAssets(mux, "js", "text/javascript; charset=utf-8")
 
 	// Now-playing overlay for streaming (OBS browser source, transparent bg).
 	mux.HandleFunc("/overlay", func(w http.ResponseWriter, r *http.Request) {
@@ -112,5 +123,37 @@ func RegisterWebUI(mux *http.ServeMux) {
 		w.Header().Set("Content-Type", ct)
 		w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
 		w.Write(data)
+	})
+}
+
+// serveAssets serves the files of web/<dir> at /<dir>/, each with an ETag of
+// its contents: a browser revalidates them (no-cache) and gets 304 until the
+// daemon has a new version of the file.
+func serveAssets(mux *http.ServeMux, dir, contentType string) {
+	type asset struct {
+		data []byte
+		etag string
+	}
+	assets := map[string]asset{}
+	entries, _ := fs.ReadDir(webAssetsFS, "web/"+dir)
+	for _, e := range entries {
+		data, _ := webAssetsFS.ReadFile("web/" + dir + "/" + e.Name())
+		sum := sha256.Sum256(data)
+		assets[e.Name()] = asset{data, `"` + hex.EncodeToString(sum[:8]) + `"`}
+	}
+	mux.HandleFunc("/"+dir+"/", func(w http.ResponseWriter, r *http.Request) {
+		a, ok := assets[strings.TrimPrefix(r.URL.Path, "/"+dir+"/")]
+		if !ok {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", contentType)
+		w.Header().Set("Cache-Control", "no-cache")
+		w.Header().Set("ETag", a.etag)
+		if r.Header.Get("If-None-Match") == a.etag {
+			w.WriteHeader(http.StatusNotModified)
+			return
+		}
+		w.Write(a.data)
 	})
 }

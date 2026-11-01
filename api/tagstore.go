@@ -29,7 +29,7 @@ type TagInfo struct {
 	Name       string `json:"name"`
 	CategoryID uint32 `json:"category_id"`
 	// Color is a palette index shared with hot-cues / track colours
-	// (see CUE_COLORS in api/web/index.html). 0 means "no colour".
+	// (see CUE_COLORS in api/web/js/drawer.js). 0 means "no colour".
 	Color uint8 `json:"color,omitempty"`
 }
 

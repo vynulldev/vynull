@@ -1,0 +1,35 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
+  /* ───────── BOTTOM STATUS BAR ───────── */
+  .statusbar {
+    position: fixed; bottom: 0; left: 0; right: 0;
+    background: var(--ink);
+    border-top: 1px solid var(--wire);
+    padding: 6px 24px;
+    display: flex; align-items: center; gap: 28px;
+    font-size: 10px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--text2);
+    z-index: 50;
+  }
+  .statusbar .spacer { flex: 1; }
+  .statusbar .sb-version { color: var(--text3); text-decoration: none; }
+  .statusbar .sb-version:hover { color: var(--text); }
+  @media (max-width: 640px) {
+    .statusbar .sb-version { display: none; }
+  }
+  .diag-list a { color: inherit; }
+  .statusbar .item { display: inline-flex; align-items: center; gap: 8px; }
+  .statusbar #server-status .led { background: var(--text3); }
+  .statusbar #server-status.kind-analysis .led { background: var(--text); }
+  .statusbar #server-status.kind-export   .led { background: var(--orange); box-shadow: 0 0 6px var(--orange); }
+  .statusbar #server-status .server-status-text {
+    text-transform: none;
+    letter-spacing: 0.04em;
+    color: var(--text);
+    max-width: 520px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+

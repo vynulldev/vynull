@@ -1,0 +1,325 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
+  /* ───────── PLAYERS ───────── */
+  .mixer-card {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 8px 14px;
+    margin: 0 0 12px 0;
+    background: var(--ink);
+    border: 1px solid var(--wire);
+    font-size: 11px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--text2);
+  }
+  .mixer-card .lbl {
+    color: var(--orange);
+    font-weight: 700;
+  }
+  .mixer-card .name {
+    color: var(--text);
+    text-transform: none;
+    letter-spacing: 0.04em;
+  }
+  .mixer-card .meta {
+    color: var(--text3);
+    font-variant-numeric: tabular-nums;
+  }
+  .mixer-card .dim {
+    margin-left: auto;
+    color: var(--text3);
+    font-size: 10px;
+  }
+  .mixer-card .ch-row {
+    margin-left: auto;
+    display: inline-flex;
+    gap: 4px;
+  }
+  .mixer-card .ch {
+    font-size: 10px;
+    letter-spacing: 0.1em;
+    padding: 2px 6px;
+    border: 1px solid var(--wire);
+    color: var(--text3);
+    font-variant-numeric: tabular-nums;
+  }
+  .mixer-card .ch.on {
+    color: #fff;
+    background: var(--red);
+    border-color: var(--red);
+  }
+  .mixer-card .mxr-master {
+    font-size: 10px;
+    color: var(--text2);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .player-grid {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 14px;
+  }
+  @media (min-width: 1000px) {
+    .player-grid { grid-template-columns: 1fr 1fr; }
+  }
+  .player {
+    position: relative;
+    background:
+      linear-gradient(180deg, var(--panel) 0%, var(--ink) 100%);
+    border: 1px solid var(--wire);
+    padding: 0;
+    overflow: hidden;
+  }
+  .player::before {
+    /* Subtle CRT-style scanlines */
+    content: '';
+    position: absolute; inset: 0;
+    background: repeating-linear-gradient(
+      0deg, rgba(255,255,255,0.012) 0 1px, transparent 1px 3px);
+    pointer-events: none;
+    z-index: 1;
+  }
+  .player-head {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 10px 16px;
+    background: var(--ink);
+    border-bottom: 1px solid var(--wire);
+    font-size: 10px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--text2);
+  }
+  .player-head .id {
+    color: var(--orange);
+    font-weight: 700;
+  }
+  .player-head .name {
+    color: var(--text);
+    font-weight: 500;
+  }
+  .player-head .master {
+    display: inline-flex; align-items: center; gap: 6px;
+    color: var(--amber);
+    font-weight: 700;
+  }
+  .player-body { padding: 16px 18px 18px; position: relative; z-index: 2; }
+  .led-row {
+    display: flex; gap: 22px; align-items: center;
+    margin-bottom: 14px;
+    font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase;
+    color: var(--text3);
+  }
+  .led-row .item { display: inline-flex; align-items: center; gap: 8px; }
+  .led-row .item.on { color: var(--text); }
+  .led-row .item.on.playing { color: var(--green); }
+  .led-row .item.on.paused  { color: var(--amber); }
+  .led-row .item.on.sync    { color: var(--cyan); }
+  .led-row .item.on.onair   { color: var(--red); }
+
+  .track-title {
+    font-size: 15px;
+    font-weight: 700;
+    color: var(--text);
+    margin-bottom: 2px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    cursor: pointer;
+    transition: color .12s ease;
+  }
+  .track-title:hover { color: var(--orange); }
+  /* Track header row: title + action buttons. Title flexes, actions stay fixed. */
+  .track-header {
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+    margin-bottom: 2px;
+  }
+  .track-header .track-title { margin-bottom: 0; min-width: 0; flex: 1 1 auto; }
+  .track-header .actions { display: flex; gap: 4px; flex-shrink: 0; }
+  .track-header .action-btn {
+    background: transparent;
+    border: 1px solid var(--wire);
+    color: var(--text3);
+    padding: 3px 8px;
+    font-family: inherit;
+    font-size: 9px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    cursor: pointer;
+    transition: all .12s ease;
+  }
+  .track-header .action-btn:hover {
+    border-color: var(--orange);
+    color: var(--orange);
+  }
+  /* Brief highlight flash for a library row jumped-to from the Players page. */
+  table.lib tbody tr.flash-highlight td {
+    animation: rowFlash 1.6s ease-out;
+  }
+  @keyframes rowFlash {
+    0%   { background: rgba(255,106,0,0.4); }
+    100% { background: transparent; }
+  }
+  .track-meta-line {
+    font-size: 12px;
+    color: var(--text2);
+    font-weight: 200;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .track-lead { display: flex; gap: 11px; align-items: center; }
+  .track-lead-text { min-width: 0; flex: 1 1 auto; }
+  .deck-art-slot { width: 46px; height: 46px; flex-shrink: 0; }
+  .deck-art {
+    width: 46px; height: 46px; flex-shrink: 0;
+    border-radius: 4px; object-fit: cover;
+    background: #0c0c0e; border: 1px solid #17171b;
+  }
+
+  .readouts {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 18px;
+    align-items: end;
+    margin: 14px 0 12px;
+  }
+  .bpm-display {
+    border: 1px solid var(--wire);
+    padding: 4px 14px 0;
+    background: #050405;
+    min-width: 140px;
+    text-align: right;
+    position: relative;
+  }
+  .bpm-display .label {
+    position: absolute; top: -8px; right: 10px;
+    background: var(--ink);
+    padding: 0 6px;
+    font-size: 10px;
+    letter-spacing: 0.12em;
+    color: var(--text3);
+  }
+  .bpm-display .value {
+    font-family: 'VT323', monospace;
+    font-size: 42px;
+    line-height: 1;
+    color: var(--orange);
+    text-shadow: 0 0 12px rgba(255,106,0,0.5);
+    letter-spacing: 0.02em;
+  }
+  .meta-stack {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    column-gap: 14px;
+    row-gap: 4px;
+    font-size: 11px;
+    color: var(--text);
+    align-self: end;
+    padding-bottom: 4px;
+  }
+  .meta-stack dt { color: var(--text3); letter-spacing: 0.16em; text-transform: uppercase; font-size: 10px; }
+  .meta-stack dd { color: var(--text); font-weight: 500; }
+
+  .wave-wrap {
+    position: relative;
+    margin-top: 6px;
+    border: 1px solid var(--wire);
+    background: #030203;
+  }
+  .wave-wrap::before, .wave-wrap::after {
+    content: ''; position: absolute; top: 50%; width: 6px; height: 1px;
+    background: var(--orange);
+  }
+  .wave-wrap::before { left: -1px; }
+  .wave-wrap::after  { right: -1px; }
+  .wave-wrap canvas {
+    display: block;
+    width: 100%;
+    height: 58px;
+    image-rendering: pixelated;
+    filter: saturate(1.2) brightness(1.05);
+  }
+  /* Vertical playhead drawn over the player's PWV5 waveform. Position is
+     updated by a rAF loop in JS (see schedulePlayheadFrame), interpolated
+     between 1-second API polls so it appears smooth. The hidden state is
+     used when the player isn't on a known track (no duration). */
+  .wave-wrap .playhead {
+    position: absolute;
+    top: -2px; bottom: -2px;
+    width: 2px;
+    background: var(--text);
+    box-shadow: 0 0 6px var(--text), 0 0 12px rgba(255,255,255,.4);
+    pointer-events: none;
+    transform: translateX(-1px);
+    transition: opacity .15s ease;
+    will-change: left;
+  }
+  .wave-wrap .playhead::before,
+  .wave-wrap .playhead::after {
+    content: '';
+    position: absolute; left: 50%;
+    width: 0; height: 0;
+    border-left: 4px solid transparent;
+    border-right: 4px solid transparent;
+    transform: translateX(-50%);
+  }
+  .wave-wrap .playhead::before { top: -5px; border-top: 5px solid var(--text); }
+  .wave-wrap .playhead::after  { bottom: -5px; border-bottom: 5px solid var(--text); }
+  .wave-wrap .playhead.hidden { opacity: 0; }
+
+  .player-time {
+    margin-top: 6px;
+    display: flex; gap: 8px; align-items: baseline; justify-content: flex-end;
+    font-family: 'Geist Mono', ui-monospace, monospace;
+    font-variant-numeric: tabular-nums;
+    font-size: 12px;
+    color: var(--text2);
+    letter-spacing: 0.06em;
+  }
+  .player-time .elapsed { color: var(--text); }
+  .player-time .sep { color: var(--text3); }
+  .player-time .remaining { color: var(--text2); }
+
+  .empty-state {
+    border: 1px dashed var(--wire);
+    padding: 60px 20px;
+    text-align: center;
+    color: var(--text3);
+    font-size: 11px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+  }
+  .empty-state::before {
+    content: '◌';
+    display: block;
+    font-size: 32px;
+    color: var(--text3);
+    margin-bottom: 12px;
+    animation: rotate 4s linear infinite;
+  }
+  /* Library-source settings actions + first-run import call-to-action. */
+  .source-action { padding: 16px; }
+  .source-action + .source-action { border-top: 1px solid #0c0c0e; }
+  .source-btn {
+    display: inline-block; padding: 10px 18px; border-radius: 4px;
+    border: 1px solid var(--wire); background: var(--panel2); color: var(--text);
+    font: inherit; letter-spacing: 0.06em; cursor: pointer;
+  }
+  .source-btn:hover { border-color: var(--orange); color: var(--amber); }
+  .lib-empty-cta {
+    border: 1px dashed var(--wire); padding: 56px 20px; text-align: center;
+    display: flex; flex-direction: column; align-items: center; gap: 14px;
+  }
+  .lib-empty-title { color: var(--text2); font-size: 13px; letter-spacing: 0.1em; text-transform: uppercase; }
+  .lib-empty-cta .source-btn { font-size: 14px; padding: 12px 22px; }
+  .lib-empty-sub { color: var(--text3); font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; }
+  .lib-empty-or {
+    display: flex; align-items: center; gap: 10px; width: 200px;
+    color: var(--text3); font-size: 10px; letter-spacing: 0.2em; text-transform: uppercase;
+  }
+  .lib-empty-or::before, .lib-empty-or::after { content: ""; flex: 1; height: 1px; background: var(--wire); }
+

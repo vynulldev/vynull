@@ -379,7 +379,7 @@ const waveformPNGRenderVersion = 2
 // renderWaveformPNG draws a waveform to an RGBA image and PNG-encodes it.
 // PWV5 (detail): per-entry r/g/b weights ∈ [0,7] + h ∈ [0,31]. Subsamples
 // to canvas width, max-h per bucket, averaged colour weights — matches the
-// drawWaveformPWV5 routine in the web UI's index.html.
+// drawWaveformPWV5 routine in the web UI's js/waveforms.js.
 // PWV4 (color_preview): per-entry bass/mid/treble bytes 0-255, normalised
 // to track peak.
 func renderWaveformPNG(result *analysis.Result, waveType, colorMode, overview string, width, height int) ([]byte, error) {
@@ -399,7 +399,7 @@ func renderWaveformPNG(result *analysis.Result, waveType, colorMode, overview st
 	}
 	// "half" overview shows only the lower half of the waveform, anchored to
 	// the bottom of the box (same amplitude, not squished); "full" centres it.
-	// Matches barTop in index.html.
+	// Matches barTop in web/js/waveform-thumbs.js.
 	barTop := func(barH int) int {
 		if overview == "half" {
 			return height - barH
@@ -448,7 +448,7 @@ func renderWaveformPNG(result *analysis.Result, waveType, colorMode, overview st
 		data := band3
 		n := len(data) / 3
 		// The 3-band PREVIEW is a bottom-anchored VERTICAL STACK (rekordbox
-		// convention, matching drawStacked3Band in index.html): blue bass on the
+		// convention, matching drawStacked3Band in web/js/waveform-thumbs.js): blue bass on the
 		// bottom, orange mid stacked above, white treble on top — each segment's
 		// height is that band's amplitude, not overlaid bars. Pass 1: per-column
 		// per-band peak.

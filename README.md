@@ -716,7 +716,8 @@ vynull/
     fs.go              Sandboxed filesystem browser for "add files/folders"
     diag.go            Log ring buffer + diagnostic endpoints (status/logs/stats)
     web.go             //go:embed of the single-page web UI (served at GET /)
-    web/index.html     Browser-based library manager (UI)
+    web/index.html     Browser-based library manager (UI): the page
+    web/css/, web/js/  its stylesheets and scripts, one file per feature
     cueadapter.go      Bridge between API cue types and dbserver cue store
     tagstore.go        User-defined tags, tag categories, track colors (batched saves)
     playliststore.go   Playlist/folder tree + smart-playlist persistence

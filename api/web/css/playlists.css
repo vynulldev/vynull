@@ -1,0 +1,321 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
+  /* ───────── PLAYLISTS TAB ───────── */
+  .pl-layout {
+    display: grid;
+    grid-template-columns: 280px 1fr;
+    gap: 18px;
+    align-items: start;
+  }
+  .pl-pane {
+    border: 1px solid var(--wire);
+    background: var(--panel);
+    min-height: 480px;
+  }
+  .pl-toolbar {
+    display: flex;
+    gap: 8px;
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--wire);
+    align-items: center;
+    flex-wrap: wrap;
+  }
+  .pl-toolbar .title {
+    flex: 1;
+    color: var(--text);
+    font-size: 11px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .pl-toolbar .title.empty { color: var(--text3); }
+  .pl-toolbar button {
+    background: transparent;
+    border: 1px solid var(--wire);
+    color: var(--text2);
+    font-family: inherit;
+    font-size: 10px;
+    padding: 4px 9px;
+    cursor: pointer;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+  }
+  .pl-toolbar button:hover { color: var(--orange); border-color: var(--orange); }
+  .pl-toolbar button.danger { color: var(--red); border-color: rgba(255,80,80,.4); }
+  .pl-toolbar button.danger:hover { background: var(--red); color: var(--black); border-color: var(--red); }
+  .pl-toolbar button:disabled { color: var(--text3); cursor: not-allowed; border-color: var(--wire); }
+
+  .pl-tree { padding: 6px 0; max-height: 70vh; overflow-y: auto; }
+  table.lib tr.hcb-missing td { opacity: 0.45; }
+  .hcb-missing-tag { color: var(--orange); font-size: 0.85em; letter-spacing: 0.08em; }
+  .hcb-swatch { display: inline-block; width: 22px; height: 12px; vertical-align: middle; border-radius: 2px; }
+  .hcb-loop-tag { margin-left: 8px; font-size: 0.85em; letter-spacing: 0.08em; color: var(--orange); }
+  .pl-empty { padding: 14px; color: var(--text3); font-size: 10px; letter-spacing: 0.12em; }
+  .pl-node {
+    display: flex; align-items: center;
+    padding: 5px 14px;
+    cursor: pointer;
+    font-size: 12px;
+    color: var(--text2);
+    border-left: 2px solid transparent;
+    user-select: none;
+  }
+  .pl-node:hover { background: var(--panel2); color: var(--text); }
+  .pl-node.selected {
+    background: var(--panel2);
+    color: var(--text);
+    border-left-color: var(--orange);
+  }
+  .pl-node .icon {
+    width: 20px; text-align: center; margin-right: 8px;
+    color: var(--green); font-size: 16px; line-height: 1;
+  }
+  .pl-node.folder .icon { color: var(--cyan); }
+  .pl-node .name { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .pl-node .count { color: var(--text3); font-size: 9px; margin-left: 8px; }
+
+  .pl-tracks { padding: 6px 0; max-height: 70vh; overflow-y: auto; }
+  .pl-track-row {
+    display: grid;
+    grid-template-columns: 38px 1fr auto;
+    align-items: center;
+    padding: 6px 14px;
+    border-bottom: 1px solid var(--divider);
+    font-size: 12px;
+    gap: 10px;
+  }
+  .pl-track-row:hover { background: var(--panel2); }
+  .pl-track-row:last-child { border-bottom: 0; }
+  .pl-track-row .idx {
+    color: var(--text3);
+    font-variant-numeric: tabular-nums;
+    font-size: 10px;
+  }
+  .pl-track-row .meta {
+    overflow: hidden;
+  }
+  .pl-track-row .title { color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .pl-track-row .by    { color: var(--text3); font-size: 10px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .pl-track-row .actions { display: flex; gap: 4px; }
+  .pl-track-row .actions button {
+    background: transparent; border: 1px solid var(--wire);
+    color: var(--text3); cursor: pointer;
+    width: 22px; height: 22px;
+    font-family: inherit; font-size: 11px; line-height: 1;
+    padding: 0;
+  }
+  .pl-track-row .actions button:hover:not(:disabled) { color: var(--orange); border-color: var(--orange); }
+  .pl-track-row .actions button:disabled { color: var(--text3); opacity: .3; cursor: not-allowed; }
+  .pl-track-row .actions .rm:hover { color: var(--red); border-color: var(--red); }
+
+  /* Add-tracks picker modal */
+  .pl-picker-backdrop {
+    position: fixed; inset: 0;
+    background: rgba(0,0,0,.6);
+    z-index: 200;
+    display: none;
+  }
+  .pl-picker-backdrop.show { display: block; }
+  .pl-picker {
+    position: fixed;
+    left: 50%; top: 8vh;
+    transform: translateX(-50%);
+    width: min(720px, 92vw);
+    max-height: 80vh;
+    background: var(--ink);
+    border: 1px solid var(--orange);
+    box-shadow: 0 12px 40px rgba(0,0,0,.85);
+    z-index: 201;
+    display: none;
+    flex-direction: column;
+  }
+  .pl-picker.show { display: flex; }
+  .pl-picker .head {
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--wire);
+    display: flex; gap: 10px; align-items: center;
+  }
+  .pl-picker .head input {
+    flex: 1;
+    background: var(--ink);
+    border: 1px solid var(--wire);
+    color: var(--text);
+    font-family: inherit;
+    font-size: 12px;
+    padding: 6px 10px;
+  }
+  .pl-picker .head input:focus { outline: none; border-color: var(--orange); }
+  .pl-picker .head button {
+    background: transparent; border: 1px solid var(--wire); color: var(--text2);
+    font-family: inherit; font-size: 10px;
+    padding: 6px 12px; cursor: pointer; letter-spacing: 0.14em;
+  }
+  .pl-picker .head button:hover { color: var(--orange); border-color: var(--orange); }
+  .pl-picker .list { overflow-y: auto; flex: 1; }
+  .pl-picker .row {
+    padding: 7px 14px; cursor: pointer;
+    border-bottom: 1px solid var(--divider);
+    display: grid; grid-template-columns: 1fr auto;
+    gap: 12px; font-size: 12px;
+  }
+  .pl-picker .row:hover { background: var(--panel2); }
+  .pl-picker .row.added { color: var(--text3); cursor: default; }
+  .pl-picker .row.added::after { content: '✓ ADDED'; color: var(--orange); font-size: 9px; letter-spacing: .14em; }
+  .pl-picker .row .t    { color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .pl-picker .row .a    { color: var(--text3); font-size: 10px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .pl-picker .row.added .t { color: var(--text3); }
+
+  /* Smart-playlist editor modal. Same backdrop pattern as the add-tracks
+     picker but wider to fit the rule rows. Form/JSON tabs flip the
+     editor body between two views; rules round-trip between them. */
+  .sm-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,.7); z-index: 220; display: none; }
+  .sm-backdrop.show { display: block; }
+  .sm-modal {
+    position: fixed; left: 50%; top: 6vh; transform: translateX(-50%);
+    width: min(820px, 96vw);
+    max-height: 88vh;
+    background: var(--ink);
+    border: 1px solid var(--orange);
+    box-shadow: 0 14px 48px rgba(0,0,0,.9), 0 0 0 1px rgba(255,106,0,.18);
+    z-index: 221;
+    display: none;
+    flex-direction: column;
+  }
+  .sm-modal.show { display: flex; }
+  .sm-head {
+    padding: 10px 16px;
+    border-bottom: 1px solid var(--wire);
+    display: flex; align-items: center; gap: 10px;
+  }
+  .sm-head .name-input {
+    flex: 1;
+    background: var(--ink); border: 1px solid var(--wire); color: var(--text);
+    font-family: inherit; font-size: 13px; padding: 6px 10px;
+  }
+  .sm-head .name-input:focus { outline: none; border-color: var(--orange); }
+  .sm-head .tabs { display: flex; gap: 2px; }
+  .sm-head .tab-btn {
+    background: var(--ink); border: 1px solid var(--wire); color: var(--text2);
+    font-family: inherit; font-size: 10px; padding: 5px 10px; cursor: pointer;
+    letter-spacing: .14em; text-transform: uppercase;
+  }
+  .sm-head .tab-btn.active { background: var(--orange); color: var(--black); border-color: var(--orange); }
+
+  .sm-body { padding: 14px 16px; overflow-y: auto; flex: 1; }
+  .sm-body .combinator-row {
+    display: flex; align-items: center; gap: 8px;
+    color: var(--text2); font-size: 11px; letter-spacing: .12em;
+    margin-bottom: 12px;
+  }
+  .sm-body select, .sm-body input[type="text"], .sm-body input[type="number"], .sm-body input[type="date"] {
+    background: var(--ink);
+    border: 1px solid var(--wire);
+    color: var(--text);
+    font-family: inherit;
+    font-size: 11px;
+    padding: 4px 8px;
+  }
+  .sm-body select:focus, .sm-body input:focus { outline: none; border-color: var(--orange); }
+  .sm-cond {
+    display: flex; gap: 6px; align-items: center;
+    padding: 5px 0;
+  }
+  .sm-cond .rm {
+    background: transparent; border: 1px solid var(--wire); color: var(--text3);
+    cursor: pointer; width: 22px; height: 22px; font-size: 14px; line-height: 1;
+    padding: 0; font-family: inherit;
+  }
+  .sm-cond .rm:hover { color: var(--red); border-color: var(--red); }
+  .sm-group {
+    border: 1px solid var(--wire);
+    padding: 10px;
+    margin: 4px 0;
+    background: rgba(255,255,255,.015);
+  }
+  .sm-add-row {
+    display: flex; gap: 6px;
+    margin-top: 6px;
+  }
+  .sm-add-row button {
+    background: transparent; border: 1px solid var(--wire); color: var(--text2);
+    font-family: inherit; font-size: 10px; padding: 3px 10px; cursor: pointer;
+    letter-spacing: .12em; text-transform: uppercase;
+  }
+  .sm-add-row button:hover { color: var(--orange); border-color: var(--orange); }
+  .sm-json {
+    width: 100%; min-height: 380px;
+    background: var(--ink); border: 1px solid var(--wire); color: var(--text);
+    font-family: 'Geist Mono', monospace; font-size: 11px;
+    padding: 10px; resize: vertical;
+  }
+  .sm-json:focus { outline: none; border-color: var(--orange); }
+  .sm-foot {
+    padding: 10px 16px; border-top: 1px solid var(--wire);
+    display: flex; align-items: center; gap: 10px;
+  }
+  .sm-foot .preview {
+    flex: 1; color: var(--text3); font-size: 10px; letter-spacing: .14em;
+  }
+  .sm-foot .preview.matches { color: var(--orange); }
+  .sm-foot button {
+    background: transparent; border: 1px solid var(--wire); color: var(--text2);
+    font-family: inherit; font-size: 10px; padding: 6px 14px; cursor: pointer;
+    letter-spacing: .14em; text-transform: uppercase;
+  }
+  .sm-foot button.primary { background: var(--orange); color: var(--black); border-color: var(--orange); }
+  .sm-foot button:hover:not(.primary) { color: var(--orange); border-color: var(--orange); }
+
+  /* Smart-playlist tree node: distinct icon (✦) + italic to set apart
+     from regular playlists in the tree. */
+  .pl-node.smart .icon { color: var(--orange); }
+  .pl-node.smart .name { font-style: italic; }
+
+  /* Drag-and-drop cues. Source rows go translucent while dragged; valid
+     drop targets get a 2px orange edge (line for in-list insertion,
+     full-row fill for folder-reparent). pointer-events on children are
+     disabled mid-drag so dragover always fires on the row itself. */
+  .pl-track-row[draggable="true"], .pl-node[draggable="true"] { cursor: grab; }
+  .pl-track-row.dragging, .pl-node.dragging { opacity: .35; }
+  .pl-track-row.drop-before { box-shadow: inset 0 2px 0 0 var(--orange); }
+  .pl-track-row.drop-after  { box-shadow: inset 0 -2px 0 0 var(--orange); }
+  .pl-node.drop-target {
+    background: rgba(255,106,0,.22);
+    color: var(--text);
+    border-left-color: var(--orange);
+  }
+  .pl-tree.drop-root { box-shadow: inset 0 0 0 2px var(--orange); }
+
+  /* Library-row → playlist overlay. Appears bottom-right when the user
+     starts dragging a library row, hides on dragend. Lists leaf
+     playlists with a count badge; dropping appends the track. */
+  .pl-drop-overlay {
+    position: fixed;
+    right: 18px; bottom: 18px;
+    width: 280px;
+    background: var(--ink);
+    border: 1px solid var(--orange);
+    box-shadow: 0 10px 36px rgba(0,0,0,.75), 0 0 0 1px rgba(255,106,0,.18);
+    z-index: 250;
+    display: none;
+    max-height: 60vh;
+    overflow-y: auto;
+  }
+  .pl-drop-overlay.show { display: block; }
+  .pl-drop-overlay .head {
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--wire);
+    color: var(--text2);
+    font-size: 10px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+  }
+  .pl-drop-overlay .pl-node { padding: 7px 12px; }
+  .pl-drop-overlay .empty { padding: 14px; color: var(--text3); font-size: 10px; }
+  table.lib tbody tr[draggable="true"] { cursor: grab; }
+  table.lib tbody tr.dragging { opacity: .4; }
+  /* Drop-edge cues for in-table reorder when a playlist is active.
+     <tr> doesn't render box-shadow reliably across browsers; paint the
+     orange line on the first/last td of the row instead so it spans
+     the full visible width regardless of column count. */
+  table.lib tbody tr.drop-before td { box-shadow: inset 0 2px 0 0 var(--orange); }
+  table.lib tbody tr.drop-after td  { box-shadow: inset 0 -2px 0 0 var(--orange); }
+
