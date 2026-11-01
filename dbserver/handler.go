@@ -384,7 +384,7 @@ func (h *Handler) Handle(msg *proto.DBMessage) []*proto.DBMessage {
 		return h.handleGetWavePreview(msg)
 	case proto.DBMsgGetWaveDetail: // 0x2904
 		return h.handleGetWaveDetail(msg)
-	case proto.DBMsgGetWaveColor: // 0x2c04
+	case proto.DBMsgGetWaveColor, 0x2d04: // specified analysis atom (0x2d04: .2EX 3-band waveforms on XDJ-AZ/RX3)
 		return h.handleGetExtAnalysis(msg)
 	case proto.DBMsgGetBeatGrid: // 0x2204
 		return h.handleGetBeatGrid(msg)
