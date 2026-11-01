@@ -67,6 +67,7 @@ type Server struct {
 	addJobs sync.Map
 
 	trackList trackListCache // GET /api/tracks's body, per revision
+	cacheSize dirSize        // CacheDir's size, for /api/diag
 
 	// importProg is the pollable phase/progress of an in-flight rekordbox import.
 	// The import POST is synchronous; the web UI polls /api/import/status while

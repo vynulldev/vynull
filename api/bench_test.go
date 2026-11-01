@@ -185,3 +185,24 @@ func BenchmarkAPICues(b *testing.B) {
 		}
 	})
 }
+
+// BenchmarkAPIDiag measures GET /api/diag, which the DIAG tab polls every
+// 2 s, with 5,000 files in the cache directory, a library's worth of
+// analysis and waveform files.
+func BenchmarkAPIDiag(b *testing.B) {
+	dir := b.TempDir()
+	for i := range 5000 {
+		if err := os.WriteFile(filepath.Join(dir, fmt.Sprintf("%d.gob", i)), make([]byte, 1024), 0o644); err != nil {
+			b.Fatal(err)
+		}
+	}
+	h := (&Server{CacheDir: dir}).Handler()
+	b.ReportAllocs()
+	for b.Loop() {
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/api/diag", nil))
+		if w.Code != http.StatusOK {
+			b.Fatalf("GET /api/diag: %d", w.Code)
+		}
+	}
+}

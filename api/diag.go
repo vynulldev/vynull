@@ -132,7 +132,7 @@ type DiagResponse struct {
 	AnalysisPending  int   `json:"analysis_pending"`
 	AnalysisAnalyzed int   `json:"analysis_analyzed"`
 	AnalysisCached   int   `json:"analysis_cached"`
-	CacheDirBytes    int64 `json:"cache_dir_bytes"`
+	CacheDirBytes    int64 `json:"cache_dir_bytes"` // measured at most every cacheSizeMaxAge
 }
 
 func (s *Server) handleDiag(w http.ResponseWriter, r *http.Request) {
@@ -158,9 +158,44 @@ func (s *Server) handleDiag(w http.ResponseWriter, r *http.Request) {
 		resp.AnalysisCached = s.Analysis.CachedCount()
 	}
 	if s.CacheDir != "" {
-		resp.CacheDirBytes = dirBytes(s.CacheDir)
+		resp.CacheDirBytes = s.cacheSize.get(s.CacheDir, cacheSizeMaxAge)
 	}
 	writeJSON(w, resp)
+}
+
+// cacheSizeMaxAge is how old the cache size DIAG shows may get before a
+// request starts measuring it again.
+const cacheSizeMaxAge = 30 * time.Second
+
+// dirSize is a directory's size on disk, measured in the background. Walking
+// the data directory, every analysis, waveform and artwork file in it, takes
+// tens of milliseconds on an SSD with the files' metadata cached, and far
+// longer on an SD card or a cold cache, too much for DIAG's poll every 2 s.
+type dirSize struct {
+	mu       sync.Mutex
+	bytes    int64
+	measured time.Time
+	walking  bool
+}
+
+// get returns root's size. The first call measures it; later ones return the
+// last measurement, starting a new one in the background when it is older
+// than maxAge, one walk at a time.
+func (d *dirSize) get(root string, maxAge time.Duration) int64 {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if d.measured.IsZero() {
+		d.bytes, d.measured = dirBytes(root), time.Now()
+	} else if !d.walking && time.Since(d.measured) > maxAge {
+		d.walking = true
+		go func() {
+			n := dirBytes(root)
+			d.mu.Lock()
+			d.bytes, d.measured, d.walking = n, time.Now(), false
+			d.mu.Unlock()
+		}()
+	}
+	return d.bytes
 }
 
 func (s *Server) handleDiagLogs(w http.ResponseWriter, r *http.Request) {

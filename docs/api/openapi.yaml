@@ -1070,7 +1070,7 @@ components:
         analysis_pending: { type: integer }
         analysis_analyzed: { type: integer }
         analysis_cached: { type: integer }
-        cache_dir_bytes: { type: integer, format: int64 }
+        cache_dir_bytes: { type: integer, format: int64, description: "The data directory's size on disk. Measured on the first request, then again in the background once the last measurement is over 30 s old, so it can lag that much." }
 
     SettingsResponse:
       type: object
