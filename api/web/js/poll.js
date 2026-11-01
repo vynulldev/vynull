@@ -4,12 +4,12 @@
 // ───────── polling ─────────
 async function refresh() {
   const [players, trackRev, settings, enums, cueRev, peers] = await Promise.all([
-    fetchJSON('/api/players'),
-    fetchJSON('/api/tracks/rev'),
-    fetchJSON('/api/settings'),
-    settingsEnums ? Promise.resolve(settingsEnums) : fetchJSON('/api/settings/enums'),
-    fetchJSON('/api/cues/rev'),
-    fetchJSON('/api/peers'),
+    maybeJSON('/api/players'),
+    maybeJSON('/api/tracks/rev'),
+    maybeJSON('/api/settings'),
+    settingsEnums ? Promise.resolve(settingsEnums) : maybeJSON('/api/settings/enums'),
+    maybeJSON('/api/cues/rev'),
+    maybeJSON('/api/peers'),
   ]);
   if (enums && !settingsEnums) settingsEnums = enums;
   // The track list and every cue are fetched only when their revision moved,
@@ -24,7 +24,7 @@ async function refresh() {
   let cuesChanged = false;
   const cuesRev = (cueRev && typeof cueRev.rev === 'number') ? cueRev.rev : null;
   if (cuesRev === null || cuesRev !== lastCuesRev || forced) {
-    const cues = await fetchJSON('/api/cues', { cache: 'no-cache' });
+    const cues = await maybeJSON('/api/cues', { cache: 'no-cache' });
     if (cues && typeof cues === 'object') {
       if (cuesRev !== null) lastCuesRev = cuesRev;
       const key = JSON.stringify(cues);
@@ -47,7 +47,7 @@ async function refresh() {
   const rev = (trackRev && typeof trackRev.rev === 'number') ? trackRev.rev : null;
   const revMoved = rev === null || rev !== lastTracksRev;
   if (revMoved || forced) {
-    const tracks = await fetchJSON('/api/tracks', { cache: 'no-cache' });
+    const tracks = await maybeJSON('/api/tracks', { cache: 'no-cache' });
     if (Array.isArray(tracks)) {
       if (rev !== null) lastTracksRev = rev;
       // Overlay any locally-pending mutations the server may not have

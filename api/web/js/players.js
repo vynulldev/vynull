@@ -254,7 +254,7 @@ function renderPlayers(players) {
     if (extAnalysisCache.has(url)) { drawExtWave(canvas, extAnalysisCache.get(url)); return; }
     if (extAnalysisInflight.has(url)) return;
     extAnalysisInflight.add(url);
-    fetchJSON(url).then(d => {
+    maybeJSON(url).then(d => {
       extAnalysisInflight.delete(url);
       if (!d) return; // not downloaded yet — retry on the next poll
       extAnalysisCache.set(url, d);
@@ -274,7 +274,7 @@ function renderPlayers(players) {
     if (playerPhrasesCache.has(tid)) {
       renderPlayerPhraseStrip(host, playerPhrasesCache.get(tid), durMs);
     } else {
-      fetchJSON('/api/tracks/' + tid + '/phrases').then(ph => {
+      maybeJSON('/api/tracks/' + tid + '/phrases').then(ph => {
         const arr = Array.isArray(ph) ? ph : [];
         playerPhrasesCache.set(tid, arr);
         // The poll may have re-rendered the grid since the fetch began — find

@@ -82,13 +82,16 @@ function formatBytes(n) {
 let allTagsCache = null;
 async function ensureAllTags(forceRefresh) {
   if (allTagsCache && !forceRefresh) return allTagsCache;
-  const r = await fetchJSON('/api/tags');
+  const r = await maybeJSON('/api/tags');
   if (Array.isArray(r)) allTagsCache = r;
   return allTagsCache || [];
 }
 // Tag objects (with IDs) currently assigned to the open drawer's track.
 // We need IDs (not just names) to mutate via POST /api/tracks/{id}/tags.
 let drawerTrackTags = [];
+// drawerTagsLoaded is whether drawerTrackTags came from the server: a tag edit
+// writes the whole set, so it waits for a successful load.
+let drawerTagsLoaded = false;
 
 // loadRelated fills the drawer's RELATED section with tracks that mix well
 // with this one (GET /api/tracks/{id}/related), best first, each with why it
@@ -140,19 +143,23 @@ async function openDetail(trackID) {
   // Fetch everything in parallel.
   const waveStyle = detailWaveStyle();
   const [track, cues, trackTags, _allTags, loadedWave, phrases, analysis] = await Promise.all([
-    fetchJSON('/api/tracks/' + trackID),
-    fetchJSON('/api/tracks/' + trackID + '/cues'),
-    fetchJSON('/api/tracks/' + trackID + '/tags'),
+    maybeJSON('/api/tracks/' + trackID),
+    maybeJSON('/api/tracks/' + trackID + '/cues'),
+    // A tag edit writes the track's whole tag set, so a failed load is kept
+    // apart (null) from a track without tags ([]).
+    fetchJSON('/api/tracks/' + trackID + '/tags').then(t => t || [], () => null),
     ensureAllTags(),
     getDetailWaveCached(trackID) || ensureDetailWave(trackID),
-    fetchJSON('/api/tracks/' + trackID + '/phrases'),
-    fetchJSON('/api/analysis/' + trackID),
+    maybeJSON('/api/tracks/' + trackID + '/phrases'),
+    maybeJSON('/api/analysis/' + trackID),
   ]);
   if (selectedTrackID !== trackID) return; // user closed / switched while loading
   // If the colour mode changed while loading, drop the old mode's wave:
   // renderDetail then fetches the current one.
   const wave = detailWaveStyle() === waveStyle ? loadedWave : null;
-  drawerTrackTags = Array.isArray(trackTags) ? trackTags : [];
+  drawerTagsLoaded = Array.isArray(trackTags);
+  drawerTrackTags = drawerTagsLoaded ? trackTags : [];
+  if (!drawerTagsLoaded) toast('TAGS NOT LOADED · REOPEN THE TRACK TO EDIT THEM', 'error');
   renderDetail(track, cues || [], wave, phrases || [], analysis || null);
 }
 
@@ -911,7 +918,7 @@ function wireBeatGridEditor(trackID) {
     // picks up the new grid. Without this the ticks keep showing the
     // pre-save tempo/phase until the drawer is closed and reopened.
     if (detailWave.trackID === trackID) {
-      const fresh = await fetchJSON('/api/analysis/' + trackID);
+      const fresh = await maybeJSON('/api/analysis/' + trackID);
       if (fresh && Array.isArray(fresh.beats) && detailWave.trackID === trackID) {
         detailWave.beats = fresh.beats;
         redrawDetailWaveform();
@@ -1382,6 +1389,7 @@ async function saveTrackTags(tagIDs) {
 }
 
 async function removeTagFromCurrent(tagID) {
+  if (!drawerTagsLoaded) { toast('TAGS NOT LOADED · REOPEN THE TRACK', 'error'); return; }
   const tag = drawerTrackTags.find(t => t.id === tagID);
   const newList = drawerTrackTags.filter(t => t.id !== tagID);
   const newIDs = newList.map(t => t.id);
@@ -1397,6 +1405,7 @@ async function removeTagFromCurrent(tagID) {
 }
 
 async function addTagToCurrent(tagID) {
+  if (!drawerTagsLoaded) { toast('TAGS NOT LOADED · REOPEN THE TRACK', 'error'); return; }
   if (drawerTrackTags.some(t => t.id === tagID)) return;
   const tag = (allTagsCache || []).find(t => t.id === tagID);
   if (!tag) return;
@@ -1412,6 +1421,7 @@ async function addTagToCurrent(tagID) {
 async function createAndAssignTag(name) {
   name = (name || '').trim();
   if (!name) return;
+  if (!drawerTagsLoaded) { toast('TAGS NOT LOADED · REOPEN THE TRACK', 'error'); return; }
   // POST creates (or returns existing-by-name) → {id}
   const r = await fetch('/api/tags', {
     method: 'POST', headers: {'Content-Type': 'application/json'},

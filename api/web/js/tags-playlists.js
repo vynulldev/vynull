@@ -6,7 +6,7 @@
 let allCategoriesCache = null;
 async function ensureAllCategories(forceRefresh) {
   if (allCategoriesCache && !forceRefresh) return allCategoriesCache;
-  const r = await fetchJSON('/api/tag-categories');
+  const r = await maybeJSON('/api/tag-categories');
   if (Array.isArray(r)) allCategoriesCache = r;
   return allCategoriesCache || [];
 }
@@ -41,7 +41,13 @@ let plSelectedTracks = [];    // ordered TrackInfo for the active playlist
 let selectedSource = 'collection';
 
 async function loadPlaylists(preserveSelection) {
-  const r = await fetchJSON('/api/playlists');
+  let r;
+  try {
+    r = await fetchJSON('/api/playlists');
+  } catch (e) {
+    toast('PLAYLISTS NOT LOADED · ' + e.message.toUpperCase(), 'error');
+    return;
+  }
   playlistsCache = Array.isArray(r) ? r : [];
   if (preserveSelection && typeof selectedSource === 'number') {
     const still = playlistsCache.find(p => p.id === selectedSource);
@@ -61,7 +67,10 @@ async function loadPlaylists(preserveSelection) {
 }
 
 async function loadPlaylistTracks(id) {
-  const r = await fetchJSON(`/api/playlists/${id}/tracks`);
+  const r = await fetchJSON(`/api/playlists/${id}/tracks`).catch(e => {
+    toast('PLAYLIST NOT LOADED · ' + e.message.toUpperCase(), 'error');
+    return null;
+  });
   plSelectedTracks = Array.isArray(r) ? r : [];
 }
 
@@ -79,7 +88,13 @@ function isHotCueBankSource() {
 }
 
 async function loadHotCueBanks() {
-  const r = await fetchJSON('/api/hotcuebanks');
+  let r;
+  try {
+    r = await fetchJSON('/api/hotcuebanks');
+  } catch (e) {
+    toast('HOT CUE BANKS NOT LOADED · ' + e.message.toUpperCase(), 'error');
+    return;
+  }
   hcbCache = Array.isArray(r) ? r : [];
   if (isHotCueBankSource() && !hcbCache.some(b => b.id === hcbSelectedID)) {
     selectedSource = 'collection';
@@ -117,7 +132,13 @@ function renderHotCueBankSection() {
     node.addEventListener('click', async () => {
       if (node.getAttribute('data-is-folder') === '1') return;
       const id = parseInt(node.getAttribute('data-hcb-id'), 10);
-      const r = await fetchJSON(`/api/hotcuebanks/${id}/tracks`);
+      let r;
+      try {
+        r = await fetchJSON(`/api/hotcuebanks/${id}/tracks`);
+      } catch (e) {
+        toast('HOT CUE BANK NOT LOADED · ' + e.message.toUpperCase(), 'error');
+        return;
+      }
       hcbSelectedEntries = Array.isArray(r) ? r : [];
       hcbSelectedID = id;
       selectedSource = 'hcb:' + id;
