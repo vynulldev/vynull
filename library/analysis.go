@@ -21,29 +21,45 @@ type AnalysisFacts struct {
 // The library saves only when something changed, which it reports.
 func (l *Library) ApplyAnalysis(id uint32, a AnalysisFacts) bool {
 	l.mu.Lock()
-	t := l.byID[id]
 	changed := false
-	if t != nil {
-		if a.BPM > 0 && t.BPM != a.BPM && (t.BPM == 0 || t.DetectedBPM == 0) {
-			t.BPM = a.BPM
-			changed = true
-		}
-		if t.Duration == 0 && a.Duration > 0 {
-			t.Duration = DurationSec(time.Duration(a.Duration) * time.Second)
-			changed = true
-		}
-		if t.Key == "" && a.KeyCamelot != "" {
-			t.Key = a.KeyCamelot
-			changed = true
-		}
-		if secs := int64(t.Duration.Seconds()); t.Bitrate == 0 && t.FileSize > 0 && secs > 0 {
-			t.Bitrate = int(t.FileSize * 8 / secs / 1000)
-			changed = true
+	if t := l.byID[id]; t != nil {
+		changed = a.applyTo(t)
+		// A library over a music dir keeps only edits (see UseOverlay). What
+		// analysis fills in is the music dir's, not an edit: it goes into
+		// the track as built too, so a fresh export's values still apply.
+		if l.overlay != nil {
+			if b, ok := l.overlay.base[id]; ok {
+				a.applyTo(&b.track)
+				l.overlay.base[id] = b
+			}
 		}
 	}
 	l.mu.Unlock()
 	if changed {
 		l.Save()
+	}
+	return changed
+}
+
+// applyTo fills t's analysis-derived fields as ApplyAnalysis describes,
+// reporting whether any changed.
+func (a AnalysisFacts) applyTo(t *Track) bool {
+	changed := false
+	if a.BPM > 0 && t.BPM != a.BPM && (t.BPM == 0 || t.DetectedBPM == 0) {
+		t.BPM = a.BPM
+		changed = true
+	}
+	if t.Duration == 0 && a.Duration > 0 {
+		t.Duration = DurationSec(time.Duration(a.Duration) * time.Second)
+		changed = true
+	}
+	if t.Key == "" && a.KeyCamelot != "" {
+		t.Key = a.KeyCamelot
+		changed = true
+	}
+	if secs := int64(t.Duration.Seconds()); t.Bitrate == 0 && t.FileSize > 0 && secs > 0 {
+		t.Bitrate = int(t.FileSize * 8 / secs / 1000)
+		changed = true
 	}
 	return changed
 }

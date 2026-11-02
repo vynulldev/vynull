@@ -190,6 +190,10 @@ func main() {
 				log.Fatalf("scanning music library: %v", err)
 			}
 		}
+		// The library is rebuilt from the music dir at each start; edits,
+		// added tracks and deletions are kept in the data dir and applied
+		// over it.
+		lib.UseOverlay(filepath.Join(cfg.DataDir, "music-dir-edits.json"), cfg.MusicDir)
 	} else {
 		lib = library.New()
 		lib.SetDBPath(filepath.Join(cfg.DataDir, "library.json"))

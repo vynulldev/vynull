@@ -212,6 +212,13 @@ with missing analysis), and everything shares the stick's track IDs. The
 stick's content is treated as read-only — its playlists can't be edited
 from the web UI.
 
+The library is rebuilt from the stick (or, in directory mode, the scan) at
+each start. Edits made in Vynull (metadata, relinked paths, colours,
+ratings, play counts, beat-grid overrides), tracks added on top and
+deletions are kept in `music-dir-edits.json` in the data directory, by each
+track's path on the stick, and applied over it. Fields you haven't edited
+keep following the stick, so a fresh rekordbox export still updates them.
+
 OneLibrary sticks work when exported with older-player compatibility:
 Vynull reads the classic `PIONEER/rekordbox/export.pdb` half of the
 dual-format layout (the encrypted OneLibrary database itself is not yet

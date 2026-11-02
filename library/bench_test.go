@@ -89,3 +89,28 @@ func BenchmarkLibrarySaveCall(b *testing.B) {
 	b.StopTimer()
 	lib.Close()
 }
+
+// BenchmarkOverlaySave measures one write of a 20k-track library served from
+// a music dir, which keeps only its edits (here, ratings on 1% of the
+// tracks): the same background write as BenchmarkLibrarySave's.
+func BenchmarkOverlaySave(b *testing.B) {
+	lib := benchlib.Library(benchlib.Size)
+	path := filepath.Join(b.TempDir(), "music-dir-edits.json")
+	lib.UseOverlay(path, "/music")
+	for i, t := range lib.Tracks() {
+		if i%100 == 0 {
+			lib.Update(t.ID, func(t *library.Track) error { t.Rating = 5; return nil })
+		}
+	}
+	lib.Flush()
+	fi, err := os.Stat(path)
+	if err != nil {
+		b.Fatal(err)
+	}
+	b.SetBytes(fi.Size())
+	b.ReportAllocs()
+	for b.Loop() {
+		lib.Save()
+		lib.Flush()
+	}
+}
