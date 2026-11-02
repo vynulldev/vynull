@@ -80,3 +80,32 @@ func TestBPMRangeForcesTrueTempo(t *testing.T) {
 		}
 	})
 }
+
+// TestChooseTempoSearchesANarrowRange: when none of the raw peak's harmonics
+// lands inside an explicit range, the range must still win. A 77 BPM track
+// whose raw autocorrelation peak sits at ~105.5 has its 3/4 at ~79.1, outside
+// 76-78, and detection used to return the raw 105.5, ignoring the range.
+func TestChooseTempoSearchesANarrowRange(t *testing.T) {
+	const fps = 44100.0 / 512
+	lagOf := func(bpm float64) int { return int(math.Round(fps * 60 / bpm)) }
+	minLag, maxLag := lagOf(200), lagOf(60)
+	corrs := make([]float64, maxLag+1)
+	peak := func(bpm, h float64) {
+		l := lagOf(bpm)
+		corrs[l-1], corrs[l], corrs[l+1] = h/2, h, h/2
+	}
+	peak(105.5, 1.0) // the raw lock
+	peak(77, 0.6)    // the real beat
+	raw := fps * 60 / float64(lagOf(105.5))
+
+	withTempoRange(76, 78, func() {
+		if got := chooseTempo(corrs, minLag, maxLag, fps, raw); got < 76 || got > 78 {
+			t.Errorf("range 76-78: chose %.2f BPM, want the 77 BPM beat inside the range", got)
+		}
+	})
+	withTempoRange(0, 0, func() { // the default window still has a harmonic: unchanged
+		if got := chooseTempo(corrs, minLag, maxLag, fps, raw); math.Abs(got-raw) > 1e-9 {
+			t.Errorf("default window: chose %.2f, want the raw %.2f as before", got, raw)
+		}
+	})
+}
