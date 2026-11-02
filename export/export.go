@@ -290,15 +290,34 @@ func mergeWithExisting(existingPath string, newTracks []*pdb.Track, newPlaylists
 		}
 	}
 	nextID := maxID + 1
+	renumbered := make(map[uint32]uint32) // new export's track ID -> ID in the merged PDB
 	for _, t := range newTracks {
+		was := t.ID
 		if id, ok := existingByPath[t.FilePath]; ok {
 			t.ID = id // preserve existing ID for the same file
 		} else if t.ID == 0 || usedID[t.ID] {
+			for usedID[nextID] { // a new track may already have kept this number
+				nextID++
+			}
 			t.ID = nextID
 			nextID++
 		}
+		if t.ID != was {
+			renumbered[was] = t.ID
+		}
 		usedID[t.ID] = true
 		merged = append(merged, t)
+	}
+
+	// The new playlists list the new export's track IDs; follow every track
+	// that was renumbered above, or the entry would play the existing track
+	// that owns the old number.
+	for _, p := range newPlaylists {
+		for i, id := range p.TrackIDs {
+			if to, ok := renumbered[id]; ok {
+				p.TrackIDs[i] = to
+			}
+		}
 	}
 
 	// Merge playlists: existing tree first, then new playlists (replacing
