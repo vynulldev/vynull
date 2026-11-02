@@ -109,6 +109,7 @@ var everyRoute = []string{
 	"/api/status", "/api/version", "/api/peers", "/api/players", "/api/nowplaying",
 	"/api/events", "/api/overlay/config", "/api/history", "/api/load", "/api/link", "/api/unlink",
 	"/api/tracks", "/api/tracks/rev", "/api/tracks/color", "/api/tracks/rating", "/api/tracks/tags",
+	"/api/tracks/playlists", "/api/tracks/delete",
 	"/api/tracks/add", "/api/tracks/add/status", "/api/tracks/reimport", "/api/fs/list",
 	"/api/tracks/1/metadata", "/api/tracks/1/path", "/api/tracks/1/color", "/api/tracks/1/rating",
 	"/api/tracks/1/tags", "/api/tracks/1/phrases", "/api/tracks/1/beats", "/api/tracks/1/lock",

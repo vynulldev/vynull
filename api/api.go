@@ -112,6 +112,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/tracks/color", s.handleTracksColor)
 	mux.HandleFunc("/api/tracks/rating", s.handleTracksRating)
 	mux.HandleFunc("/api/tracks/tags", s.handleTracksTags)
+	mux.HandleFunc("/api/tracks/playlists", s.handleTracksPlaylists)
+	mux.HandleFunc("/api/tracks/delete", s.handleTracksDelete)
 	mux.HandleFunc("/api/tracks/add", s.handleAddTracks)
 	mux.HandleFunc("/api/tracks/add/status", s.handleAddStatus)
 	mux.HandleFunc("/api/fs/list", s.handleFSList)

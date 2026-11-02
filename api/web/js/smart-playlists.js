@@ -117,28 +117,15 @@ function hidePlaylistDropOverlay() {
   if (dropOverlayEl) dropOverlayEl.classList.remove('show');
 }
 
-// appendTrackToPlaylist fetches the current track list, appends, and
-// posts back. Avoids clobbering concurrent edits (vs. caching the array
-// client-side and racing with another tab).
+// appendTrackToPlaylist adds a track to the end of a playlist, unless the
+// playlist already holds it.
 async function appendTrackToPlaylist(playlistID, trackID) {
-  let cur;
-  try {
-    cur = await fetchJSON(`/api/playlists/${playlistID}/tracks`);
-  } catch (e) {
-    toast('ADD FAILED · ' + e.message.toUpperCase(), 'error');
-    return; // writing the membership back now would drop its tracks
-  }
-  const ids = Array.isArray(cur) ? cur.map(t => t.id) : [];
-  if (ids.includes(trackID)) {
+  const added = await editPlaylistTracks(playlistID, [trackID], 'add');
+  if (added === null) return;
+  if (added === 0) {
     toast('ALREADY IN PLAYLIST', 'info');
     return;
   }
-  ids.push(trackID);
-  const r = await fetch(`/api/playlists/${playlistID}/tracks`, {
-    method: 'POST', headers: {'Content-Type':'application/json'},
-    body: JSON.stringify({ track_ids: ids }),
-  });
-  if (!r.ok) { toast('ADD FAILED · ' + (await errorText(r)).toUpperCase(), 'error'); return; }
   const t = (allTracks || []).find(x => x.id === trackID);
   const pl = (playlistsCache || []).find(x => x.id === playlistID);
   toast(`+ ${(t && t.title || 'TRACK').toUpperCase()} → ${(pl && pl.name || 'PLAYLIST').toUpperCase()}`, 'success');
@@ -1498,15 +1485,36 @@ async function bulkRemoveFromPlaylist() {
   if (plSelectedID == null) return;
   const drop = new Set(plSelectedTracks.filter(t => bulkSelectedIDs.has(t.id)).map(t => t.id));
   if (drop.size === 0) { toast('SELECTION IS NOT IN THIS PLAYLIST', 'error'); return; }
-  const keep = plSelectedTracks.map(t => t.id).filter(id => !drop.has(id));
-  const n = plSelectedTracks.length - keep.length;
-  if (!await postPlaylistTrackIDs(plSelectedID, keep)) return;
+  const playlistID = plSelectedID;
+  const n = await editPlaylistTracks(playlistID, [...drop], 'remove');
+  if (n === null) return;
+  await loadPlaylistTracks(playlistID);
+  await loadPlaylists(true);
   // Deselect just the removed tracks — a cross-source selection survives.
   drop.forEach(id => bulkSelectedIDs.delete(id));
   updateBulkBar();
   toast(`REMOVED ${n} TRACK${n === 1 ? '' : 'S'} FROM PLAYLIST`, 'success');
 }
 
+// editPlaylistTracks adds trackIDs to the end of a playlist, or with mode
+// 'remove' takes every entry of them out. The server edits the list it holds,
+// so a track another client added since this page read the playlist stays.
+// It answers how many tracks changed, or null once it has said why it failed.
+async function editPlaylistTracks(playlistID, trackIDs, mode) {
+  try {
+    const r = await fetchJSON('/api/tracks/playlists', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ track_ids: trackIDs, [mode]: [playlistID] }),
+    });
+    return r.updated;
+  } catch (e) {
+    toast((mode === 'add' ? 'ADD' : 'REMOVE') + ' FAILED · ' + e.message.toUpperCase(), 'error');
+    return null;
+  }
+}
+
+// postPlaylistTrackIDs replaces a playlist's tracks with trackIDs in order,
+// for a reorder or a removal by position, and reloads it.
 async function postPlaylistTrackIDs(playlistID, trackIDs) {
   const r = await fetch(`/api/playlists/${playlistID}/tracks`, {
     method: 'POST', headers: {'Content-Type':'application/json'},
@@ -1577,9 +1585,11 @@ function openPlaylistAddPicker() {
     picker.querySelectorAll('.row:not(.added)').forEach(row => {
       row.onclick = async () => {
         const tid = parseInt(row.getAttribute('data-tid'), 10);
-        const ids = plSelectedTracks.map(t => t.id);
-        ids.push(tid);
-        await postPlaylistTrackIDs(plSelectedID, ids);
+        const playlistID = plSelectedID;
+        if (await editPlaylistTracks(playlistID, [tid], 'add') !== null) {
+          await loadPlaylistTracks(playlistID);
+          await loadPlaylists(true);
+        }
         render(); // refresh ✓ marks
       };
     });

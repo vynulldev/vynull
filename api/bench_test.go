@@ -3,6 +3,7 @@
 package api
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -115,6 +116,62 @@ func BenchmarkAPITracks(b *testing.B) {
 			get(etag)
 		}
 	})
+}
+
+// BenchmarkAPIDeleteTracks measures deleting a selection from a 20k-track
+// library whose 40 playlists hold 250 tracks each: "batch" is one POST
+// /api/tracks/delete, as the web UI's bulk delete sends, and "each" a DELETE
+// /api/tracks/{id} per track, as it sent before.
+func BenchmarkAPIDeleteTracks(b *testing.B) {
+	defer log.SetOutput(log.Writer()) // keep the delete log out of benchstat's lines
+	log.SetOutput(io.Discard)
+	for _, n := range []int{100, 1000} {
+		ids := make([]uint32, n)
+		for i := range ids {
+			ids[i] = uint32(1 + i*7)
+		}
+		body, _ := json.Marshal(map[string][]uint32{"track_ids": ids})
+		for _, batch := range []bool{false, true} {
+			b.Run(fmt.Sprintf("%s/%d", map[bool]string{false: "each", true: "batch"}[batch], n), func(b *testing.B) {
+				for range b.N {
+					b.StopTimer()
+					h := deleteBenchServer(b).Handler()
+					b.StartTimer()
+					if batch {
+						w := httptest.NewRecorder()
+						h.ServeHTTP(w, httptest.NewRequest(http.MethodPost, "/api/tracks/delete", bytes.NewReader(body)))
+						if w.Code != http.StatusOK {
+							b.Fatalf("POST /api/tracks/delete: %d %s", w.Code, w.Body)
+						}
+						continue
+					}
+					for _, id := range ids {
+						w := httptest.NewRecorder()
+						h.ServeHTTP(w, httptest.NewRequest(http.MethodDelete, fmt.Sprintf("/api/tracks/%d", id), nil))
+						if w.Code != http.StatusOK {
+							b.Fatalf("DELETE /api/tracks/%d: %d %s", id, w.Code, w.Body)
+						}
+					}
+				}
+			})
+		}
+	}
+}
+
+func deleteBenchServer(b *testing.B) *Server {
+	ps := NewPlaylistStore(b.TempDir())
+	ids := make([]uint32, 250)
+	for i := range 40 {
+		p, err := ps.Create(fmt.Sprintf("Playlist %d", i), 0, false)
+		if err != nil {
+			b.Fatal(err)
+		}
+		for j := range ids {
+			ids[j] = uint32(i*250 + j + 1)
+		}
+		ps.SetTracks(p.ID, ids)
+	}
+	return &Server{Library: benchlib.Library(benchlib.Size), Playlists: ps, Tags: NewTagStore(b.TempDir())}
 }
 
 // BenchmarkAPICues measures GET /api/cues, every cue in the library, which

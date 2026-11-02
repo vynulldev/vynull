@@ -262,20 +262,106 @@ func (ps *PlaylistStore) Delete(id uint32) error {
 func (ps *PlaylistStore) SetTracks(id uint32, trackIDs []uint32) error {
 	ps.mu.Lock()
 	defer ps.mu.Unlock()
-	p := ps.find(id)
-	if p == nil {
-		return fmt.Errorf("playlist %d not found", id)
-	}
-	if p.IsFolder {
-		return fmt.Errorf("playlist %d is a folder", id)
-	}
-	if p.IsSmart {
-		return fmt.Errorf("playlist %d is a smart playlist (edit rules, not tracks)", id)
+	p, err := ps.trackListLocked(id)
+	if err != nil {
+		return err
 	}
 	p.TrackIDs = append([]uint32(nil), trackIDs...)
 	ps.changed()
 	dlog.Infof("api: playlist %d (%q) now has %d tracks", id, p.Name, len(trackIDs))
 	return nil
+}
+
+// EditTracks adds trackIDs to the end of each playlist in add, in the order
+// given and skipping any a playlist already holds, and drops every entry of
+// them from each playlist in remove. Removes go first, so a playlist in both
+// ends with them at its end. Every playlist must be a regular one, not a
+// folder or a smart playlist, or nothing changes. It returns the tracks whose
+// membership changed, in trackIDs' order.
+//
+// Unlike a SetTracks of a list read earlier, this edits the list the store
+// holds, so it can't drop a track another client added in between.
+func (ps *PlaylistStore) EditTracks(trackIDs, add, remove []uint32) ([]uint32, error) {
+	ps.mu.Lock()
+	defer ps.mu.Unlock()
+	lists := func(ids []uint32) ([]*PlaylistInfo, error) {
+		out := make([]*PlaylistInfo, len(ids))
+		for i, id := range ids {
+			p, err := ps.trackListLocked(id)
+			if err != nil {
+				return nil, err
+			}
+			out[i] = p
+		}
+		return out, nil
+	}
+	adds, err := lists(add)
+	if err != nil {
+		return nil, err
+	}
+	removes, err := lists(remove)
+	if err != nil {
+		return nil, err
+	}
+	edited := make(map[uint32]bool, len(trackIDs))
+	touched := make(map[*PlaylistInfo]bool)
+	if len(removes) > 0 {
+		drop := make(map[uint32]bool, len(trackIDs))
+		for _, id := range trackIDs {
+			drop[id] = true
+		}
+		for _, p := range removes {
+			p.TrackIDs = slices.DeleteFunc(p.TrackIDs, func(id uint32) bool {
+				if drop[id] {
+					edited[id], touched[p] = true, true
+				}
+				return drop[id]
+			})
+		}
+	}
+	for _, p := range adds {
+		have := make(map[uint32]bool, len(p.TrackIDs))
+		for _, id := range p.TrackIDs {
+			have[id] = true
+		}
+		for _, id := range trackIDs {
+			if !have[id] {
+				have[id] = true
+				p.TrackIDs = append(p.TrackIDs, id)
+				edited[id], touched[p] = true, true
+			}
+		}
+	}
+	var changed []uint32
+	for _, id := range trackIDs {
+		if edited[id] {
+			changed = append(changed, id)
+			delete(edited, id) // once, should trackIDs repeat it
+		}
+	}
+	if len(touched) > 0 {
+		ps.changed()
+	}
+	for p := range touched {
+		dlog.Infof("api: playlist %d (%q) now has %d tracks", p.ID, p.Name, len(p.TrackIDs))
+	}
+	return changed, nil
+}
+
+// trackListLocked returns playlist id for an edit of its tracks, or why it
+// can't have one. Callers hold ps.mu.
+func (ps *PlaylistStore) trackListLocked(id uint32) (*PlaylistInfo, error) {
+	p := ps.find(id)
+	if p == nil {
+		return nil, fmt.Errorf("playlist %d not found", id)
+	}
+	if p.IsFolder {
+		return nil, fmt.Errorf("playlist %d is a folder", id)
+	}
+	if p.IsSmart {
+		return nil, fmt.Errorf("playlist %d is a smart playlist (edit rules, not tracks)", id)
+	}
+	return p, nil
 }
 
 // Tracks returns a regular playlist's stored track IDs. For smart
@@ -292,11 +378,19 @@ func (ps *PlaylistStore) Tracks(id uint32) []uint32 {
 	return append([]uint32(nil), p.TrackIDs...)
 }
 
-// RemoveTrackFromAll drops trackID from every (non-smart, non-folder)
-// playlist it appears in and persists. Used when the track is being
+// RemoveTracksFromAll drops trackIDs from every (non-smart, non-folder)
+// playlist they appear in and persists. Used when tracks are being
 // deleted from the library so playlists don't keep dangling references.
 // Returns the number of playlists touched.
-func (ps *PlaylistStore) RemoveTrackFromAll(trackID uint32) int {
+func (ps *PlaylistStore) RemoveTracksFromAll(trackIDs []uint32) int {
+	set := make(map[uint32]bool, len(trackIDs))
+	for _, id := range trackIDs {
+		set[id] = true
+	}
+	drop := func(id uint32) bool { return set[id] }
+	if len(trackIDs) == 1 { // a single DELETE: compare, rather than look up each entry
+		drop = func(id uint32) bool { return id == trackIDs[0] }
+	}
 	ps.mu.Lock()
 	defer ps.mu.Unlock()
 	touched := 0
@@ -304,17 +398,9 @@ func (ps *PlaylistStore) RemoveTrackFromAll(trackID uint32) int {
 		if p.IsFolder || p.IsSmart {
 			continue
 		}
-		kept := p.TrackIDs[:0]
-		removed := false
-		for _, id := range p.TrackIDs {
-			if id == trackID {
-				removed = true
-				continue
-			}
-			kept = append(kept, id)
-		}
-		if removed {
-			p.TrackIDs = kept
+		n := len(p.TrackIDs)
+		p.TrackIDs = slices.DeleteFunc(p.TrackIDs, drop)
+		if len(p.TrackIDs) < n {
 			touched++
 		}
 	}

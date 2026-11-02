@@ -153,31 +153,10 @@ func (s *Server) handleTracks(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if r.Method == http.MethodDelete {
-			if s.Library == nil || s.Library.Track(trackID) == nil {
+			if s.Library == nil || s.deleteTracks([]uint32{trackID}) == 0 {
 				jsonError(w, "track not found", http.StatusNotFound)
 				return
 			}
-			// Cascade cleanup: drop the track from playlists, tag/colour
-			// /rating maps, and cue store so we don't leave dangling
-			// references. The library entry goes last so callers reading
-			// during cleanup still see a consistent track record.
-			if s.Playlists != nil {
-				s.Playlists.RemoveTrackFromAll(trackID)
-			}
-			if s.Tags != nil {
-				s.Tags.RemoveAllTrackData(trackID)
-			}
-			if s.Cues != nil {
-				s.Cues.DeleteAllForTrack(trackID)
-			}
-			// Free the in-memory analysis entry (it holds the waveform
-			// blobs) and any stale queue marker. The on-disk analysis
-			// cache is kept on purpose: it is keyed by file path, so
-			// re-adding the same file reuses it instead of re-analyzing.
-			if s.Analysis != nil {
-				s.Analysis.Remove(trackID)
-			}
-			s.Library.RemoveTrack(trackID)
 			dlog.Infof("api: deleted track %d (library + playlists + tags + cues + analysis)", trackID)
 			ok(w)
 			return
