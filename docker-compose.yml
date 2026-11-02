@@ -1,0 +1,22 @@
+# Vynull via docker compose.
+#
+# Host networking is REQUIRED: Pro DJ Link discovery is UDP broadcast and the
+# daemon binds a real interface, neither of which work on a bridge network.
+# Set the interface and music path for your host below, then: docker compose up
+services:
+  vynull:
+    build: .
+    image: ghcr.io/vynulldev/vynull
+    network_mode: host
+    command: >
+      --interface eth0
+      --music-dir /music
+      --web
+      --listen 0.0.0.0:9443
+    volumes:
+      - vynull-state:/data
+      - /path/to/music:/music:ro
+    restart: unless-stopped
+
+volumes:
+  vynull-state:
