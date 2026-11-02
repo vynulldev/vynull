@@ -207,6 +207,75 @@ func tempoPrior(bpm float64) float64 {
 	return math.Exp(-0.5 * x * x)
 }
 
+// chooseTempo picks the tempo among rawBPM's harmonics with the best
+// prior-weighted autocorrelation support inside the tempo window.
+func chooseTempo(corrs []float64, minLag, maxLag int, framesPerSec, rawBPM float64) float64 {
+	// Multi-ratio correction: test the raw BPM and common multiples/divisions.
+	// Autocorrelation can lock onto harmonics (2x, 3x) or subharmonics (1/2, 1/3)
+	// as well as triplet ratios (3/4, 4/3). Score each candidate by checking
+	// the autocorrelation strength at that specific lag.
+	// The raw BPM from the interpolated peak is precise at the original harmonic.
+	// Now find which ratio candidate is in the 80-170 range with the best
+	// autocorrelation support.
+	ratios := []float64{1, 0.5, 2, 1.0 / 3, 3, 0.75, 4.0 / 3, 1.5, 2.0 / 3}
+
+	// Accept candidates within the configured tempo window (default 80-170).
+	// The ratio list already covers the half/third harmonics, so an explicit
+	// fast range (e.g. 160-185 for DnB) makes the real tempo the only ratio
+	// that lands in-window and lets it win instead of its half.
+	tempoLo, tempoHi := tempoWindow()
+
+	bpm := rawBPM
+	bestCandScore := 0.0
+	for _, r := range ratios {
+		c := rawBPM * r
+		if c < tempoLo || c > tempoHi {
+			continue
+		}
+		// Check autocorrelation support at this candidate's lag.
+		candLag := int(math.Round(framesPerSec * 60.0 / c))
+		if candLag < minLag || candLag > maxLag {
+			continue
+		}
+		// Weight the autocorrelation support by a perceptual tempo prior so a
+		// strong sub-/super-harmonic (e.g. the 2/3 lag of a 124 BPM track at
+		// 82.7) doesn't win over the musically-correct tempo.
+		score := corrs[candLag] * tempoPrior(c)
+		if score > bestCandScore {
+			bestCandScore = score
+			// Use the precisely interpolated raw BPM × ratio.
+			// This preserves the sub-frame precision from the original peak.
+			bpm = rawBPM * r
+		}
+	}
+	if bestCandScore > 0 {
+		return bpm
+	}
+
+	// None of the harmonics landed in the window — a narrow explicit range can
+	// sit between them (a 77 BPM track whose raw peak is ~104 has its 3/4 at
+	// 78.03, just outside 76-78). Returning rawBPM would ignore the range, so
+	// search the window's own lags instead.
+	lo := max(int(math.Ceil(framesPerSec*60.0/tempoHi)), minLag+1)
+	hi := min(int(math.Floor(framesPerSec*60.0/tempoLo)), maxLag-1)
+	best, bestScore := 0, 0.0
+	for lag := lo; lag <= hi; lag++ {
+		if score := corrs[lag] * tempoPrior(framesPerSec*60.0/float64(lag)); score > bestScore {
+			best, bestScore = lag, score
+		}
+	}
+	if best == 0 {
+		return bpm
+	}
+	refined := float64(best)
+	if denom := corrs[best-1] - 2*corrs[best] + corrs[best+1]; math.Abs(denom) > 1e-10 {
+		if d := 0.5 * (corrs[best-1] - corrs[best+1]) / denom; math.Abs(d) < 1 {
+			refined += d
+		}
+	}
+	return math.Min(math.Max(framesPerSec*60.0/refined, tempoLo), tempoHi)
+}
+
 // DetectBeats finds individual beat positions and computes BPM from them, using
 // the lossy-codec latency compensation. Callers that know the source format
 // should prefer DetectBeatsWithEncoderDelay (with EncoderDelayMs) so lossless
@@ -465,44 +534,7 @@ func detectBeats(ctx context.Context, samples []float32, sampleRate int, encoder
 
 	rawBPM := 60.0 * framesPerSec / refinedLag
 
-	// Multi-ratio correction: test the raw BPM and common multiples/divisions.
-	// Autocorrelation can lock onto harmonics (2x, 3x) or subharmonics (1/2, 1/3)
-	// as well as triplet ratios (3/4, 4/3). Score each candidate by checking
-	// the autocorrelation strength at that specific lag.
-	// The raw BPM from the interpolated peak is precise at the original harmonic.
-	// Now find which ratio candidate is in the 80-170 range with the best
-	// autocorrelation support.
-	ratios := []float64{1, 0.5, 2, 1.0 / 3, 3, 0.75, 4.0 / 3, 1.5, 2.0 / 3}
-
-	// Accept candidates within the configured tempo window (default 80-170).
-	// The ratio list already covers the half/third harmonics, so an explicit
-	// fast range (e.g. 160-185 for DnB) makes the real tempo the only ratio
-	// that lands in-window and lets it win instead of its half.
-	tempoLo, tempoHi := tempoWindow()
-
-	bpm := rawBPM
-	bestCandScore := 0.0
-	for _, r := range ratios {
-		c := rawBPM * r
-		if c < tempoLo || c > tempoHi {
-			continue
-		}
-		// Check autocorrelation support at this candidate's lag.
-		candLag := int(math.Round(framesPerSec * 60.0 / c))
-		if candLag < minLag || candLag > maxLag {
-			continue
-		}
-		// Weight the autocorrelation support by a perceptual tempo prior so a
-		// strong sub-/super-harmonic (e.g. the 2/3 lag of a 124 BPM track at
-		// 82.7) doesn't win over the musically-correct tempo.
-		score := corrs[candLag] * tempoPrior(c)
-		if score > bestCandScore {
-			bestCandScore = score
-			// Use the precisely interpolated raw BPM × ratio.
-			// This preserves the sub-frame precision from the original peak.
-			bpm = rawBPM * r
-		}
-	}
+	bpm := chooseTempo(corrs, minLag, maxLag, framesPerSec, rawBPM)
 
 	bpm = math.Round(bpm*100) / 100
 	if ctx.Err() != nil {
