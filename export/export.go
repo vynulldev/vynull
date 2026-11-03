@@ -156,8 +156,18 @@ func Run(opts Options) error {
 			phase("analysing", wAnalyse*float64(done)/float64(total))
 		})
 
+	// A merge export leaves the tracks the stick already holds where they
+	// are (keepOnStick); only the rest are laid out and copied.
+	existingPdbPath := filepath.Join(opts.DestDir, "PIONEER", "rekordbox", "export.pdb")
+	layout := tracks
+	if opts.Merge {
+		if existing, err := pdb.Open(existingPdbPath); err == nil {
+			layout = keepOnStick(tracks, opts.DestDir, existing.Tracks)
+		}
+	}
+
 	phase("laying out files", wAnalyse)
-	if err := pdb.PrepareUSBLayout(tracks, opts.SrcDir, opts.DestDir, opts.CopyFiles); err != nil {
+	if err := pdb.PrepareUSBLayout(layout, opts.SrcDir, opts.DestDir, opts.CopyFiles); err != nil {
 		return fmt.Errorf("export: preparing USB layout: %w", err)
 	}
 
@@ -196,7 +206,6 @@ func Run(opts Options) error {
 	// `opts.Playlists` with any pre-existing playlists.
 	var mergeBase *pdb.MergeBase
 	if opts.Merge {
-		existingPdbPath := filepath.Join(opts.DestDir, "PIONEER", "rekordbox", "export.pdb")
 		mb, err := pdb.LoadForMerge(existingPdbPath)
 		if err != nil {
 			dlog.Warnf("export: merge requested but could not load %s: %v (proceeding as fresh export)", existingPdbPath, err)
