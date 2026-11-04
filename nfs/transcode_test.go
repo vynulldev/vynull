@@ -437,7 +437,9 @@ func TestMP3StartsWithAudio(t *testing.T) {
 // TestMP3SizePredicted converts files of awkward lengths and rates and
 // checks each MP3 is the size predicted before the conversion: at and around
 // frame boundaries, mono, 32 to 48 kHz as they are, and 22.05 and 96 kHz
-// resampled. A FLAC written without its length gets no prediction.
+// resampled. A FLAC written without its length gets no prediction. The files
+// are FLACs except the one-sample file, a WAV: ffmpeg 9's FLAC encoder refuses
+// to write one sample ("invalid block size: 1").
 func TestMP3SizePredicted(t *testing.T) {
 	needFFmpeg(t)
 	dir := t.TempDir()
@@ -448,7 +450,11 @@ func TestMP3SizePredicted(t *testing.T) {
 		{44100, 1, 2}, {44100, 1151, 2}, {44100, 1152, 2}, {44100, 1153, 2}, {44100, 123457, 2},
 		{48000, 99999, 2}, {32000, 50000, 2}, {44100, 44100, 1}, {22050, 30001, 2}, {96000, 200001, 2},
 	} {
-		path := filepath.Join(dir, fmt.Sprintf("%d-%d-%d.flac", c.rate, c.samples, c.channels))
+		ext := "flac"
+		if c.samples < 16 {
+			ext = "wav"
+		}
+		path := filepath.Join(dir, fmt.Sprintf("%d-%d-%d.%s", c.rate, c.samples, c.channels, ext))
 		if _, err := ffmpeg.Run(ctx, "-f", "lavfi", "-i", fmt.Sprintf("sine=frequency=440:sample_rate=%d", c.rate),
 			"-af", fmt.Sprintf("atrim=end_sample=%d", c.samples), "-ac", fmt.Sprint(c.channels), path); err != nil {
 			t.Fatal(err)
