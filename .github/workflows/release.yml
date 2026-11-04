@@ -21,9 +21,9 @@ jobs:
       matrix:
         goarch: [amd64, arm64]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
 
@@ -38,7 +38,7 @@ jobs:
           go build -trimpath -ldflags="-s -w -X github.com/vynulldev/vynull/internal/buildinfo.Version=${GITHUB_REF_NAME}" -o vynull .
           tar -czf "vynull-${GITHUB_REF_NAME}-linux-${GOARCH}.tar.gz" vynull LICENSE README.md
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: vynull-${{ matrix.goarch }}
           path: 'vynull-*.tar.gz'
@@ -48,13 +48,13 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           path: dist
           merge-multiple: true
 
       - name: Publish release (draft)
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           files: dist/*.tar.gz
           draft: true
