@@ -55,7 +55,10 @@ const AnalysisRate = 44100
 // re-encode.
 // Bumped to 33 for the wide snap check (widenSnap): a detection 1-3 BPM off
 // the true tempo now finds it, so v32 BPMs and grids re-analyze.
-const cacheVersion = 33
+// Bumped to 34 for the family check (checkFamily): a tempo a factor of three
+// off the true one's octave now moves to the true family, so v33 BPMs and
+// grids re-analyze.
+const cacheVersion = 34
 
 // PWV4Override and PWV5Override, when non-nil, replace every track's color
 // preview / detail waveform at serve time. Set via the --pwv4-override /
