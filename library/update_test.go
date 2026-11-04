@@ -134,7 +134,7 @@ func TestTrackByPathIndex(t *testing.T) {
 	if at("/a.mp3") != 1 || at("/b.mp3") != 0 {
 		t.Errorf("after moving 1 back: /a %d, /b %d; want 1 (added first), 0", at("/a.mp3"), at("/b.mp3"))
 	}
-	lib.RemoveTrack(1)
+	lib.RemoveTracks([]uint32{1})
 	if at("/a.mp3") != 2 {
 		t.Errorf("after removing 1: /a %d, want 2", at("/a.mp3"))
 	}
@@ -153,7 +153,7 @@ func TestSnapshotsSurviveChanges(t *testing.T) {
 		&library.Track{ID: 3, Artist: "X"},
 	)
 	all, byArtist := lib.Tracks(), lib.TracksByArtist("X")
-	lib.RemoveTrack(1)
+	lib.RemoveTracks([]uint32{1})
 	if !slices.Equal(ids(all), []uint32{1, 2, 3}) || !slices.Equal(ids(byArtist), []uint32{1, 2, 3}) {
 		t.Errorf("held slices changed: %v, %v; want [1 2 3] for both", ids(all), ids(byArtist))
 	}
@@ -178,5 +178,38 @@ func TestUpdateBulk(t *testing.T) {
 	lib.FinalizeBulk()
 	if lib.Rev() == rev || !slices.Equal(lib.Artists(), []string{"Y"}) {
 		t.Errorf("after FinalizeBulk: rev moved %v, artists %v", lib.Rev() != rev, lib.Artists())
+	}
+}
+
+// RemoveTracks takes several tracks out as one change: their entries in
+// every index and name list go and the rest stay. A repeat or an ID the
+// library doesn't hold is skipped.
+func TestRemoveTracks(t *testing.T) {
+	lib := newLib(
+		&library.Track{ID: 1, Artist: "X", Genre: "G", FilePath: "/1.mp3"},
+		&library.Track{ID: 2, Artist: "X", Genre: "H", FilePath: "/2.mp3"},
+		&library.Track{ID: 3, Artist: "Y", Genre: "G", FilePath: "/3.mp3"},
+	)
+	rev := lib.Rev()
+	if n := lib.RemoveTracks([]uint32{3, 1, 99, 1}); n != 2 {
+		t.Fatalf("removed %d, want 2", n)
+	}
+	if lib.Rev() != rev+1 {
+		t.Errorf("revision moved %d times, want once", lib.Rev()-rev)
+	}
+	if got := ids(lib.Tracks()); !slices.Equal(got, []uint32{2}) {
+		t.Errorf("tracks %v, want [2]", got)
+	}
+	if lib.Track(1) != nil || lib.TrackByPath("/1.mp3") != nil || lib.TrackByPath("/3.mp3") != nil {
+		t.Error("a removed track is still found by ID or path")
+	}
+	if got := ids(lib.TracksByArtist("X")); !slices.Equal(got, []uint32{2}) {
+		t.Errorf("artist X: %v, want [2]", got)
+	}
+	if a, g := lib.Artists(), lib.Genres(); !slices.Equal(a, []string{"X"}) || !slices.Equal(g, []string{"H"}) {
+		t.Errorf("artists %v, genres %v; want [X], [H]", a, g)
+	}
+	if n := lib.RemoveTracks([]uint32{1, 99}); n != 0 || lib.Rev() != rev+1 {
+		t.Errorf("removing nothing: %d removed, revision moved %d times; want 0, once in all", n, lib.Rev()-rev)
 	}
 }

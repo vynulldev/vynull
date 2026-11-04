@@ -188,6 +188,34 @@ paths:
       requestBody: { required: true, content: { application/json: { schema: { type: object, required: [track_ids], properties: { track_ids: { $ref: "#/components/schemas/TrackIDs" }, add: { type: array, items: { type: integer, format: int64 } }, remove: { type: array, items: { type: integer, format: int64 } } } } } } }
       responses: { "200": { description: OK, content: { application/json: { schema: { $ref: "#/components/schemas/BatchResult" } } } }, "400": { description: No track_ids, nothing to add or remove, or an added tag that doesn't exist. } }
 
+  /api/tracks/playlists:
+    post:
+      tags: [Playlists]
+      summary: Add several tracks to playlists, or remove them.
+      description: |
+        Adds the tracks to the end of each playlist in `add`, in the order
+        given and skipping any a playlist already holds, and removes every
+        entry of them from each playlist in `remove`. Removes go first, so a
+        playlist in both ends with the tracks at its end. The server edits
+        the list it holds, so unlike setting a membership read earlier, this
+        can't drop a track another client added in between. Track IDs the
+        library doesn't hold are skipped, and `updated` counts the tracks
+        whose membership changed. A folder, a smart playlist or a missing
+        playlist fails the whole request, changing nothing.
+      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [track_ids], properties: { track_ids: { $ref: "#/components/schemas/TrackIDs" }, add: { type: array, description: Playlist IDs., items: { type: integer, format: int64 } }, remove: { type: array, description: Playlist IDs., items: { type: integer, format: int64 } } } } } } }
+      responses: { "200": { description: OK, content: { application/json: { schema: { $ref: "#/components/schemas/BatchResult" } } } }, "400": { description: No track_ids, nothing to add or remove, or a playlist that is a folder, smart or missing. }, "403": { description: A served-USB playlist, which is read-only. } }
+
+  /api/tracks/delete:
+    post:
+      tags: [Library]
+      summary: Delete several tracks (cascades to playlists, tags, cues, analysis).
+      description: |
+        What DELETE /api/tracks/{id} does, for a selection in one change. The
+        audio files are never touched. Track IDs the library doesn't hold are
+        skipped, and `updated` counts the tracks deleted.
+      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [track_ids], properties: { track_ids: { $ref: "#/components/schemas/TrackIDs" } } } } } }
+      responses: { "200": { description: OK, content: { application/json: { schema: { $ref: "#/components/schemas/BatchResult" } } } }, "400": { description: No track_ids. } }
+
   /api/tracks/add:
     post:
       tags: [Library]
@@ -340,7 +368,7 @@ paths:
   /api/playlists/{id}/tracks:
     parameters: [ { name: id, in: path, required: true, schema: { type: integer, format: int64 } } ]
     get: { tags: [Playlists], summary: Tracks in a playlist (smart rules evaluated live)., responses: { "200": { description: OK, content: { application/json: { schema: { type: array, items: { $ref: "#/components/schemas/TrackInfo" } } } } } } }
-    post: { tags: [Playlists], summary: Set membership (rejected for smart playlists)., requestBody: { required: true, content: { application/json: { schema: { type: object, properties: { track_ids: { type: array, items: { type: integer, format: int64 } } } } } } }, responses: { "200": { description: OK, content: { application/json: { schema: { $ref: "#/components/schemas/Ack" } } } } } }
+    post: { tags: [Playlists], summary: Set membership, replacing it (rejected for smart playlists). To add or remove tracks without replacing it, use POST /api/tracks/playlists., requestBody: { required: true, content: { application/json: { schema: { type: object, properties: { track_ids: { type: array, items: { type: integer, format: int64 } } } } } } }, responses: { "200": { description: OK, content: { application/json: { schema: { $ref: "#/components/schemas/Ack" } } } } } }
 
   /api/playlists/{id}/rules:
     parameters: [ { name: id, in: path, required: true, schema: { type: integer, format: int64 } } ]
@@ -663,8 +691,8 @@ components:
 
     Ack: { type: object, required: [ok], properties: { ok: { type: boolean, enum: [true] } }, description: A write with nothing else to return. }
     Error: { type: object, required: [error], properties: { error: { type: string } }, description: 'The body of every error answer, e.g. {"error": "track not found"}.' }
-    TrackIDs: { type: array, minItems: 1, items: { type: integer, format: int64 }, description: The tracks a batch edit applies to. }
-    BatchResult: { type: object, properties: { updated: { type: integer, description: How many tracks the edit changed. } } }
+    TrackIDs: { type: array, minItems: 1, items: { type: integer, format: int64 }, description: The tracks a batch edit applies to. A repeat is dropped; the order is kept. }
+    BatchResult: { type: object, properties: { updated: { type: integer, description: "How many tracks the request changed: edited, added to or removed from a playlist, or deleted." } } }
 
     StatusResponse:
       type: object

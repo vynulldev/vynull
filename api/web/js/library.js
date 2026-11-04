@@ -480,27 +480,22 @@ async function bulkDeleteTracks() {
     title: `REMOVE ${ids.length} TRACK${ids.length === 1 ? '' : 'S'}`,
     message: msg, okLabel: 'REMOVE', danger: true,
   })) return;
-  const results = await Promise.allSettled(ids.map(id =>
-    fetch(`/api/tracks/${id}`, { method: 'DELETE' })));
-  const failed = results.filter(r => r.status !== 'fulfilled' || !r.value.ok).length;
-  // Optimistically prune local state for whatever succeeded; the next
-  // poll will resync against the server.
-  const ok = ids.filter((_, i) => {
-    const r = results[i];
-    return r.status === 'fulfilled' && r.value.ok;
-  });
-  if (ok.length > 0) {
-    const okSet = new Set(ok);
-    allTracks = allTracks.filter(t => !okSet.has(t.id));
-    rememberTracksSnapshot();
-    clearBulkSelection();
-    refreshLibraryView();
-  }
-  if (failed > 0) {
-    toast(`DELETED ${ok.length}, FAILED ${failed}`, 'error');
-  } else {
-    toast(`DELETED ${ok.length} TRACK${ok.length === 1 ? '' : 'S'}`, 'success');
-  }
+  // One request for the whole selection: the server removes them as one
+  // change, skipping any another client already removed.
+  let n;
+  try {
+    ({ updated: n } = await fetchJSON('/api/tracks/delete', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ track_ids: ids }),
+    }));
+  } catch (e) { toast('DELETE FAILED · ' + e.message.toUpperCase(), 'error'); return; }
+  // Prune local state now; the next poll will resync against the server.
+  const gone = new Set(ids);
+  allTracks = allTracks.filter(t => !gone.has(t.id));
+  rememberTracksSnapshot();
+  clearBulkSelection();
+  refreshLibraryView();
+  toast(`DELETED ${n} TRACK${n === 1 ? '' : 'S'}`, 'success');
 }
 
 // Bulk colour: reuses the swatch picker UI; one PUT /api/tracks/color
@@ -631,27 +626,9 @@ function openBulkPlaylistPicker(anchorEl) {
   menu.style.top = (r.top - Math.min(menu.offsetHeight, 360) - 6) + 'px';
   menu.querySelectorAll('.picker-item').forEach(item => item.addEventListener('click', async () => {
     const plID = parseInt(item.getAttribute('data-pl-id'), 10);
-    const ids = Array.from(bulkSelectedIDs);
-    let cur;
-    try {
-      cur = await fetchJSON(`/api/playlists/${plID}/tracks`);
-    } catch (e) {
-      closeColorPicker();
-      toast('ADD FAILED · ' + e.message.toUpperCase(), 'error');
-      return; // writing the membership back now would drop its tracks
-    }
-    const have = Array.isArray(cur) ? cur.map(t => t.id) : [];
-    const next = [...have];
-    let added = 0;
-    for (const tid of ids) {
-      if (!next.includes(tid)) { next.push(tid); added++; }
-    }
-    const w = await fetch(`/api/playlists/${plID}/tracks`, {
-      method: 'POST', headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({ track_ids: next }),
-    });
+    const added = await editPlaylistTracks(plID, Array.from(bulkSelectedIDs), 'add');
     closeColorPicker();
-    if (!w.ok) { toast('ADD FAILED · ' + (await errorText(w)).toUpperCase(), 'error'); return; }
+    if (added === null) return;
     await loadPlaylists(true);
     const pl = (playlistsCache || []).find(p => p.id === plID);
     toast(`+ ${added} → ${(pl && pl.name || '').toUpperCase()}`, 'success');

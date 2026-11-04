@@ -16,12 +16,15 @@ import (
 // selection: one request for many tracks, applied as one change to the store,
 // instead of one request (and one deck refresh) per track.
 //
-//	PUT  /api/tracks/color   {"track_ids": [...], "color_id": 0-8}
-//	PUT  /api/tracks/rating  {"track_ids": [...], "rating": 0-5}
-//	POST /api/tracks/tags    {"track_ids": [...], "add": [...], "remove": [...]}
+//	PUT  /api/tracks/color      {"track_ids": [...], "color_id": 0-8}
+//	PUT  /api/tracks/rating     {"track_ids": [...], "rating": 0-5}
+//	POST /api/tracks/tags       {"track_ids": [...], "add": [...], "remove": [...]}
+//	POST /api/tracks/playlists  {"track_ids": [...], "add": [...], "remove": [...]}
+//	POST /api/tracks/delete     {"track_ids": [...]}
 //
-// Each answers {"updated": n}, the number of tracks it changed. Track IDs
-// the library doesn't hold are skipped.
+// Each answers {"updated": n}, the number of tracks it changed: edited,
+// added to or removed from a playlist, or deleted. Track IDs the library
+// doesn't hold are skipped.
 
 type batchResult struct {
 	Updated int `json:"updated"`
@@ -84,13 +87,7 @@ func (s *Server) handleTracksTags(w http.ResponseWriter, r *http.Request) {
 		jsonError(w, "add or remove required", http.StatusBadRequest)
 		return
 	}
-	var known []uint32
-	for _, id := range req.TrackIDs {
-		if s.Library.Track(id) != nil {
-			known = append(known, id)
-		}
-	}
-	changed, err := s.Tags.EditTags(known, req.Add, req.Remove)
+	changed, err := s.Tags.EditTags(s.knownTracks(req.TrackIDs), req.Add, req.Remove)
 	if err != nil {
 		jsonError(w, err.Error(), http.StatusBadRequest)
 		return
@@ -102,9 +99,93 @@ func (s *Server) handleTracksTags(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, batchResult{len(changed)})
 }
 
+// handleTracksPlaylists adds the tracks to the end of each playlist in add,
+// in the order given and skipping those a playlist already holds, and
+// removes every entry of them from each playlist in remove. The store edits
+// the lists it holds, so unlike replacing a list read earlier it can't drop
+// a track another client added in between.
+func (s *Server) handleTracksPlaylists(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		TrackIDs []uint32 `json:"track_ids"`
+		Add      []uint32 `json:"add"`
+		Remove   []uint32 `json:"remove"`
+	}
+	if !s.batchRequest(w, r, http.MethodPost, &req, &req.TrackIDs) {
+		return
+	}
+	if s.Playlists == nil {
+		jsonError(w, "playlist store not available", http.StatusServiceUnavailable)
+		return
+	}
+	if len(req.Add)+len(req.Remove) == 0 {
+		jsonError(w, "add or remove required", http.StatusBadRequest)
+		return
+	}
+	for _, id := range slices.Concat(req.Add, req.Remove) {
+		if id&usbPlaylistIDBit != 0 {
+			jsonError(w, "playlists on a served rekordbox USB are read-only", http.StatusForbidden)
+			return
+		}
+	}
+	changed, err := s.Playlists.EditTracks(s.knownTracks(req.TrackIDs), req.Add, req.Remove)
+	if err != nil {
+		jsonError(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	writeJSON(w, batchResult{len(changed)})
+}
+
+func (s *Server) handleTracksDelete(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		TrackIDs []uint32 `json:"track_ids"`
+	}
+	if !s.batchRequest(w, r, http.MethodPost, &req, &req.TrackIDs) {
+		return
+	}
+	n := s.deleteTracks(req.TrackIDs)
+	dlog.Infof("api: deleted %d tracks (library + playlists + tags + cues + analysis)", n)
+	writeJSON(w, batchResult{n})
+}
+
+// deleteTracks removes tracks from the library along with what refers to
+// them: their playlist entries, tags, cues and in-memory analysis, which
+// holds the waveforms. It never touches the audio files, and keeps the
+// on-disk analysis cache on purpose: that is keyed by file path, so adding
+// the same file again reuses it instead of analysing it again. Tracks the
+// library doesn't hold are skipped; it returns how many it removed.
+func (s *Server) deleteTracks(ids []uint32) int {
+	ids = s.knownTracks(ids)
+	if len(ids) == 0 {
+		return 0
+	}
+	// The library entries go last, so a reader during the cleanup still
+	// finds each track.
+	if s.Playlists != nil {
+		s.Playlists.RemoveTracksFromAll(ids)
+	}
+	for _, id := range ids {
+		if s.Tags != nil {
+			s.Tags.RemoveAllTrackData(id)
+		}
+		if s.Cues != nil {
+			s.Cues.DeleteAllForTrack(id)
+		}
+		if s.Analysis != nil {
+			s.Analysis.Remove(id)
+		}
+	}
+	return s.Library.RemoveTracks(ids)
+}
+
+// knownTracks is ids without those the library doesn't hold.
+func (s *Server) knownTracks(ids []uint32) []uint32 {
+	return slices.DeleteFunc(slices.Clone(ids), func(id uint32) bool { return s.Library.Track(id) == nil })
+}
+
 // batchRequest decodes a batch edit's body into req, refusing another
-// method, bad JSON or an empty selection. It reports whether the handler
-// should go on.
+// method, bad JSON or an empty selection, and drops repeated track IDs,
+// keeping the order given, which a playlist add appends in. It reports
+// whether the handler should go on.
 func (s *Server) batchRequest(w http.ResponseWriter, r *http.Request, method string, req any, trackIDs *[]uint32) bool {
 	if !allow(w, r, method) {
 		return false
@@ -121,8 +202,12 @@ func (s *Server) batchRequest(w http.ResponseWriter, r *http.Request, method str
 		jsonError(w, "track_ids required", http.StatusBadRequest)
 		return false
 	}
-	slices.Sort(*trackIDs)
-	*trackIDs = slices.Compact(*trackIDs)
+	seen := make(map[uint32]bool, len(*trackIDs))
+	*trackIDs = slices.DeleteFunc(*trackIDs, func(id uint32) bool {
+		repeat := seen[id]
+		seen[id] = true
+		return repeat
+	})
 	return true
 }
 

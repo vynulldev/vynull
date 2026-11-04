@@ -394,6 +394,25 @@ Bulk-rewrite a file-path prefix across the whole library (e.g.
 {"from": "Z:/Music/", "to": "/media/usb/Music/"}
 ```
 
+#### Batch edits
+
+Edit a selection of tracks in one request, applied as one change, instead of
+a request per track. Each takes `track_ids` and answers `{"updated": n}`, the
+number of tracks it changed; IDs the library doesn't hold are skipped.
+
+- `PUT /api/tracks/color` `{"track_ids": [...], "color_id": 4}` and
+  `PUT /api/tracks/rating` `{"track_ids": [...], "rating": 3}`.
+- `POST /api/tracks/tags` `{"track_ids": [...], "add": [1], "remove": [2]}`
+  adds and removes tags by ID, keeping each track's other tags.
+- `POST /api/tracks/playlists` `{"track_ids": [...], "add": [7], "remove": [8]}`
+  appends the tracks to each playlist in `add`, in the order given and
+  skipping any it already holds, and removes them from each in `remove`. The
+  server edits the list it holds, so unlike setting a playlist's tracks from
+  a copy read earlier, it can't drop a track another client just added.
+- `POST /api/tracks/delete` `{"track_ids": [...]}` removes the tracks from
+  the library, their playlists, tags and cues, as `DELETE /api/tracks/{id}`
+  does for one. The audio files are never touched.
+
 #### `POST /api/export`
 
 Write a rekordbox-compatible USB export (PDB + ANLZ + settings) from the

@@ -365,28 +365,45 @@ func (l *Library) FinalizeBulk() {
 	l.Save()
 }
 
-// RemoveTrack drops a track from the in-memory library and persists the
-// change. Does NOT touch the underlying audio file. Returns true if the
-// track existed.
-func (l *Library) RemoveTrack(id uint32) bool {
+// RemoveTracks drops tracks from the in-memory library and persists the
+// change, as one change however many there are. Does NOT touch the
+// underlying audio files. IDs the library doesn't hold are skipped; it
+// returns how many tracks it removed.
+func (l *Library) RemoveTracks(ids []uint32) int {
 	l.mu.Lock()
-	t := l.byID[id]
-	if t == nil {
+	gone := make(map[*Track]uint32, len(ids)) // each track leaving, by its ID
+	for _, id := range ids {
+		if t := l.byID[id]; t != nil {
+			gone[t] = id
+		}
+	}
+	if len(gone) == 0 {
 		l.mu.Unlock()
-		return false
+		return 0
+	}
+	leaving := func(t *Track) bool {
+		_, ok := gone[t]
+		return ok
+	}
+	if len(gone) == 1 { // a single DELETE: compare, rather than look up each track
+		for only := range gone {
+			leaving = func(t *Track) bool { return t == only }
+		}
 	}
 	// New slices, not in-place deletes: callers may hold the old ones.
-	l.tracks = slices.DeleteFunc(slices.Clone(l.tracks), func(tr *Track) bool { return tr == t })
-	l.unindexLocked(l.byPath, t.FilePath, t)
-	l.unindexNameLocked(l.byArtist, t.Artist, t)
-	l.unindexNameLocked(l.byAlbum, t.Album, t)
-	l.unindexNameLocked(l.byGenre, t.Genre, t)
-	delete(l.byID, id)
-	delete(l.order, id)
+	l.tracks = slices.DeleteFunc(slices.Clone(l.tracks), leaving)
+	for t, id := range gone {
+		l.unindexLocked(l.byPath, t.FilePath, t)
+		l.unindexNameLocked(l.byArtist, t.Artist, t)
+		l.unindexNameLocked(l.byAlbum, t.Album, t)
+		l.unindexNameLocked(l.byGenre, t.Genre, t)
+		delete(l.byID, id)
+		delete(l.order, id)
+	}
 	l.rebuildLists()
 	l.mu.Unlock()
 	l.Save()
-	return true
+	return len(gone)
 }
 
 // SetDBPath sets the path for persisting the track list. If the file exists, loads it.
