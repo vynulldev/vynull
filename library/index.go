@@ -70,6 +70,9 @@ type Library struct {
 
 	dbPath string // if set, persist track list to this JSON file
 
+	// overlay, when set, keeps a library built from a music dir as the
+	// edits made to it (see UseOverlay); the saver then writes that.
+	overlay *overlayState
 	// saver writes the track list in the background once dbPath is set
 	// (writer.go).
 	saver *saver.Saver
