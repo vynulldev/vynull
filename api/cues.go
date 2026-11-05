@@ -133,6 +133,17 @@ func (s *Server) handleCues(w http.ResponseWriter, r *http.Request) {
 		if cue.Type == "" {
 			cue.Type = "cue"
 		}
+		if cue.Type != "cue" && cue.Type != "loop" {
+			jsonError(w, "cue type must be cue or loop", http.StatusBadRequest)
+			return
+		}
+		if cue.Type == "loop" && (cue.LoopMs < 0 || uint32(cue.LoopMs) <= cue.TimeMs) {
+			jsonError(w, "loop end must be after its start", http.StatusBadRequest)
+			return
+		}
+		if cue.Type == "cue" {
+			cue.LoopMs = -1
+		}
 		s.Cues.SaveCue(trackID, cue)
 		dlog.Infof("api: saved cue #%d for track %d at %dms (color=%d)",
 			cue.Number, trackID, cue.TimeMs, cue.ColorID)
@@ -141,9 +152,7 @@ func (s *Server) handleCues(w http.ResponseWriter, r *http.Request) {
 			// colour edit shows without reloading it.
 			s.Device.BroadcastTrackRefresh(trackID)
 		}
-		writeJSON(w, struct {
-			OK bool `json:"ok"`
-		}{true})
+		s.confirmCueWrite(w)
 
 	case "DELETE":
 		if len(parts) < 3 {
@@ -161,8 +170,24 @@ func (s *Server) handleCues(w http.ResponseWriter, r *http.Request) {
 		if s.Device != nil {
 			s.Device.BroadcastTrackRefresh(trackID)
 		}
-		writeJSON(w, struct {
-			OK bool `json:"ok"`
-		}{true})
+		s.confirmCueWrite(w)
 	}
+}
+
+// Optional so alternate cue stores retain compatibility without claiming a disk
+// guarantee they do not implement. A failure may leave an in-memory edit; do not
+// report success or roll back over changes made concurrently by a deck/client.
+func (s *Server) confirmCueWrite(w http.ResponseWriter) {
+	persisted := false
+	if store, ok := s.Cues.(interface{ Flush() error }); ok {
+		if err := store.Flush(); err != nil {
+			jsonError(w, "cue changed in memory, but disk persistence failed: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+		persisted = true
+	}
+	writeJSON(w, struct {
+		OK        bool `json:"ok"`
+		Persisted bool `json:"persisted"`
+	}{true, persisted})
 }
