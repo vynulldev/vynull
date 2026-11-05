@@ -50,7 +50,9 @@ const AnalysisRate = 44100
 // are placed on the kick's measured attack. Most detected grids move by a few
 // ms. Hand-edited grids ride across the bump via gridCarry, as before.
 // Bumped to 31: beat 1 moves off a silent first beat (SilentLeadIndex).
-const cacheVersion = 31
+// Bumped to 32 for the wide snap check (widenSnap): a detection 1-3 BPM off
+// the true tempo now finds it, so v31 BPMs and grids re-analyze.
+const cacheVersion = 32
 
 // PWV4Override and PWV5Override, when non-nil, replace every track's color
 // preview / detail waveform at serve time. Set via the --pwv4-override /
