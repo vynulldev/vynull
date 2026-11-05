@@ -54,13 +54,13 @@ func TestCORSHeaders(t *testing.T) {
 				t.Errorf("Allow-Origin = %q, want *", got)
 			}
 			allow := w.Header().Get("Access-Control-Allow-Headers")
-			for _, want := range []string{"Content-Type", "If-None-Match"} {
+			for _, want := range []string{"Content-Type", "If-None-Match", "X-Vynull-Library-Session"} {
 				if !contains(allow, want) {
 					t.Errorf("Allow-Headers %q missing %q", allow, want)
 				}
 			}
 			expose := w.Header().Get("Access-Control-Expose-Headers")
-			for _, want := range []string{"ETag", "X-Audio-Source"} {
+			for _, want := range []string{"ETag", "X-Audio-Source", "X-Vynull-Library-Session"} {
 				if !contains(expose, want) {
 					t.Errorf("Expose-Headers %q missing %q", expose, want)
 				}
@@ -78,8 +78,8 @@ func TestCORSHeadersEveryRoute(t *testing.T) {
 	want := map[string]string{
 		"Access-Control-Allow-Origin":   "*",
 		"Access-Control-Allow-Methods":  "GET, POST, PUT, DELETE, HEAD, OPTIONS",
-		"Access-Control-Allow-Headers":  "Content-Type, If-None-Match",
-		"Access-Control-Expose-Headers": "ETag, X-Audio-Source",
+		"Access-Control-Allow-Headers":  "Content-Type, If-None-Match, X-Vynull-Library-Session",
+		"Access-Control-Expose-Headers": "ETag, X-Audio-Source, X-Vynull-Library-Session",
 	}
 	// serve answers one request with its context already ended, so no
 	// handler starts real work. A handler missing a store this bare server

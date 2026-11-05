@@ -179,7 +179,7 @@ func (s *Server) handleTracks(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	lib, tags := s.tracksRev()
-	etag := fmt.Sprintf(`"tracks-%d-%d"`, lib, tags)
+	etag := fmt.Sprintf(`"tracks-%s-%d-%d"`, s.Library.SessionID(), lib, tags)
 	w.Header().Set("ETag", etag)
 	w.Header().Set("Cache-Control", "no-cache")
 	if r.Header.Get("If-None-Match") == etag {
@@ -250,7 +250,15 @@ func (c *trackListCache) gzipped(etag string, rows func() any) []byte {
 // decide whether the full track list is worth refetching.
 func (s *Server) handleTracksRev(w http.ResponseWriter, r *http.Request) {
 	lib, tags := s.tracksRev()
-	writeJSON(w, map[string]uint64{"rev": lib + tags})
+	session := ""
+	if s.Library != nil {
+		session = s.Library.SessionID()
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	writeJSON(w, struct {
+		Rev            uint64 `json:"rev"`
+		LibrarySession string `json:"library_session,omitempty"`
+	}{lib + tags, session})
 }
 
 func (s *Server) handleLoadTrack(w http.ResponseWriter, r *http.Request) {

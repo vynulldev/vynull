@@ -210,7 +210,7 @@ func (s *Server) Handler() http.Handler {
 	if s.Web {
 		RegisterWebUI(mux)
 	}
-	return corsMiddleware(mux)
+	return corsMiddleware(s.librarySessionMiddleware(mux))
 }
 
 // corsMiddleware adds permissive CORS to every response and answers preflight
@@ -229,8 +229,8 @@ func corsMiddleware(next http.Handler) http.Handler {
 		// /api/tracks/rev) and X-Audio-Source (the DIRECT/TRANSCODED label).
 		// Without these a browser on another origin can't send If-None-Match
 		// or read either header, though same-origin at /app works.
-		h.Set("Access-Control-Allow-Headers", "Content-Type, If-None-Match")
-		h.Set("Access-Control-Expose-Headers", "ETag, X-Audio-Source")
+		h.Set("Access-Control-Allow-Headers", "Content-Type, If-None-Match, X-Vynull-Library-Session")
+		h.Set("Access-Control-Expose-Headers", "ETag, X-Audio-Source, X-Vynull-Library-Session")
 		if r.Method == http.MethodOptions {
 			w.WriteHeader(http.StatusNoContent)
 			return
