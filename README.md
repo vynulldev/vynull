@@ -31,6 +31,7 @@ Use it at your own risk, and back up your rekordbox library before importing any
 - **BPM detection** with autocorrelation + a perceptual tempo prior, coherence-verified integer/half-integer snap, and a DP beat tracker. Detects **60–200 BPM**; set an **Analysis BPM range** (Settings → Library Source, or `--bpm-range 90-180`) so fast genres like drum & bass lock onto the true tempo instead of its half/third. Tracks above 200 BPM are analyzed at a sub-harmonic (usually half-tempo) — 200 is the current ceiling
 - **Key detection** using chromagram analysis (octaves 4-7, Krumhansl-Kessler profiles)
 - **Beat grid** generation phase-locked via a multiband onset tempogram (modelled on rekordbox's reverse-engineered 25-band novelty), windowed clarity-weighted phase, and a gated half-beat correction
+- **Automatic downbeat selection** uses repeated section entrances to identify beat 1: bass and overall energy must rise together, with at least two entrances agreeing on the bar position. Ambiguous tracks keep the opening-beat estimate, adjusted for initial silence
 - **Beat-grid offset** — detected grids match rekordbox by default; if they consistently sound a little early or late to you, shift them all by a few ms (Settings → Library Source, or `--grid-offset`). Hand-corrected and imported grids are never moved
 - **Phrase/song structure** detection (PSSI format)
 - **Cue point management** — hot and memory cues: save/load from the CDJ, create either kind in the web UI (+ CUE / + MEM), add/edit/delete via HTTP API, with color support

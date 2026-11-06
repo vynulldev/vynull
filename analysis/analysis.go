@@ -61,7 +61,11 @@ const AnalysisRate = 44100
 // Bumped to 35 for the half-beat flip's sub-bass check (subBassOffset): grids
 // locked half a beat off the kick now flip, and some the old gate flipped
 // wrongly don't, so v34 grids re-analyze.
-const cacheVersion = 35
+// Bumped to 36 for downbeat selection from section entrances
+// (structuralDownbeat): repeated entrances can move beat 1 even when the
+// opening beat is audible, so v35 downbeats re-analyze. Imported, locked and
+// hand-edited grids keep the existing cache preservation.
+const cacheVersion = 36
 
 // PWV4Override and PWV5Override, when non-nil, replace every track's color
 // preview / detail waveform at serve time. Set via the --pwv4-override /

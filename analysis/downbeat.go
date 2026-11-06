@@ -48,9 +48,9 @@ const (
 )
 
 // DownbeatHarmonic toggles the harmonic parity correction in findDownbeat. Off
-// by default: against 1572 phase-matched rekordbox grids it scores 78.4%
-// against the first beat's 86.7%, because our change feature does not yet
-// reproduce rekordbox's events closely (see
+// by default: in the original comparison against 1572 phase-matched rekordbox
+// grids it scored 78.4% against the first beat's 86.7%, because the change
+// feature does not yet reproduce rekordbox's events closely (see
 // docs/reference/rekordbox-downbeat-analysis.md in vynull-tools).
 var DownbeatHarmonic = false
 
