@@ -894,10 +894,10 @@ func detectBeats(ctx context.Context, samples []float32, sampleRate int, encoder
 
 	// Half-beat disambiguation: the tempogram phase is unique mod one beat, but on
 	// tracks with a strong off-beat (bass/hat anti-phase to the kick) it can lock
-	// to the off-beat while rekordbox anchors on the kick. Compare the low-band
-	// (kick/bass) onset energy on the chosen grid vs the half-beat-offset comb;
-	// when the offset comb carries HalfBeatGate× more, flip the grid by P/2. The
-	// gate keeps weak/ambiguous kicks (net-negative unconditionally) from firing.
+	// to the off-beat while rekordbox anchors on the kick. When the half-beat
+	// comb carries enough of the low-band (kick/bass) onset energy, the kick's
+	// body decides: flip the grid by P/2 when it sits half a beat away (see
+	// HalfBeatGate and SubBassFlipFrac).
 	gridPhase := math.Mod(beats[0], msPerBeat)
 	if gridPhase < 0 {
 		gridPhase += msPerBeat
@@ -905,8 +905,10 @@ func detectBeats(ctx context.Context, samples []float32, sampleRate int, encoder
 	eOn := combEnergy(onset, msPerFrame, gridPhase, msPerBeat)
 	eHalf := combEnergy(onset, msPerFrame, gridPhase+msPerBeat/2, msPerBeat)
 	kickRatio := eHalf / (eOn + 1e-9)
-	if HalfBeatGate > 0 && kickRatio > HalfBeatGate && !(padMs > 0 && HotStartSkipsFlip) {
-		beats = buildGrid(math.Mod(gridPhase+msPerBeat/2, msPerBeat), msPerBeat, durationMs)
+	if HalfBeatGate > 0 && kickRatio >= HalfBeatGate && !(padMs > 0 && HotStartSkipsFlip) {
+		if off, ok := subBassOffset(samples, sampleRate, gridPhase, msPerBeat); ok && math.Abs(off) > SubBassFlipFrac {
+			beats = buildGrid(math.Mod(gridPhase+msPerBeat/2, msPerBeat), msPerBeat, durationMs)
+		}
 	}
 
 	if padMs > 0 {
@@ -978,6 +980,65 @@ func BeatOnsetStrength(samples []float32, sampleRate int, beats []float64) []flo
 		out[i] = best
 	}
 	return out
+}
+
+// subBassOffset returns where the kick's body falls relative to a grid with
+// the given phase and period, as a fraction of a beat in [-0.5, 0.5): the
+// phase of the beat-period component of the onset envelope of the lowest
+// spectral bin (about 20-40 Hz) of 2048-sample Hann frames every 256
+// samples, where a kick has its fundamental and a bassline or a hat has
+// little. ok is false when there's no energy there.
+func subBassOffset(samples []float32, sampleRate int, phaseMs, periodMs float64) (float64, bool) {
+	const size, hop = 2048, 256
+	n := (len(samples) - size) / hop
+	if n < 4 || periodMs <= 0 {
+		return 0, false
+	}
+	// Bin 1 of the windowed frame: its energy over time.
+	wc, ws := make([]float64, size), make([]float64, size)
+	for j := range wc {
+		win := 0.5 * (1 - math.Cos(2*math.Pi*float64(j)/float64(size-1)))
+		s, c := math.Sincos(2 * math.Pi * float64(j) / size)
+		wc[j], ws[j] = win*c, win*s
+	}
+	energy := make([]float64, n)
+	peak := 0.0
+	for i := range energy {
+		var re, im float64
+		for j, v := range samples[i*hop : i*hop+size] {
+			re += float64(v) * wc[j]
+			im += float64(v) * ws[j]
+		}
+		energy[i] = re*re + im*im
+		peak = max(peak, energy[i])
+	}
+	if peak <= 0 {
+		return 0, false
+	}
+	// The rises of its log energy, and their phasor at the beat period.
+	msPerFrame := float64(hop) * 1000 / float64(sampleRate)
+	w := 2 * math.Pi * msPerFrame / periodMs
+	var zr, zi, prev float64
+	for i, e := range energy {
+		l := math.Log1p(1e4 * e / peak)
+		if i > 0 && l > prev {
+			s, c := math.Sincos(w * float64(i))
+			zr += (l - prev) * c
+			zi += (l - prev) * s
+		}
+		prev = l
+	}
+	if zr == 0 && zi == 0 {
+		return 0, false
+	}
+	at := math.Atan2(zi, zr) / (2 * math.Pi) * periodMs
+	d := math.Mod(at-phaseMs, periodMs) / periodMs
+	if d < -0.5 {
+		d++
+	} else if d >= 0.5 {
+		d--
+	}
+	return d, true
 }
 
 // combEnergy sums the onset envelope on the comb of beat positions starting at
@@ -1080,17 +1141,22 @@ var (
 	GaplessMP3DelayMs   = 49.0
 	UntaggedMP3DelayMs  = 0.0
 
-	// HalfBeatGate, when > 0, flips the grid by half a beat if the half-beat
-	// comb carries more than this multiple of the on-grid kick/bass onset energy
-	// (BeatResult.KickRatio). This resolves tracks where the tempogram locked to
-	// a strong off-beat instead of rekordbox's kick. 2.0 sits on a flat 1.5-2.0
-	// plateau, re-confirmed best alongside the windowed phase; it recovers part of
-	// the half-beat tail the sharper windowed phase introduces.
-	// The gate can only ever help so much: the kick ratio is a weak predictor
-	// (half-beat-off tracks span the whole range of ratios, including tracks whose
-	// kick evidence points the wrong way), so most of the tail is a genuine
-	// per-track convention gap the kick cannot resolve. 0 disables it.
-	HalfBeatGate = 2.0
+	// HalfBeatGate and SubBassFlipFrac decide the half-beat flip. The
+	// tempogram phase follows every band's onsets, so on a track whose
+	// hats, claps or off-beat bass outweigh the kick it can lock half a beat
+	// off rekordbox's grid, which sits on the kick. The flip first needs the
+	// half-beat comb to carry at least HalfBeatGate times the on-grid
+	// low-band onset energy (BeatResult.KickRatio), and then the kick's body
+	// itself (subBassOffset, around 20-40 Hz) to sit more than
+	// SubBassFlipFrac of a beat from the grid. The kick ratio alone is a
+	// weak predictor: its band can't tell a kick from an off-beat bassline,
+	// and on its own (at 2.0) it broke as many grids as it fixed. Against
+	// rekordbox's grids on 1,727 tracks of a real library whose tempo
+	// matches, half of them unseen while these were chosen, the sub-bass
+	// check lines up 29 more than the ratio alone did: 53 fixed, 24 broken.
+	// HalfBeatGate 0 disables the flip.
+	HalfBeatGate    = 1.0
+	SubBassFlipFrac = 0.3
 
 	// WindowedPhase makes the phase estimator combine per-window beat phasors
 	// weighted by AmpWeight/ClarityWeight (see windowedTempogramPhase) instead of

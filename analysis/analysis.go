@@ -58,7 +58,10 @@ const AnalysisRate = 44100
 // Bumped to 34 for the family check (checkFamily): a tempo a factor of three
 // off the true one's octave now moves to the true family, so v33 BPMs and
 // grids re-analyze.
-const cacheVersion = 34
+// Bumped to 35 for the half-beat flip's sub-bass check (subBassOffset): grids
+// locked half a beat off the kick now flip, and some the old gate flipped
+// wrongly don't, so v34 grids re-analyze.
+const cacheVersion = 35
 
 // PWV4Override and PWV5Override, when non-nil, replace every track's color
 // preview / detail waveform at serve time. Set via the --pwv4-override /
