@@ -113,3 +113,57 @@ func TestWidenSnap(t *testing.T) {
 		})
 	}
 }
+
+// TestCheckFamily: synthetic coherence curves for a tempo a factor of three
+// off the true family, and the cases the check must leave alone.
+func TestCheckFamily(t *testing.T) {
+	peaks := func(floor float64, ps ...[2]float64) func(float64) float64 {
+		return func(b float64) float64 {
+			c := floor
+			for _, p := range ps {
+				c = math.Max(c, p[1]*math.Exp(-math.Pow((b-p[0])/0.08, 2)))
+			}
+			return c
+		}
+	}
+	flat := func(float64) float64 { return 1 }
+	// favour returns an autocorrelation that's high at one tempo only.
+	favour := func(bpm float64) func(float64) float64 {
+		return func(c float64) float64 {
+			if math.Abs(c-bpm) < 1 {
+				return 12
+			}
+			return 1
+		}
+	}
+	for _, c := range []struct {
+		name   string
+		coh    func(float64) float64
+		ac     func(float64) float64
+		bpm    float64
+		lo, hi float64
+		want   float64
+	}{
+		{"×4/3 of a dotted 95", peaks(0.1, [2]float64{95, 0.75}, [2]float64{190, 0.9}), flat, 127, 0, 0, 95},
+		{"×4/3 of a 124 under a dotted arp", peaks(0.1, [2]float64{124, 0.85}), flat, 165, 0, 0, 124},
+		{"a slow family's double, inside the window", peaks(0.1, [2]float64{77, 0.9}, [2]float64{154, 0.95}), flat, 104, 0, 0, 154},
+		{"octave by the prior: 160 over 80", peaks(0.1, [2]float64{80, 0.88}, [2]float64{160, 0.98}), flat, 107, 0, 0, 160},
+		{"octave by the autocorrelation: 80 over 160", peaks(0.1, [2]float64{80, 0.88}, [2]float64{160, 0.98}), favour(80), 107, 0, 0, 80},
+		{"strong coherence of its own", peaks(0.6, [2]float64{95, 0.95}), flat, 127, 0, 0, 127},
+		{"family not twice its own peak", peaks(0.1, [2]float64{127, 0.4}, [2]float64{95, 0.7}), flat, 127, 0, 0, 127},
+		{"weak family peak", peaks(0.2, [2]float64{95, 0.5}), flat, 127, 0, 0, 127},
+		{"own side lobe counts: a phase jump nulls 128", peaks(0.1, [2]float64{127.2, 0.45}, [2]float64{96, 0.8}), flat, 128, 0, 0, 128},
+		{"own family counts its half tempo", peaks(0.1, [2]float64{124, 0.38}, [2]float64{62, 0.71}, [2]float64{186, 0.8}), flat, 124, 0, 0, 124},
+		{"no octave of the family in an explicit range", peaks(0.1, [2]float64{95, 0.75}, [2]float64{190, 0.9}), flat, 127, 120, 135, 127},
+	} {
+		withTempoRange(c.lo, c.hi, func() {
+			if got, _ := checkFamily(c.coh, c.ac, c.bpm); math.Abs(got-c.want) > 0.05 {
+				t.Errorf("%s: %.2f, want %.2f", c.name, got, c.want)
+			}
+		})
+	}
+	// The snap measures coherence where the family peaked, here its double.
+	if got, k := checkFamily(peaks(0.1, [2]float64{95, 0.75}, [2]float64{190, 0.9}), flat, 127); math.Abs(got-95) > 0.05 || k != 0.5 {
+		t.Errorf("family peaking at its double: %.2f by %.2f, want 95 by 0.50", got, k)
+	}
+}
