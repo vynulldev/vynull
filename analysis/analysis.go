@@ -50,7 +50,10 @@ const AnalysisRate = 44100
 // are placed on the kick's measured attack. Most detected grids move by a few
 // ms. Hand-edited grids ride across the bump via gridCarry, as before.
 // Bumped to 31: beat 1 moves off a silent first beat (SilentLeadIndex).
-const cacheVersion = 31
+// Bumped to 32: on an MP3 with gapless metadata the detail waveforms start
+// DecodeLeadMs later, in the deck's timeline like the grid, so v31 waveforms
+// re-encode.
+const cacheVersion = 32
 
 // PWV4Override and PWV5Override, when non-nil, replace every track's color
 // preview / detail waveform at serve time. Set via the --pwv4-override /
@@ -97,6 +100,7 @@ type Result struct {
 	WavePreview3Band []byte    // 3-band preview waveform, PWV6 format (1200 entries × 3 bytes)
 	Wave3BandColor   []byte    // 3-band colour metadata, PWVC section body (6 bytes) — imported only, not yet served
 	WaveDetailMono   []byte    // raw monochrome detail waveform (1 byte/entry, ~150/sec)
+	WaveLeadMs       float64   // audio the deck plays before our decode's first sample (DecodeLeadMs); the detail waveforms start that much pre-roll earlier
 	BeatGrid         []byte    // beat grid blob for 0x2204 response
 	BeatGridPQT2     []byte    // PQT2 beat grid blob for 0x2c04 response (complete ANLZ section)
 	Beats            []float64 // beat positions in ms (for ANLZ PQTZ generation)
@@ -699,6 +703,7 @@ func AnalyzeTrackContext(ctx context.Context, filePath string) (*Result, error) 
 	if err != nil {
 		return nil, err
 	}
+	r.WaveLeadMs = DecodeLeadMs(filePath)
 	if err := waveformEncoder.Encode(ctx, samples, AnalysisRate, r, beatResult); err != nil { // installed wire format (Pioneer)
 		return nil, err
 	}
@@ -721,6 +726,7 @@ func Reanalyze(filePath string, existing *Result, parts ReanalyzeParts) (*Result
 	r := &clone
 	r.CacheVersion = cacheVersion
 	r.Duration = uint16(float64(len(samples)) / float64(AnalysisRate))
+	r.WaveLeadMs = DecodeLeadMs(filePath)
 
 	switch parts {
 	case PartsGrid:

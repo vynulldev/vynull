@@ -1635,25 +1635,67 @@ func EncoderDelayMs(path string) float64 {
 	return LossyEncoderDelayMs
 }
 
-var trimCache sync.Map // path -> bool
+var startCache sync.Map // path -> audioStart
+
+// audioStart is what ffprobe reports about the start of a file's audio
+// stream: its sample rate and start_time (both 0 when the probe failed).
+type audioStart struct {
+	rate, start float64
+	ok          bool
+}
+
+// probeStart probes path's audio stream once and caches the result.
+func probeStart(path string) audioStart {
+	if v, ok := startCache.Load(path); ok {
+		return v.(audioStart)
+	}
+	var st audioStart
+	if out, err := ffmpeg.Probe(context.Background(), path, "stream=sample_rate,start_time", "default=noprint_wrappers=1"); err == nil {
+		for _, line := range strings.Split(string(out), "\n") {
+			k, v, _ := strings.Cut(strings.TrimSpace(line), "=")
+			f, perr := strconv.ParseFloat(v, 64)
+			switch {
+			case k == "sample_rate" && perr == nil:
+				st.rate = f
+			case k == "start_time" && perr == nil:
+				st.start, st.ok = f, true
+			}
+		}
+	}
+	startCache.Store(path, st)
+	return st
+}
 
 // FFmpegTrimsStart reports whether ffmpeg trims an encoder delay from the
 // start of path when decoding, which shows as a positive audio stream
 // start_time (MP3 gapless metadata). Results are cached per path; if ffprobe
 // fails, it assumes the common case (trimmed).
 func FFmpegTrimsStart(path string) bool {
-	if v, ok := trimCache.Load(path); ok {
-		return v.(bool)
+	st := probeStart(path)
+	return !st.ok || st.start > 0.001
+}
+
+// DecodeLeadMs returns how much audio a CDJ, and rekordbox, play before the
+// first sample our decode starts with. From an MP3 with gapless metadata
+// ffmpeg trims two things the deck plays: the encoder delay (the audio
+// stream's start_time) and the frame carrying the metadata, which other
+// decoders play as one frame of silence (1152 samples, or 576 below 32 kHz).
+// Anything else decodes the same in both: 0, as is a file ffprobe can't read.
+// The grid is already placed in the deck's timeline (EncoderDelayMs); the
+// waveforms are shifted by this lead so they line up with it.
+func DecodeLeadMs(path string) float64 {
+	if ft, _ := filetype.ForPath(path); ft.Name != "mp3" {
+		return 0
 	}
-	out, err := ffmpeg.Probe(context.Background(), path, "stream=start_time", "csv=p=0")
-	trims := true
-	if err == nil {
-		if st, perr := strconv.ParseFloat(strings.TrimSpace(string(out)), 64); perr == nil {
-			trims = st > 0.001
-		}
+	st := probeStart(path)
+	if !st.ok || st.start <= 0.001 || st.rate <= 0 {
+		return 0
 	}
-	trimCache.Store(path, trims)
-	return trims
+	frame := 1152.0
+	if st.rate < 32000 {
+		frame = 576
+	}
+	return st.start*1000 + frame/st.rate*1000
 }
 
 // lowPass applies a simple single-pole IIR low-pass filter.

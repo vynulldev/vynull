@@ -4,6 +4,7 @@ package prolink
 
 import (
 	"context"
+	"math"
 
 	"github.com/vynulldev/vynull/analysis"
 )
@@ -25,7 +26,11 @@ func (pioneerEncoder) Encode(ctx context.Context, samples []float32, sampleRate 
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	detail := GenerateDetail(samples, sampleRate)
+	// The detail waveforms start r.WaveLeadMs of pre-roll earlier: the audio
+	// the deck plays before our decode's first sample, so they line up with
+	// the grid in the deck's timeline. The previews spread the track over a
+	// few hundred entries, so the lead is a fraction of one there.
+	detail := withLead(GenerateDetail(samples, sampleRate), r.WaveLeadMs, []byte{0xff, 0x80})
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -41,7 +46,7 @@ func (pioneerEncoder) Encode(ctx context.Context, samples []float32, sampleRate 
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	r.WaveDetail3Band = GenerateDetail3Band(samples, sampleRate)
+	r.WaveDetail3Band = withLead(GenerateDetail3Band(samples, sampleRate), r.WaveLeadMs, []byte{0, 0, 0})
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -71,4 +76,18 @@ func (pioneerEncoder) EncodeGrid(r *analysis.Result) {
 	}
 	r.BeatGrid = analysis.GenerateBeatGridFromBeats(&analysis.BeatResult{BPM: r.BPM, Beats: r.Beats, Downbeat: db})
 	r.BeatGridPQT2 = GeneratePQT2(r.BPM, r.Beats, r.DownbeatIndex)
+}
+
+// withLead prepends leadMs of pre-roll, as entries of silence (one entry
+// each), to a detail waveform at analysis.DetailEntriesPerSec.
+func withLead(wave []byte, leadMs float64, silence []byte) []byte {
+	n := int(math.Round(leadMs * analysis.DetailEntriesPerSec / 1000))
+	if n <= 0 || len(wave) == 0 {
+		return wave
+	}
+	out := make([]byte, 0, n*len(silence)+len(wave))
+	for range n {
+		out = append(out, silence...)
+	}
+	return append(out, wave...)
 }
