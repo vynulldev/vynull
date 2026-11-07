@@ -77,3 +77,39 @@ func TestSnapVerify_GridUsesSnappedPeriod(t *testing.T) {
 		t.Errorf("mean beat interval %.3fms, want %.3fms (grid not on snapped period)", got, wantInterval)
 	}
 }
+
+// TestWidenSnap: the wide check moves a snapped tempo only on decisive
+// coherence beyond the snap's window, and never onto one of a phase jump's
+// side lobes.
+func TestWidenSnap(t *testing.T) {
+	// peaks builds a coherence curve: a floor plus Gaussian peaks (BPM, height).
+	peaks := func(floor float64, ps ...[2]float64) func(float64) float64 {
+		return func(b float64) float64 {
+			c := floor
+			for _, p := range ps {
+				c = math.Max(c, p[1]*math.Exp(-math.Pow((b-p[0])/0.08, 2)))
+			}
+			return c
+		}
+	}
+	for _, c := range []struct {
+		name         string
+		coh          func(float64) float64
+		bpm, snapped float64
+		lo, hi, want float64
+	}{
+		{"detection 2.4 off a clean 120", peaks(0.1, [2]float64{120, 0.91}), 122.41, 122, 0, 0, 120},
+		{"phase jump: null at 128, lobes at 127 and 129", peaks(0.12, [2]float64{126.98, 0.66}, [2]float64{129.02, 0.59}), 128.2, 128, 0, 0, 128},
+		{"weak peak", peaks(0.1, [2]float64{120, 0.4}), 122.41, 122, 0, 0, 122},
+		{"peak not twice the snapped tempo's", peaks(0.35, [2]float64{120, 0.6}), 122.41, 122, 0, 0, 122},
+		{"near-perfect fractional peak", peaks(0.1, [2]float64{117.30, 0.95}), 118.6, 118, 0, 0, 117.30},
+		{"fractional peak below the gate", peaks(0.1, [2]float64{117.30, 0.8}), 118.6, 118, 0, 0, 118},
+		{"peak outside an explicit range", peaks(0.1, [2]float64{120, 0.91}), 122.41, 122, 121, 124, 122},
+	} {
+		withTempoRange(c.lo, c.hi, func() {
+			if got := widenSnap(c.coh, c.bpm, c.snapped); math.Abs(got-c.want) > 0.005 {
+				t.Errorf("%s: %.2f, want %.2f", c.name, got, c.want)
+			}
+		})
+	}
+}

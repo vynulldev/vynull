@@ -53,7 +53,9 @@ const AnalysisRate = 44100
 // Bumped to 32: on an MP3 with gapless metadata the detail waveforms start
 // DecodeLeadMs later, in the deck's timeline like the grid, so v31 waveforms
 // re-encode.
-const cacheVersion = 32
+// Bumped to 33 for the wide snap check (widenSnap): a detection 1-3 BPM off
+// the true tempo now finds it, so v32 BPMs and grids re-analyze.
+const cacheVersion = 33
 
 // PWV4Override and PWV5Override, when non-nil, replace every track's color
 // preview / detail waveform at serve time. Set via the --pwv4-override /
