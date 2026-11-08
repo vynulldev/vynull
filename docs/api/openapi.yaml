@@ -349,13 +349,13 @@ paths:
   /api/tracks/{id}/cues:
     parameters: [ { name: id, in: path, required: true, schema: { type: integer, format: int64 } } ]
     get: { tags: [Track edits], summary: Cue points and loops for a track., responses: { "200": { description: OK, content: { application/json: { schema: { type: array, items: { $ref: "#/components/schemas/CueInfo" } } } } } } }
-    post: { tags: [Track edits], summary: Create/overwrite one cue (body is a CueInfo)., requestBody: { required: true, content: { application/json: { schema: { $ref: "#/components/schemas/CueInfo" } } } }, responses: { "200": { description: OK, content: { application/json: { schema: { $ref: "#/components/schemas/Ack" } } } }, "400": { description: number is 0. } } }
+    post: { tags: [Track edits], summary: Create/overwrite one cue (body is a CueInfo). A cue's loop_ms is stored as -1., requestBody: { required: true, content: { application/json: { schema: { $ref: "#/components/schemas/CueInfo" } } } }, responses: { "200": { description: OK, content: { application/json: { schema: { $ref: "#/components/schemas/CueAck" } } } }, "400": { description: "number is 0, type is neither cue nor loop, or a loop's loop_ms isn't after its time_ms." }, "500": { description: The cue changed in memory but couldn't be written to disk; it's written again on the next change. } } }
 
   /api/tracks/{id}/cues/{number}:
     parameters:
       - { name: id, in: path, required: true, schema: { type: integer, format: int64 } }
       - { name: number, in: path, required: true, schema: { type: integer } }
-    delete: { tags: [Track edits], summary: Delete one cue by number., responses: { "200": { description: OK, content: { application/json: { schema: { $ref: "#/components/schemas/Ack" } } } } } }
+    delete: { tags: [Track edits], summary: Delete one cue by number., responses: { "200": { description: OK, content: { application/json: { schema: { $ref: "#/components/schemas/CueAck" } } } }, "500": { description: The cue was deleted in memory but the change couldn't be written to disk; it's written again on the next change. } } }
 
   # ------------------------------------------------------------- Playlists
   /api/playlists:
@@ -699,6 +699,7 @@ components:
   schemas:
 
     Ack: { type: object, required: [ok], properties: { ok: { type: boolean, enum: [true] } }, description: A write with nothing else to return. }
+    CueAck: { type: object, required: [ok, persisted], properties: { ok: { type: boolean, enum: [true] }, persisted: { type: boolean, description: "true once the edit is on disk; false when the cue store can't confirm that." } }, description: A cue edit's answer. }
     Error: { type: object, required: [error], properties: { error: { type: string } }, description: 'The body of every error answer, e.g. {"error": "track not found"}.' }
     TrackIDs: { type: array, minItems: 1, items: { type: integer, format: int64 }, description: The tracks a batch edit applies to. A repeat is dropped; the order is kept. }
     BatchResult: { type: object, properties: { updated: { type: integer, description: "How many tracks the request changed: edited, added to or removed from a playlist, or deleted." } } }
