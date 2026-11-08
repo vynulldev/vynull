@@ -23,12 +23,13 @@ import (
 
 // CuePoint represents a saved hot cue or loop.
 type CuePoint struct {
-	Number  uint16 `json:"number"`   // 1-based: A=1, B=2, C=3, ...
-	Type    uint16 `json:"type"`     // 1=cue, 2=loop
-	TimeMs  uint32 `json:"time_ms"`  // cue position in ms
-	LoopMs  int32  `json:"loop_ms"`  // loop end in ms (-1 if not a loop)
-	Status  uint32 `json:"status"`   // 1=active
-	ColorID uint32 `json:"color_id"` // color/flags
+	Number  uint16 `json:"number"`          // 1-based: A=1, B=2, C=3, ...
+	Type    uint16 `json:"type"`            // 1=cue, 2=loop
+	TimeMs  uint32 `json:"time_ms"`         // cue position in ms
+	LoopMs  int32  `json:"loop_ms"`         // loop end in ms (-1 if not a loop)
+	Status  uint32 `json:"status"`          // 1=active
+	ColorID uint32 `json:"color_id"`        // color/flags
+	Label   string `json:"label,omitempty"` // cue name, from the API or a rekordbox comment
 }
 
 // CueStore persists cue points per track to disk: cues_<id>.json, plus

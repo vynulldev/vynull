@@ -40,6 +40,7 @@ func convertCues(dbCues []dbserver.CuePoint) []CueInfo {
 			TimeMs:  c.TimeMs,
 			LoopMs:  c.LoopMs,
 			ColorID: c.ColorID,
+			Label:   c.Label,
 		}
 	}
 	return out
@@ -58,6 +59,7 @@ func cuePoint(cue CueInfo) dbserver.CuePoint {
 		LoopMs:  cue.LoopMs,
 		Status:  1, // active
 		ColorID: cue.ColorID,
+		Label:   cue.Label,
 	}
 }
 

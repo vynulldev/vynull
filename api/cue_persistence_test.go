@@ -62,6 +62,36 @@ func TestCueAPIConfirmsCreateReplaceLoopDeleteOnDisk(t *testing.T) {
 	}
 }
 
+// A cue's label is kept with the cue on disk and read back after the store is
+// reopened. An unlabelled cue's file has no label field.
+func TestCueAPIKeepsLabelsOnDisk(t *testing.T) {
+	dir := t.TempDir()
+	store := dbserver.NewCueStore(dir)
+	defer store.Close()
+	s := &Server{Cues: &CueStoreAdapter{Store: store}}
+	labelled := `{"number":2,"type":"loop","time_ms":1125,"loop_ms":3125,"color_id":42,"label":"Drop α"}`
+	requirePersisted(t, cueRequest(s, "POST", "/api/tracks/7/cues", labelled))
+	requirePersisted(t, cueRequest(s, "POST", "/api/tracks/8/cues", `{"number":1,"time_ms":0}`))
+
+	reloaded := dbserver.NewCueStore(dir)
+	defer reloaded.Close()
+	s.Cues = &CueStoreAdapter{Store: reloaded}
+	var cues []CueInfo
+	if err := json.Unmarshal(cueRequest(s, "GET", "/api/tracks/7/cues", "").Body.Bytes(), &cues); err != nil {
+		t.Fatal(err)
+	}
+	var want CueInfo
+	if err := json.Unmarshal([]byte(labelled), &want); err != nil {
+		t.Fatal(err)
+	}
+	if len(cues) != 1 || cues[0] != want {
+		t.Fatalf("readback after reopening: %+v, want %+v", cues, want)
+	}
+	if b, err := os.ReadFile(filepath.Join(dir, "cues_8.json")); err != nil || strings.Contains(string(b), "label") {
+		t.Fatalf("unlabelled cue file: %s %v", b, err)
+	}
+}
+
 func TestCueAPIFailedDiskWritesAreNotAcknowledgedAndExplicitRetryWorks(t *testing.T) {
 	base := t.TempDir()
 	dir := filepath.Join(base, "cues")
