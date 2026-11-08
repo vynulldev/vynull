@@ -914,7 +914,7 @@ components:
         time_ms: { type: integer, format: int64 }
         loop_ms: { type: integer, description: "Loop end in ms; -1 if not a loop." }
         color_id: { type: integer }
-        label: { type: string }
+        label: { type: string, description: "The cue's name; empty if none. Saved with the cue; an import keeps rekordbox's cue comment here." }
 
     LoadRequest:
       type: object

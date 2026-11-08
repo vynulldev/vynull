@@ -220,7 +220,7 @@ func TestBatchDelete(t *testing.T) {
 }
 
 // An import stores each track's master.db cues as one change, numbering
-// memory cues 9.. per track in rekordbox's order.
+// memory cues 9.. per track in rekordbox's order and keeping their comments.
 func TestImportMasterCuesPerTrack(t *testing.T) {
 	lib := library.New()
 	lib.AddTrack(&library.Track{ID: 1})
@@ -231,7 +231,7 @@ func TestImportMasterCuesPerTrack(t *testing.T) {
 	bundle := &library.ImportBundle{Cues: []library.ImportedCue{
 		{TrackID: 1, HotCue: 1, TimeMs: 100, LoopMs: -1},
 		{TrackID: 2, HotCue: 2, TimeMs: 200, LoopMs: -1},
-		{TrackID: 1, HotCue: 0, TimeMs: 300, LoopMs: -1},
+		{TrackID: 1, HotCue: 0, TimeMs: 300, LoopMs: -1, Comment: "Breakdown"},
 		{TrackID: 1, HotCue: 0, TimeMs: 400, LoopMs: 800},
 	}}
 	rec := httptest.NewRecorder()
@@ -249,6 +249,9 @@ func TestImportMasterCuesPerTrack(t *testing.T) {
 	}
 	if len(got) != 3 || got[1].TimeMs != 100 || got[9].TimeMs != 300 || got[10].Type != "loop" || got[10].LoopMs != 800 {
 		t.Errorf("track 1 cues %+v, want hot cue 1, memory 9 and loop 10", got)
+	}
+	if got[9].Label != "Breakdown" || got[1].Label != "" {
+		t.Errorf("track 1 labels %q and %q, want the comment on memory cue 9 only", got[9].Label, got[1].Label)
 	}
 	if c := cues.GetCues(2); len(c) != 1 || c[0].Number != 2 {
 		t.Errorf("track 2 cues %+v, want hot cue 2", c)
