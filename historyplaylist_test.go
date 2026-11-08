@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/vynulldev/vynull/api"
+	"github.com/vynulldev/vynull/pdb"
 )
 
 // TestHistoryPlaylistAppend verifies the auto-history hook:
@@ -102,5 +103,19 @@ func TestPlaylistSourceCreatePlaylist(t *testing.T) {
 	}
 	if err := src.CreatePlaylist("x", 999, nil); err == nil {
 		t.Error("a missing parent folder made a playlist")
+	}
+}
+
+// FOLDER stays in a USB export's menu, but isn't served in the root menu
+// over the link: a deck opens that category with the TAG LIST's request.
+func TestFolderIsExportOnly(t *testing.T) {
+	ms := api.NewMenuStore(t.TempDir())
+	for _, e := range (menuSource{ms: ms}).RootMenu() {
+		if e.Label == "FOLDER" {
+			t.Fatalf("root menu over the link has FOLDER: %+v", e)
+		}
+	}
+	if cfg := ms.PDBMenuConfig(); !slices.Contains(cfg.Visible, pdb.MenuCategoryByKey["folder"]) {
+		t.Errorf("USB export menu %+v lost FOLDER", cfg)
 	}
 }

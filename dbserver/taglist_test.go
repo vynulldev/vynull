@@ -71,7 +71,7 @@ func change(t *testing.T, h *Handler, kind uint16, args ...proto.DBArg) {
 
 // The deck reads the tag list with 0x100f at location 6, in list order with
 // each row's position in argument 9; a sort reorders the rows but keeps
-// their positions. At another location 0x100f is still the FOLDER root.
+// their positions. rekordbox answers the same at another location.
 func TestTagListServed(t *testing.T) {
 	h := tagListHandler()
 	h.lib.SetTagList([]uint32{10003, 10001})
@@ -81,9 +81,8 @@ func TestTagListServed(t *testing.T) {
 	if got := tagListRows(t, h, 1); !slices.Equal(got, [][2]uint32{{10001, 2}, {10003, 1}}) { // ALPHABET
 		t.Errorf("tag list by title %v, want [10001 2] [10003 1]", got)
 	}
-	_, rows := ask(t, h, 0x100f, browseCtx, 0)
-	if len(rows) != 1 || rows[0][6].Int()&0xff == 0x04 {
-		t.Errorf("0x100f at location 1: %v, want the one FOLDER row", rows)
+	if _, rows := ask(t, h, 0x100f, browseCtx, 0); len(rows) != 2 || rows[0][1].Int() != 10003 {
+		t.Errorf("0x100f at location 1: %v, want the tag list", rows)
 	}
 }
 

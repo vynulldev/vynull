@@ -1041,6 +1041,7 @@ components:
         item_type: { type: integer, format: int64 }
         visible: { type: boolean }
         locked: { type: boolean }
+        export_only: { type: boolean, description: "Served only in a USB export's menu (FOLDER), not in the root menu over the link." }
 
     TrackDetailField:
       type: object

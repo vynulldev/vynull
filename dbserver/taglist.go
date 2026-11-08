@@ -21,13 +21,12 @@ import (
 // itself is announced with a type 0x1b broadcast, after which the decks read
 // the list again. Browse rows mark the listed tracks (argument 7 bit 0).
 
-// tagListLocation is the menu location of the TAG LIST's requests; 0x100f
-// elsewhere is the FOLDER root listing.
-const tagListLocation = 6
-
-// handleGetTagList answers 0x100f at the TAG LIST's location: its tracks as
-// playlist track rows, in list order unless a sort is asked for, each with
-// its list position in argument 9.
+// handleGetTagList answers 0x100f: the TAG LIST's tracks as playlist track
+// rows, in list order unless a sort is asked for, each with its list
+// position in argument 9. A deck asks at menu location 6, both for the TAG
+// LIST button and for a root-menu category of item type 0x8d (the FOLDER we
+// used to list there); rekordbox answers the same at any location
+// (link-spec conformance, rekordbox 7.2.19).
 func (h *Handler) handleGetTagList(msg *proto.DBMessage) []*proto.DBMessage {
 	var ids []uint32
 	if h.lib != nil {

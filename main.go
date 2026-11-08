@@ -1016,9 +1016,11 @@ type menuSource struct{ ms *api.MenuStore }
 
 func (a menuSource) RootMenu() []dbserver.RootMenuEntry {
 	src := a.ms.Visible()
-	out := make([]dbserver.RootMenuEntry, len(src))
-	for i, m := range src {
-		out[i] = dbserver.RootMenuEntry{ID: m.ID, Label: m.Label, ItemType: m.ItemType}
+	out := make([]dbserver.RootMenuEntry, 0, len(src))
+	for _, m := range src {
+		if !m.ExportOnly {
+			out = append(out, dbserver.RootMenuEntry{ID: m.ID, Label: m.Label, ItemType: m.ItemType})
+		}
 	}
 	return out
 }

@@ -376,11 +376,8 @@ func (h *Handler) Handle(msg *proto.DBMessage) []*proto.DBMessage {
 		return h.handleGetTracksByBPM(msg)
 	case 0x1005, 0x1105: // PLAYLIST root (0x1005, 2 args) + drill-down (0x1105, 4 args)
 		return h.handleGetPlaylist(msg)
-	case 0x100f: // TAG LIST at its menu location; elsewhere the FOLDER root listing
-		if dmstMenu(msg) == tagListLocation {
-			return h.handleGetTagList(msg)
-		}
-		return h.handleGetFolder(msg)
+	case 0x100f: // TAG LIST
+		return h.handleGetTagList(msg)
 	case 0x2006: // FOLDER drill-down by folder ID
 		return h.handleGetFolder(msg)
 	case 0x3002: // TAG LIST: add or remove a track

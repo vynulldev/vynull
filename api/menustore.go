@@ -30,6 +30,9 @@ type MenuItem struct {
 	ItemType uint32 `json:"item_type"` // menu ItemType byte (0x80 + slot)
 	Visible  bool   `json:"visible"`
 	Locked   bool   `json:"locked"` // true = always active, can't be hidden / deactivated
+	// ExportOnly marks a category served only in a USB export's menu, not
+	// in the root menu Vynull serves over the link.
+	ExportOnly bool `json:"export_only,omitempty"`
 }
 
 // defaultMenuItems lists every category the user can show or hide in the
@@ -50,7 +53,11 @@ var defaultMenuItems = []MenuItem{
 	{Key: "playlist", Label: "PLAYLIST", ID: 5, ItemType: 0x84, Visible: true, Locked: true},
 	{Key: "history", Label: "HISTORY", ID: 22, ItemType: 0x95, Visible: true, Locked: true},
 	{Key: "search", Label: "SEARCH", ID: 18, ItemType: 0x91, Visible: true, Locked: true},
-	{Key: "folder", Label: "FOLDER", ID: 13, ItemType: 0x8d, Visible: true, Locked: true},
+	// FOLDER browses a USB stick's files on the deck itself, so it stays in
+	// exports' menus. Over the link a deck asks for the TAG LIST when this
+	// category is opened (0x100f, as for the TAG LIST button), and rekordbox
+	// offers no FOLDER there.
+	{Key: "folder", Label: "FOLDER", ID: 13, ItemType: 0x8d, Visible: true, Locked: true, ExportOnly: true},
 	{Key: "bpm", Label: "BPM", ID: 6, ItemType: 0x85, Visible: true},
 	{Key: "label", Label: "LABEL", ID: 10, ItemType: 0x89, Visible: true},
 	{Key: "year", Label: "YEAR", ID: 8, ItemType: 0x87, Visible: true},
