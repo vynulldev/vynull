@@ -276,8 +276,8 @@ func chooseTempo(corrs []float64, minLag, maxLag int, framesPerSec, rawBPM float
 	return math.Min(math.Max(framesPerSec*60.0/refined, tempoLo), tempoHi)
 }
 
-// DetectBeats finds individual beat positions and computes BPM from them, using
-// the lossy-codec latency compensation. Callers that know the source format
+// DetectBeats estimates BPM, places a regular beat grid, and selects beat 1,
+// using the lossy-codec latency compensation. Callers that know the source format
 // should prefer DetectBeatsWithEncoderDelay (with EncoderDelayMs) so lossless
 // tracks are not over-compensated for an encoder delay they do not have.
 func DetectBeats(samples []float32, sampleRate int) *BeatResult {
@@ -286,8 +286,8 @@ func DetectBeats(samples []float32, sampleRate int) *BeatResult {
 
 // DetectBeatsWithEncoderDelay is DetectBeats with an explicit lossy encoder-delay
 // compensation (ms) added to the phase latency. Pass EncoderDelayMs(path), or 0
-// for a lossless source. Uses onset peak detection with an adaptive threshold,
-// then computes BPM from the median inter-beat interval.
+// for a lossless source. Tempo comes from onset autocorrelation and coherence
+// checks; the grid uses onset phase and attack timing, then downbeat selection.
 func DetectBeatsWithEncoderDelay(samples []float32, sampleRate int, encoderDelayMs float64) *BeatResult {
 	return detectBeats(context.Background(), samples, sampleRate, encoderDelayMs)
 }
@@ -1782,22 +1782,25 @@ func tempogramPhase(onset []float64, msPerFrame, msPerBeat float64) (float64, bo
 var DownbeatStrengthFrac = 0.7
 
 // findDownbeat picks which beat of the grid is beat 1 of the bar and returns
-// its time. Beat 1 is the first beat, unless that beat is nearly silent and a
-// strong beat follows within the first bar (SilentLeadIndex): then the track
-// really starts on that later beat, and the first is an empty or pickup beat
-// at the front of the extrapolated grid.
+// its time. Repeated section entrances decide when they agree
+// (structuralDownbeat): a sustained return of bass and overall energy marks a
+// bar line, and unlike accents or the harmonic parity vote it can also tell
+// beat 1 from beat 3. Otherwise beat 1 is the first beat, unless that beat is
+// nearly silent and a strong beat follows within the first bar
+// (SilentLeadIndex).
 //
-// Against ~1570 rekordbox downbeats (on grids whose phase matches), the first
-// beat is right 86.7% of the time. Taking the first strongly-accented beat
-// anywhere in the track (FirstStrongIndex) drops that to 69%; the
-// silent-lead rule raises it to 87.5% (22 fixed, 9 broken). A track that
-// starts at full level always keeps its first beat: rekordbox agrees on 95%
-// of those, and the onset there is invisible to the strength measure.
+// Against rekordbox's beat 1 on 1,496 tracks of a real library whose grid
+// lines up with rekordbox's, the first-beat rules alone are right 87.8% of the
+// time and the entrances raise that to 91.3% (61 fixed, 9 broken), about
+// equally on both halves of the library. Before them, the silent-lead rule
+// had raised the first beat's 86.7% to 87.5%, and taking the first
+// strongly-accented beat anywhere in the track (FirstStrongIndex) scored 69%.
 func findDownbeat(beats []float64, samples []float32, sampleRate int) float64 {
 	if len(beats) == 0 {
 		return 0
 	}
 	idx := SilentLeadIndex(beats, samples, sampleRate)
+	idx = structuralDownbeat(samples, sampleRate, beats, idx)
 	if DownbeatHarmonic {
 		idx, _ = harmonicParity(samples, sampleRate, beats, idx)
 	}
