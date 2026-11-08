@@ -60,10 +60,11 @@ type Library struct {
 	// instead of hashed names. Empty for non-rekordbox-sourced libraries.
 	catIDs map[string]map[string]uint32
 
-	// songTags holds the library track IDs that carry at least one MyTag
-	// (djmdSongMyTag) assignment, populated from a master.db import. The
-	// dbserver sets argument 7's song-tag bit on these tracks' menu rows.
-	songTags map[uint32]struct{}
+	// tagList is the decks' TAG LIST in list order, and tagged the same
+	// tracks as a set (taglist.go). tagListMu orders changes and their saves.
+	tagList   []uint32
+	tagged    map[uint32]struct{}
+	tagListMu sync.Mutex
 
 	// hotCueBanks holds rekordbox Hot Cue Banks from a master.db import,
 	// persisted beside the track list (hotcuebank.go).
@@ -138,25 +139,6 @@ func (l *Library) CategoryID(kind, name string) uint32 {
 		return m[name]
 	}
 	return 0
-}
-
-// MarkSongTag records that the given track carries at least one MyTag
-// assignment. Idempotent; populated during a master.db import.
-func (l *Library) MarkSongTag(id uint32) {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	if l.songTags == nil {
-		l.songTags = make(map[uint32]struct{})
-	}
-	l.songTags[id] = struct{}{}
-}
-
-// HasSongTag reports whether the track carries at least one MyTag assignment.
-func (l *Library) HasSongTag(id uint32) bool {
-	l.mu.RLock()
-	defer l.mu.RUnlock()
-	_, ok := l.songTags[id]
-	return ok
 }
 
 // AddRelated records a symmetric related-track relationship (both a->b and
@@ -418,6 +400,11 @@ func (l *Library) RemoveTracks(ids []uint32) int {
 	l.rebuildLists()
 	l.mu.Unlock()
 	l.Save()
+	goneIDs := make(map[uint32]bool, len(gone))
+	for _, id := range gone {
+		goneIDs[id] = true
+	}
+	l.dropFromTagList(goneIDs)
 	return len(gone)
 }
 
@@ -429,6 +416,7 @@ func (l *Library) SetDBPath(path string) {
 	}
 	l.loadFromDisk()
 	l.loadHotCueBanks()
+	l.loadTagList()
 }
 
 // IncrementPlayCount bumps the play count for trackID by 1 and persists the

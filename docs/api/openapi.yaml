@@ -66,6 +66,7 @@ tags:
   - name: Track edits
   - name: Playlists
   - name: Hot Cue Banks
+  - name: Tag List
   - name: Playback
   - name: Analysis
   - name: Import / Export
@@ -628,6 +629,16 @@ paths:
     put: { tags: [Tags], summary: Rename a category., requestBody: { required: true, content: { application/json: { schema: { type: object, properties: { name: { type: string } } } } } }, responses: { "200": { description: OK, content: { application/json: { schema: { $ref: "#/components/schemas/Ack" } } } } } }
     delete: { tags: [Tags], summary: Delete a category., responses: { "200": { description: OK, content: { application/json: { schema: { $ref: "#/components/schemas/Ack" } } } } } }
 
+  # --------------------------------------------------------------- Tag List
+  /api/taglist:
+    get: { tags: [Tag List], summary: "The TAG LIST's tracks, in list order. Linked decks read and edit the same list.", responses: { "200": { description: OK, content: { application/json: { schema: { $ref: "#/components/schemas/TagList" } } } } } }
+    post: { tags: [Tag List], summary: "Add a track at the end of the TAG LIST (a track already in it stays where it is). Linked decks are told to read the list again.", requestBody: { required: true, content: { application/json: { schema: { type: object, required: [track_id], properties: { track_id: { type: integer, format: int64 } } } } } }, responses: { "200": { description: The list after the change., content: { application/json: { schema: { $ref: "#/components/schemas/TagList" } } } }, "400": { description: Invalid JSON. }, "404": { description: No such track. } } }
+    delete: { tags: [Tag List], summary: Remove every track from the TAG LIST., responses: { "200": { description: The (empty) list., content: { application/json: { schema: { $ref: "#/components/schemas/TagList" } } } } } }
+
+  /api/taglist/{id}:
+    parameters: [ { name: id, in: path, required: true, description: Track ID., schema: { type: integer, format: int64 } } ]
+    delete: { tags: [Tag List], summary: Remove a track from the TAG LIST., responses: { "200": { description: The list after the change., content: { application/json: { schema: { $ref: "#/components/schemas/TagList" } } } }, "400": { description: Invalid track ID. } } }
+
   # ------------------------------------------------------- Settings & Menu
   /api/settings:
     get:
@@ -971,6 +982,12 @@ components:
         name: { type: string }
         category_id: { type: integer, format: int64 }
         color: { type: integer }
+
+    TagList:
+      type: object
+      required: [track_ids]
+      properties:
+        track_ids: { type: array, items: { type: integer, format: int64 }, description: "The TAG LIST's track IDs, in list order." }
 
     TagCategoryInfo:
       type: object

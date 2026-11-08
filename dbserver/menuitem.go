@@ -42,7 +42,7 @@ type menuItem struct {
 	// column at render time (songinfo_title.go).
 	songInfoTitle  *songInfoTitle
 	trackPos       uint32 // arg 9: scope position / track number (album scope uses TrackNo; 0 elsewhere)
-	hasSongTag     bool   // track carries a MyTag — arg 7 bit 0x1
+	libTrack       bool   // a library track's row: its TAG LIST bit (arg 7 bit 0x1) is looked up at render
 	autoLoadHotCue bool   // deck auto-loads hot cues — arg 10 bit 0x100
 	fileTypeID     int    // rekordbox FileType enum — arg 10 compatibility bit
 	sampleRate     int    // Hz — arg 10 compatibility bit for wav/aiff
@@ -119,7 +119,7 @@ func (h *Handler) fillTrackRow(m *menuItem, t *library.Track, ids *catIDs, sv *s
 		rating:         uint32(t.Rating),
 		sortBPM:        uint32(math.Round(t.BPM * 100)), // exact for range checks (TRACK FILTER)
 		sortKey:        t.Key,
-		hasSongTag:     h.lib != nil && h.lib.HasSongTag(t.ID),
+		libTrack:       true,
 		autoLoadHotCue: t.AutoLoadHotCue,
 		fileTypeID:     t.FileTypeID,
 		sampleRate:     t.SampleRate,

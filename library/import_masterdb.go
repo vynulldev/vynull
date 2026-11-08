@@ -22,9 +22,8 @@ type MasterDBDump struct {
 	Playlists []MasterDBPlaylist `json:"playlists"`
 	Tags      []MasterDBTag      `json:"tags"`
 	Cues      []masterDBCue      `json:"cues"`
-	// TagList holds the rekordbox ContentIDs in djmdSongTagList (the "Tag
-	// List"). Distinct from per-track MyTag assignments; drives the song-tag
-	// flag bit in served menu rows.
+	// TagList holds the rekordbox ContentIDs in djmdSongTagList (the decks'
+	// TAG LIST), in list order. Distinct from per-track MyTag assignments.
 	TagList []string `json:"tag_list"`
 	// Recommendations are djmdRecommendLike related-track pairs backing the
 	// MATCHING browse.
@@ -325,13 +324,17 @@ func ImportMasterDBDump(lib *Library, dump *MasterDBDump) (*ImportBundle, error)
 		lib.SetHotCueBanks(banks, members)
 	}
 
-	// Flag the tracks in the "Tag List" (djmdSongTagList) so their served menu
-	// rows carry rekordbox's song-tag bit (argument 7). This is distinct from
-	// per-track MyTag assignments below.
-	for _, cid := range dump.TagList {
-		if id, ok := idMap[cid]; ok {
-			lib.MarkSongTag(id)
+	// The tag list (djmdSongTagList, the decks' TAG LIST) replaces the
+	// library's when the dump has one, in rekordbox's order. It's distinct
+	// from the MyTag assignments below.
+	if len(dump.TagList) > 0 {
+		ids := make([]uint32, 0, len(dump.TagList))
+		for _, cid := range dump.TagList {
+			if id, ok := idMap[cid]; ok {
+				ids = append(ids, id)
+			}
 		}
+		lib.SetTagList(ids)
 	}
 
 	// MyTags. djmdMyTag is a 2-level tree: columns (Genre, Components, …) at

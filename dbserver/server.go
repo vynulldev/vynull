@@ -131,6 +131,13 @@ type SmartPlaylistSource interface {
 	IsSmart(playlistID uint32) bool
 }
 
+// PlaylistCreator is optionally implemented by a PlaylistSource that can
+// make playlists, as a deck asks for one of its TAG LIST (0x3102): a regular
+// playlist of trackIDs, in order, under parentID (0 for the top level).
+type PlaylistCreator interface {
+	CreatePlaylist(name string, parentID uint32, trackIDs []uint32) error
+}
+
 // Server implements the Pro DJ Link database server protocol.
 type Server struct {
 	// MyTags serves the TRACK FILTER's MyTag lists and matching (nil: none).
@@ -170,6 +177,11 @@ type Server struct {
 	// notifications, etc. Without this we'd wait 5s for the keep-alive
 	// timeout to drop them.
 	OnPeerTeardown func(net.IP)
+
+	// OnPlaylistsChanged, if set, is invoked after a deck makes a playlist
+	// (of its TAG LIST). main.go wires it to the link broadcast with which
+	// rekordbox tells the decks its playlists changed.
+	OnPlaylistsChanged func()
 
 	// LinkedFn, if set, gates new incoming TCP connections. When it
 	// returns false, both the discovery port (12523) and the dynamic
@@ -480,6 +492,8 @@ func (s *Server) handleSession(ctx context.Context, conn net.Conn) {
 		mytags:       s.MyTags,
 		transcode:    s.Transcode,
 		exportTree:   s.ExportPlaylists,
+
+		onPlaylistsChanged: s.OnPlaylistsChanged,
 	}
 
 	// Requests are read through a buffer: readMessage reads each field on

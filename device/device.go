@@ -169,6 +169,21 @@ func (d *VirtualDevice) BroadcastRatingRefresh(trackID uint32) {
 	d.sendEphemeralBroadcastPair(pkt, fmt.Sprintf("rating refresh track=%d", trackID))
 }
 
+// BroadcastTagListRefresh sends the type 0x1b "TAG LIST changed" trigger,
+// as rekordbox does when its own tag list changes; linked decks read the
+// list again. A deck's own changes aren't announced.
+func (d *VirtualDevice) BroadcastTagListRefresh() {
+	pkt := proto.MarshalListRefreshTrigger(d.Name, d.DeviceNumber, true, d.TrackCount)
+	d.sendEphemeralBroadcastPair(pkt, "tag list refresh")
+}
+
+// BroadcastPlaylistsRefresh sends the type 0x1b "playlists changed"
+// trigger, as rekordbox does after a deck makes a playlist of its TAG LIST.
+func (d *VirtualDevice) BroadcastPlaylistsRefresh() {
+	pkt := proto.MarshalListRefreshTrigger(d.Name, d.DeviceNumber, false, d.TrackCount)
+	d.sendEphemeralBroadcastPair(pkt, "playlists refresh")
+}
+
 // sendEphemeralBroadcastPair opens a fresh UDP socket bound to an
 // ephemeral source port and sends pkt twice to the link-local broadcast
 // on port 50002. A different ephemeral source port is used

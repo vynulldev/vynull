@@ -144,6 +144,7 @@ func (l *Library) UseOverlay(path, musicDir string) {
 		l.saver = saver.New("library", saver.Interval, l.writeOverlay)
 	}
 	l.mu.Unlock()
+	l.loadTagList()
 }
 
 // writeOverlay saves the library as an overlay over its music dir.

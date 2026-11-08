@@ -503,6 +503,10 @@ func main() {
 		cdjSettings = device.NewCDJSettings(cfg.DataDir)
 	}
 
+	// Forward-declare the device so closures handed to the servers below
+	// can reference it; it's constructed further down, before any deck can
+	// connect.
+	var dev *device.VirtualDevice
 	db := &dbserver.Server{
 		Library:      lib,
 		DeviceNumber: cfg.DeviceNumber,
@@ -515,6 +519,11 @@ func main() {
 		Cues:         cueStore,
 		ReplayDir:    cfg.ReplayDir,
 		Transcode:    cfg.Transcode,
+		OnPlaylistsChanged: func() {
+			if dev != nil {
+				dev.BroadcastPlaylistsRefresh()
+			}
+		},
 	}
 	if pdbDB != nil {
 		db.ExportPlaylists = pdbDB.PlaylistTree
@@ -537,12 +546,11 @@ func main() {
 		dlog.Infof("dbserver: stopped")
 	}()
 
-	// Forward-declare the device so the NFS server's LinkedFn closure
-	// can reference it (dev itself is constructed further down). Empty
-	// MOUNT EXPORT replies when unlinked are what makes
-	// the CDJ drop its LINK indicator instantly instead of
-	// waiting for the keep-alive timeout (~5-6s).
-	var dev *device.VirtualDevice
+	// The NFS server's LinkedFn closure references dev, declared above the
+	// dbserver (dev itself is constructed further down). Empty MOUNT
+	// EXPORT replies when unlinked are what makes the CDJ drop its LINK
+	// indicator instantly instead of waiting for the keep-alive timeout
+	// (~5-6s).
 	nfsSrv := nfs.NewServer(nfsRoot)
 	nfsSrv.Transcode = cfg.Transcode
 	nfsSrv.IP = iface.IP
@@ -937,6 +945,16 @@ func (a playlistSource) Children(parentID uint32) []dbserver.PlaylistEntry {
 
 func (a playlistSource) Tracks(id uint32) []uint32 {
 	return a.ps.TracksFor(id, a.lib, a.tags)
+}
+
+// CreatePlaylist makes a regular playlist of trackIDs, as a deck asks for
+// one of its TAG LIST.
+func (a playlistSource) CreatePlaylist(name string, parentID uint32, trackIDs []uint32) error {
+	p, err := a.ps.Create(name, parentID, false)
+	if err != nil {
+		return err
+	}
+	return a.ps.SetTracks(p.ID, trackIDs)
 }
 
 func (a playlistSource) IsSmart(id uint32) bool {
