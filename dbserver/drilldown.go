@@ -128,8 +128,6 @@ func (h *Handler) handleSearch(msg *proto.DBMessage) []*proto.DBMessage {
 			artists = append(artists, &menuItem{ID: id, Label1: name, ItemType: 0x07})
 		}
 		seenAlbum := make(map[uint32]bool)
-		var matches []int32
-		var labels []string
 		for i, t := range c.tracks {
 			text, ids := &texts[i], &c.ids[i]
 			addArtist(t.Artist, text.artist, ids.artist)
@@ -139,23 +137,8 @@ func (h *Handler) handleSearch(msg *proto.DBMessage) []*proto.DBMessage {
 				seenAlbum[ids.album] = true
 				albums = append(albums, &menuItem{ID: ids.album, Label1: t.Album, ItemType: 0x02})
 			}
-			// A content row matches on either Title or file name, and is
-			// labelled with whichever matched (title takes precedence).
-			if searchMatch(text.title, tokens) {
-				matches, labels = append(matches, int32(i)), append(labels, t.Title)
-			} else if searchMatch(text.file, tokens) {
-				matches, labels = append(matches, int32(i)), append(labels, baseName(t.FilePath))
-			}
 		}
-		// A content row is a standard track row with the Key secondary
-		// column showing the key alone, not the "key - bpm" composite.
-		tracks = c.copyRows(matches)
-		for i, m := range tracks {
-			m.ItemType = 0x0f04
-			m.ParentID = m.keyID
-			m.Label1 = labels[i]
-			m.Label2 = c.tracks[matches[i]].Key
-		}
+		tracks = searchContent(c, c.libraryOrder(), tokens, false)
 		sortByID := func(s []*menuItem) {
 			sort.Slice(s, func(i, j int) bool { return s[i].ID < s[j].ID })
 		}
@@ -169,6 +152,37 @@ func (h *Handler) handleSearch(msg *proto.DBMessage) []*proto.DBMessage {
 	items = append(items, tracks...)
 
 	return h.countReply(msg, items)
+}
+
+// searchContent returns the content rows of the tracks at idx, in that
+// order, that match tokens. A content row matches on either Title or file
+// name, and is labelled with whichever matched (title takes precedence);
+// with names, also on its artist, remixer, original artist or album
+// (Search Track's tracks), labelled with its title. It is a standard track
+// row with the Key secondary column showing the key alone, not the
+// "key - bpm" composite.
+func searchContent(c *trackRows, idx []int32, tokens []string, names bool) []*menuItem {
+	texts := c.searchTexts()
+	var matches []int32
+	var labels []string
+	for _, i := range idx {
+		t, text := c.tracks[i], &texts[i]
+		named := names && (searchMatch(text.artist, tokens) || searchMatch(text.remixer, tokens) ||
+			searchMatch(text.origArtist, tokens) || searchMatch(text.album, tokens))
+		if named || searchMatch(text.title, tokens) {
+			matches, labels = append(matches, i), append(labels, t.Title)
+		} else if searchMatch(text.file, tokens) {
+			matches, labels = append(matches, i), append(labels, baseName(t.FilePath))
+		}
+	}
+	rows := c.copyRows(matches)
+	for n, m := range rows {
+		m.ItemType = 0x0f04
+		m.ParentID = m.keyID
+		m.Label1 = labels[n]
+		m.Label2 = c.tracks[matches[n]].Key
+	}
+	return rows
 }
 
 // searchTokens splits a query the way rekordbox does: on ASCII spaces, with

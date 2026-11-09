@@ -288,6 +288,8 @@ func (h *Handler) Handle(msg *proto.DBMessage) []*proto.DBMessage {
 		return h.handleGetHotCueBankCuesExtended(msg)
 	case 0x1300: // SEARCH category: per-keystroke search query
 		return h.handleSearch(msg)
+	case 0x1500: // Search Track: the touchscreen decks' track-only search
+		return h.handleSearchTrack(msg)
 	case 0x1200: // SEARCH-result drill-in: resolve the selected item's ID
 		return h.handleSearchSelect(msg)
 	case 0x1602: // REMIXER list (remixer drill-down level 0)

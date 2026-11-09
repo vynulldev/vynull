@@ -152,12 +152,12 @@ func (h *Handler) handleRenderMenu(msg *proto.DBMessage) []*proto.DBMessage {
 				if s == "" {
 					return 2
 				}
-				return uint32((len([]rune(s)) + 3) * 2) // fffa + text + fffb + NUL
+				return uint32((utf16Units(s) + 3) * 2) // fffa + text + fffb + NUL
 			}
 		} else {
 			strFunc = proto.ArgStr
 			labelLen = func(s string) uint32 {
-				return uint32((len([]rune(s)) + 1) * 2) // text + NUL
+				return uint32((utf16Units(s) + 1) * 2) // text + NUL
 			}
 		}
 
@@ -238,7 +238,7 @@ func (h *Handler) handleRenderMenu(msg *proto.DBMessage) []*proto.DBMessage {
 		// encoding. Legacy sessions keep the 12-argument row unchanged.
 		// Layout per the link-spec ROW_LAYOUT.md "Wire arguments" table.
 		if h.extended {
-			plainLen := func(s string) uint32 { return uint32((len([]rune(s)) + 1) * 2) }
+			plainLen := func(s string) uint32 { return uint32((utf16Units(s) + 1) * 2) }
 			args = append(args,
 				proto.ArgI32(item.keyID),             // 12: original djmdContent.KeyID
 				proto.ArgI32(plainLen(item.sortKey)), // 13: byte length of arg 14
@@ -261,6 +261,20 @@ func (h *Handler) handleRenderMenu(msg *proto.DBMessage) []*proto.DBMessage {
 	})
 
 	return responses
+}
+
+// utf16Units is s's length in UTF-16 code units, as a string argument's byte
+// length counts it: a character beyond the Basic Multilingual Plane (an
+// emoji) takes two.
+func utf16Units(s string) int {
+	n := 0
+	for _, r := range s {
+		n++
+		if r > 0xffff {
+			n++
+		}
+	}
+	return n
 }
 
 // dmstTrackType returns the track-type byte of a request's context argument
