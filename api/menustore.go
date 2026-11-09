@@ -42,9 +42,12 @@ type MenuItem struct {
 // The Locked flag marks rows that are always active
 // on the deck (can't be moved to the inactive list).
 //
-// DATE ADDED is intentionally absent — it is not surfaced
-// to the CDJ, and the wire opcode is unknown.
-// If someone later figures it out, drop a new entry in here.
+// DATE ADDED has no rekordbox category row to copy an ID from (link-spec's
+// fixture has none), so it takes an ID the others don't use. A deck is
+// offered it only if its capability mask allows it (a CDJ-2000NXS2's
+// doesn't; see dbserver/rootmask.go). DJ PLAY COUNT isn't a category on
+// rekordbox, only a sort: the dbserver answers its requests (0x100e, 0x110e)
+// but the root menu doesn't list it, and a CDJ-2000NXS2 can't open it.
 var defaultMenuItems = []MenuItem{
 	{Key: "artist", Label: "ARTIST", ID: 2, ItemType: 0x81, Visible: true},
 	{Key: "album", Label: "ALBUM", ID: 3, ItemType: 0x82, Visible: true},
@@ -72,6 +75,7 @@ var defaultMenuItems = []MenuItem{
 	{Key: "matching", Label: "MATCHING", ID: 26, ItemType: 0xaa, Visible: false},
 	{Key: "original_artist", Label: "ORIGINAL ARTIST", ID: 11, ItemType: 0x8a, Visible: false},
 	{Key: "remixer", Label: "REMIXER", ID: 9, ItemType: 0x88, Visible: false},
+	{Key: "date_added", Label: "DATE ADDED", ID: 24, ItemType: 0x8c, Visible: false},
 }
 
 // MenuStore persists the user's preferred order + visibility of the

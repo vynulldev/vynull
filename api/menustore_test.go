@@ -26,10 +26,11 @@ func TestMenuStoreDefaults(t *testing.T) {
 	}
 	// Default-active items should be visible; items rekordbox keeps in
 	// the "inactive" list (bitrate, genre, matching, original_artist,
-	// remixer) should default to hidden.
+	// remixer, and DATE ADDED, which it has no row for) should default to
+	// hidden.
 	wantInactive := map[string]bool{
 		"bitrate": true, "genre": true, "matching": true,
-		"original_artist": true, "remixer": true,
+		"original_artist": true, "remixer": true, "date_added": true,
 	}
 	for _, m := range all {
 		if wantInactive[m.Key] {
