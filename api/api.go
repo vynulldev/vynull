@@ -156,6 +156,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/tags/", s.handleTagByID)
 	mux.HandleFunc("/api/tag-categories", s.handleTagCategories)
 	mux.HandleFunc("/api/tag-categories/", s.handleTagCategoryByID)
+	mux.HandleFunc("/api/taglist", s.handleTagList)
+	mux.HandleFunc("/api/taglist/", s.handleTagListTrack)
 	mux.HandleFunc("/api/playlists", s.handlePlaylists)
 	mux.HandleFunc("/api/playlists/", s.handlePlaylistByID)
 	mux.HandleFunc("/api/hotcuebanks", s.handleHotCueBanks)

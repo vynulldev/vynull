@@ -103,7 +103,7 @@ func MarshalMediaResponse(name string, deviceNumber uint8, slot uint8, trackCoun
 	buf[0xab] = 0x01 // My Settings available
 
 	// 0xac-0xaf: playlist count.
-	binary.BigEndian.PutUint32(buf[0xac:], 35)
+	binary.BigEndian.PutUint32(buf[0xac:], mediaPlaylistCount)
 
 	// 0xb0-0xbf: rekordbox leaves as zeros (no storage info).
 
@@ -302,12 +302,43 @@ func MarshalTrackRefreshTrigger(name string, deviceNumber uint8, trackID uint32)
 //	0x21:      device number
 //	0x23:      0x0c — payload length (12)
 //	0x24:      device number
-//	0x25:      0x01 — constant (purpose unknown)
+//	0x25:      what changed: 0x01, a track's rating (see
+//	           MarshalListRefreshTrigger for the others)
 //	0x26-0x27: zeros
 //	0x28-0x2b: BE uint32 track ID
-//	0x2c-0x2f: 00 00 00 23 — constant (likely a "rating
-//	           data type" marker, but unverified)
+//	0x2c-0x2f: BE uint32 playlist count: the capture this layout came
+//	           from has 0x23, the same 35 as that rekordbox's media
+//	           response (see mediaPlaylistCount)
 func MarshalRatingRefreshTrigger(name string, deviceNumber uint8, trackID uint32) []byte {
+	return libraryChangeTrigger(name, deviceNumber, changedRating, trackID)
+}
+
+// What a type 0x1b trigger says changed (its byte 0x25).
+const (
+	changedRating    = 0x01
+	changedTagList   = 0x08
+	changedPlaylists = 0x22
+)
+
+// mediaPlaylistCount is the playlist count we advertise: the media
+// response's, and the 0x1b triggers' (rekordbox sends its real count; the
+// decks re-read whatever changed regardless).
+const mediaPlaylistCount = 35
+
+// MarshalListRefreshTrigger builds the type 0x1b broadcast rekordbox sends
+// when its TAG LIST (tagList) or its playlists change. It has the rating
+// trigger's layout, with byte 0x25 0x08 for the tag list or 0x22 for the
+// playlists, and the library's track count where the rating trigger has a
+// track ID. The decks read the list again (real rekordbox captures).
+func MarshalListRefreshTrigger(name string, deviceNumber uint8, tagList bool, trackCount uint16) []byte {
+	what := byte(changedPlaylists)
+	if tagList {
+		what = changedTagList
+	}
+	return libraryChangeTrigger(name, deviceNumber, what, uint32(trackCount))
+}
+
+func libraryChangeTrigger(name string, deviceNumber uint8, what byte, value uint32) []byte {
 	buf := make([]byte, 48)
 	PutHeader(buf, 0x1b)
 	putName50002(buf, name)
@@ -316,9 +347,9 @@ func MarshalRatingRefreshTrigger(name string, deviceNumber uint8, trackID uint32
 	buf[0x21] = deviceNumber
 	buf[0x23] = 0x0c
 	buf[0x24] = deviceNumber
-	buf[0x25] = 0x01
-	binary.BigEndian.PutUint32(buf[0x28:], trackID)
-	buf[0x2f] = 0x23
+	buf[0x25] = what
+	binary.BigEndian.PutUint32(buf[0x28:], value)
+	binary.BigEndian.PutUint32(buf[0x2c:], mediaPlaylistCount)
 	return buf
 }
 

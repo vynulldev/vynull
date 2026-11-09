@@ -191,8 +191,8 @@ func (h *Handler) handleRenderMenu(msg *proto.DBMessage) []*proto.DBMessage {
 				// genre/artist/album/label/original-artist/remixer track leaves
 				// (not the direct track list or scalar filters like BPM/year).
 				flags7 = item.contextTrackType << 24
-				if item.hasSongTag {
-					flags7 |= 0x1 // arg 7 bit 0: track carries at least one MyTag
+				if item.libTrack && h.lib != nil && h.lib.InTagList(item.ID) {
+					flags7 |= 0x1 // arg 7 bit 0: track is in the TAG LIST (the deck marks it)
 				}
 				if h.linkHistory().played(item.ID) {
 					flags7 |= linkPlayedFlag // arg 7 bit 8: played on the link

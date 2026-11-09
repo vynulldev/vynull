@@ -52,6 +52,8 @@ type Handler struct {
 	// transcode is set when the NFS server serves FLAC, WAV and AIFF files
 	// transcoded to MP3 (--transcode); see transcoded.
 	transcode bool
+	// onPlaylistsChanged is Server.OnPlaylistsChanged.
+	onPlaylistsChanged func()
 
 	// lastQuery is the last list query's transaction ID and list, for a
 	// render that reuses the query's ID. A CDJ-2000NXS2 renders with the
@@ -374,8 +376,16 @@ func (h *Handler) Handle(msg *proto.DBMessage) []*proto.DBMessage {
 		return h.handleGetTracksByBPM(msg)
 	case 0x1005, 0x1105: // PLAYLIST root (0x1005, 2 args) + drill-down (0x1105, 4 args)
 		return h.handleGetPlaylist(msg)
-	case 0x2006, 0x100f: // folder menu (0x100f = root listing, 0x2006 = drill-down by folder ID)
+	case 0x100f: // TAG LIST
+		return h.handleGetTagList(msg)
+	case 0x2006: // FOLDER drill-down by folder ID
 		return h.handleGetFolder(msg)
+	case 0x3002: // TAG LIST: add or remove a track
+		return h.handleSetTagged(msg)
+	case 0x3102: // TAG LIST: make a playlist of it
+		return h.handleTagListToPlaylist(msg)
+	case 0x3202: // TAG LIST: remove every track
+		return h.handleClearTagList(msg)
 	case proto.DBMsgGetMetadata:
 		return h.handleGetMetadata(msg)
 	case proto.DBMsgGetArtwork:

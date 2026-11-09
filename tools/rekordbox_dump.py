@@ -475,12 +475,12 @@ def main():
     except sqlcipher3.dbapi2.OperationalError:
         pass  # Older DBs may not have MyTag tables
 
-    # Tag List membership (djmdSongTagList). Distinct from djmdSongMyTag: this
-    # is the "Tag List" the deck reflects as the song-tag flag (menu-row
-    # argument 7 bit 0), so it is dumped separately from MyTag assignments.
+    # The decks' TAG LIST (djmdSongTagList), in list order. Distinct from
+    # djmdSongMyTag, so it is dumped separately from MyTag assignments.
     out["tag_list"] = []
     try:
-        cur.execute("SELECT ContentID FROM djmdSongTagList")
+        cur.execute("SELECT ContentID FROM djmdSongTagList "
+                    "WHERE COALESCE(rb_local_deleted, 0) = 0 ORDER BY TrackNo")
         out["tag_list"] = [str(cid) for (cid,) in cur.fetchall()]
     except sqlcipher3.dbapi2.OperationalError:
         pass  # Older DBs may not have the djmdSongTagList table

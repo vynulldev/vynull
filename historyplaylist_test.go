@@ -3,10 +3,12 @@
 package main
 
 import (
+	"slices"
 	"testing"
 	"time"
 
 	"github.com/vynulldev/vynull/api"
+	"github.com/vynulldev/vynull/pdb"
 )
 
 // TestHistoryPlaylistAppend verifies the auto-history hook:
@@ -81,5 +83,39 @@ func TestHistoryPlaylistAppend(t *testing.T) {
 	}
 	if day2Count != 1 {
 		t.Fatalf("want 1 day-2 playlist, got %d", day2Count)
+	}
+}
+
+// A deck's "make a playlist of the TAG LIST" lands in the playlist store as a
+// regular playlist of the list's tracks, in order.
+func TestPlaylistSourceCreatePlaylist(t *testing.T) {
+	ps := api.NewPlaylistStore(t.TempDir())
+	src := playlistSource{ps: ps}
+	if err := src.CreatePlaylist("TAG LIST", 0, []uint32{3, 1, 2}); err != nil {
+		t.Fatal(err)
+	}
+	all := ps.All()
+	if len(all) != 1 || all[0].Name != "TAG LIST" || all[0].IsFolder || all[0].IsSmart || all[0].ParentID != 0 {
+		t.Fatalf("playlists %+v, want one top-level TAG LIST playlist", all)
+	}
+	if got := ps.Tracks(all[0].ID); !slices.Equal(got, []uint32{3, 1, 2}) {
+		t.Errorf("tracks %v, want [3 1 2]", got)
+	}
+	if err := src.CreatePlaylist("x", 999, nil); err == nil {
+		t.Error("a missing parent folder made a playlist")
+	}
+}
+
+// FOLDER stays in a USB export's menu, but isn't served in the root menu
+// over the link: a deck opens that category with the TAG LIST's request.
+func TestFolderIsExportOnly(t *testing.T) {
+	ms := api.NewMenuStore(t.TempDir())
+	for _, e := range (menuSource{ms: ms}).RootMenu() {
+		if e.Label == "FOLDER" {
+			t.Fatalf("root menu over the link has FOLDER: %+v", e)
+		}
+	}
+	if cfg := ms.PDBMenuConfig(); !slices.Contains(cfg.Visible, pdb.MenuCategoryByKey["folder"]) {
+		t.Errorf("USB export menu %+v lost FOLDER", cfg)
 	}
 }

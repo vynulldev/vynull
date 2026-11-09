@@ -178,11 +178,9 @@ func (h *Handler) trackIDsToMenuItems(trackIDs []uint32) []*menuItem {
 }
 
 func (h *Handler) handleGetFolder(msg *proto.DBMessage) []*proto.DBMessage {
-	// 0x100f: FOLDER root listing — the CDJ sends this when the user
-	// first opens the FOLDER menu, with only [DMST, sort]. Folder ID is
-	// implicit (root).
-	// 0x2006: FOLDER drill-down by ID — args are [DMST, sort, folderID].
-	// Both funnel through ListDir; folderID 0 means root.
+	// 0x2006: FOLDER drill-down by ID — args are [DMST, sort, folderID],
+	// through ListDir; folderID 0 means root. (0x100f, once taken for the
+	// FOLDER root listing, is the TAG LIST: taglist.go.)
 	folderID := msgArg(msg, 2)
 
 	// Rebuild folder lookup from library tracks if needed.
