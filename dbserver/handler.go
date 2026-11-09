@@ -54,6 +54,10 @@ type Handler struct {
 	transcode bool
 	// onPlaylistsChanged is Server.OnPlaylistsChanged.
 	onPlaylistsChanged func()
+	// rootMask is the capability mask of the session's last root menu
+	// request, if it carried one (rootmask.go).
+	rootMask    uint32
+	rootMaskSet bool
 
 	// lastQuery is the last list query's transaction ID and list, for a
 	// render that reuses the query's ID. A CDJ-2000NXS2 renders with the
@@ -416,6 +420,18 @@ func (h *Handler) Handle(msg *proto.DBMessage) []*proto.DBMessage {
 		return h.handleGetSongStructure(msg)
 	case 0x3d03: // NXS2 cue/loop data
 		return h.handleGetNXS2Cues(msg)
+	case 0x1708: // DATE ADDED years
+		return h.handleDateAddedYears(msg)
+	case 0x1808: // DATE ADDED months of a year
+		return h.handleDateAddedMonths(msg)
+	case 0x1908: // DATE ADDED days of a month
+		return h.handleDateAddedDays(msg)
+	case 0x1a08: // DATE ADDED tracks of a day
+		return h.handleDateAddedTracks(msg)
+	case 0x100e: // DJ PLAY COUNT counts
+		return h.handlePlayCounts(msg)
+	case 0x110e: // DJ PLAY COUNT tracks of a count
+		return h.handleTracksByPlayCount(msg)
 	case 0x1007: // rating list
 		return h.handleGetRating(msg)
 	case 0x1107: // tracks for a given rating
@@ -559,20 +575,15 @@ func (h *Handler) handleNXS2Extension(msg *proto.DBMessage) []*proto.DBMessage {
 // analysis fetches; caching here would break renders on those new
 // connections until they happen to receive their own 0x1000 query.
 func (h *Handler) rootMenu() []*menuItem {
-	if h.menu != nil {
-		entries := h.menu.RootMenu()
-		items := make([]*menuItem, 0, len(entries))
-		for _, e := range entries {
-			items = append(items, &menuItem{ID: e.ID, Label1: e.Label, ItemType: e.ItemType})
-		}
-		return items
-	}
 	entries := DefaultRootMenu()
+	if h.menu != nil {
+		entries = h.menu.RootMenu()
+	}
 	items := make([]*menuItem, 0, len(entries))
 	for _, e := range entries {
 		items = append(items, &menuItem{ID: e.ID, Label1: e.Label, ItemType: e.ItemType})
 	}
-	return items
+	return h.maskRootMenu(items)
 }
 
 func (h *Handler) handleRootMenu(msg *proto.DBMessage) []*proto.DBMessage {
@@ -585,6 +596,7 @@ func (h *Handler) handleRootMenu(msg *proto.DBMessage) []*proto.DBMessage {
 	// so browsing the menu after INFO rendered the track info. Only this
 	// deck's lists go; other decks keep theirs.
 	h.recentLists().forget(uint8(dmstContext(msg) >> 24))
+	h.noteRootMask(msg)
 	items := h.rootMenu()
 	dlog.Debugf("dbserver: root menu returning %d categories", len(items))
 	return []*proto.DBMessage{{
