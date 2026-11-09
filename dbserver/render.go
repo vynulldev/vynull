@@ -110,12 +110,20 @@ func (h *Handler) handleRenderMenu(msg *proto.DBMessage) []*proto.DBMessage {
 		return nil
 	}
 	items := pending
+	// The header echoes the window's start, except that a zero-count
+	// request at or past the end keeps its own offset there while reading
+	// the final row (link-spec search-ceiling, rekordbox 7.2.19).
+	headerOffset := offset
 	if n := len(items); n == 0 {
-		offset, items = 0, nil
+		offset, headerOffset, items = 0, 0, nil
 	} else {
+		zeroPastEnd := limit == 0 && offset >= n
 		limit = min(max(limit, 1), n)
 		if offset < 0 || offset+limit > n {
 			offset = n - limit
+		}
+		if !zeroPastEnd {
+			headerOffset = offset
 		}
 		items = items[offset : offset+limit]
 	}
@@ -129,7 +137,7 @@ func (h *Handler) handleRenderMenu(msg *proto.DBMessage) []*proto.DBMessage {
 		Type: proto.DBMsgMenuHeader,
 		Args: []proto.DBArg{
 			proto.ArgI32(1),
-			proto.ArgI32(uint32(offset)),
+			proto.ArgI32(uint32(headerOffset)),
 		},
 	})
 
