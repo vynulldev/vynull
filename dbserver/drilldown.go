@@ -101,16 +101,22 @@ func (h *Handler) handleNXS2DrillDown(msg *proto.DBMessage) []*proto.DBMessage {
 // Selecting an artist or album drills into the existing 0x1102 /
 // 0x1202 handlers; selecting a track drills via 0x1200 (handled by
 // handleSearchSelect).
+//
+// As rekordbox (link-spec SEARCH_ORACLE.md): the request is [ctx, sort,
+// declared UTF-16 byte length, query, trailing field], and a declared length
+// of zero or shorter than the query with its NUL gets an argumentless
+// 0x0100; the result holds at most 1,000 rows (searchCeiling).
 func (h *Handler) handleSearch(msg *proto.DBMessage) []*proto.DBMessage {
-	query := ""
+	var tokens []string
 	if len(msg.Args) >= 4 {
-		// Inline-tagged parser hands us the raw UTF-16 BE bytes as a
-		// Go string; decode to a normal string. Trailing NULs (the CDJ
-		// sends "T\0") get trimmed by DecodeUTF16BE.
-		query = proto.DecodeUTF16BE([]byte(msg.Args[3].Str))
+		raw := msg.Args[3].Str // UTF-16BE with the NUL, as the reader hands it over
+		if badSearchLength(msg, raw) {
+			dlog.Debugf("dbserver: SEARCH with declared length %d, too short for its query", msgArg(msg, 2))
+			return []*proto.DBMessage{{TxID: msg.TxID, Type: 0x0100}}
+		}
+		tokens = searchQueryTokens(raw)
 	}
-	tokens := searchTokens(query)
-	dlog.Debugf("dbserver: SEARCH query=%q tokens=%v", query, tokens)
+	dlog.Debugf("dbserver: SEARCH tokens=%q", tokens)
 
 	var artists, albums, tracks []*menuItem
 	if len(tokens) > 0 {
@@ -150,8 +156,39 @@ func (h *Handler) handleSearch(msg *proto.DBMessage) []*proto.DBMessage {
 	items = append(items, artists...)
 	items = append(items, albums...)
 	items = append(items, tracks...)
+	items = items[:min(len(items), searchCeiling)]
 
 	return h.countReply(msg, items)
+}
+
+// searchCeiling is how many rows SEARCH lists at most.
+const searchCeiling = 1000
+
+// badSearchLength reports whether a search request's declared length (its
+// third argument) is zero or shorter than its query up to the first NUL and
+// with it, in UTF-16 bytes, which rekordbox refuses. (The string field may
+// run on past the NUL.)
+func badSearchLength(msg *proto.DBMessage, raw string) bool {
+	query, _, _ := strings.Cut(proto.DecodeUTF16BE([]byte(raw)), "\x00")
+	declared := msgArg(msg, 2)
+	return declared == 0 || declared < uint32((utf16Units(query)+1)*2)
+}
+
+// searchQueryTokens is a search request's query as rekordbox reads it: up to
+// its first NUL, split into tokens by searchTokens. A token holding a
+// character beyond the Basic Multilingual Plane (an emoji) matches nothing,
+// so neither does the query; it has no tokens.
+func searchQueryTokens(raw string) []string {
+	query, _, _ := strings.Cut(proto.DecodeUTF16BE([]byte(raw)), "\x00")
+	tokens := searchTokens(query)
+	for _, tok := range tokens {
+		for _, r := range tok {
+			if r > 0xffff {
+				return nil
+			}
+		}
+	}
+	return tokens
 }
 
 // searchContent returns the content rows of the tracks at idx, in that

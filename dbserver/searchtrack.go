@@ -9,10 +9,10 @@ import (
 
 // Search Track, 0x1500 [ctx, sort, declared UTF-16 byte length, query], is
 // the track-only search newer decks send from their touchscreen (link-spec
-// SEARCH_ORACLE.md, rekordbox 7.2.19). It searches SEARCH's domains (artist
-// names, album, title, file name) but returns tracks only: a track whose
-// title, file name, artists or album match, as SEARCH renders its content
-// rows. Besides:
+// SEARCH_ORACLE.md, rekordbox 7.2.19). It reads the query as SEARCH does and
+// searches SEARCH's domains (artist names, album, title, file name), but
+// returns tracks only: a track whose title, file name, artists or album
+// match, as SEARCH renders its content rows. Besides:
 //
 //   - the sort is its second argument, read as a signed low byte: 0 to 17 are
 //     sorts (256 is 0), anything else answers total 0xffffffff;
@@ -32,8 +32,8 @@ func (h *Handler) handleSearchTrack(msg *proto.DBMessage) []*proto.DBMessage {
 		return h.countReply(msg, nil)
 	}
 	raw := msg.Args[3].Str // UTF-16BE with the NUL, as the reader hands it over
-	if declared := msgArg(msg, 2); declared == 0 || declared < uint32(len(raw)) {
-		dlog.Debugf("dbserver: Search Track with declared length %d for a %d-byte query", declared, len(raw))
+	if badSearchLength(msg, raw) {
+		dlog.Debugf("dbserver: Search Track with declared length %d, too short for its query", msgArg(msg, 2))
 		return []*proto.DBMessage{{TxID: msg.TxID, Type: 0x0100}}
 	}
 	sortID := int8(uint8(msgArg(msg, 1)))
@@ -42,7 +42,7 @@ func (h *Handler) handleSearchTrack(msg *proto.DBMessage) []*proto.DBMessage {
 			Args: []proto.DBArg{proto.ArgI32(uint32(msg.Type)), proto.ArgI32(0xffffffff)}}}
 	}
 	order := uint32(sortID)
-	tokens := searchTokens(proto.DecodeUTF16BE([]byte(raw)))
+	tokens := searchQueryTokens(raw)
 	var items []*menuItem
 	if len(tokens) > 0 {
 		c := h.trackRows()
