@@ -12,6 +12,9 @@
 //	    master.db importer consumes); we load it into a library and serve it.
 //	  - --data-dir is a writable per-run scratch directory.
 //	  - --second-column selects the track-list detail column.
+//	  - --key-display names keys in "classic" (rekordbox's default device
+//	    setting) or "alphanumeric" notation; $VYNULL_KEY_DISPLAY sets its
+//	    default, for suites the adapter starts without it.
 //
 // On startup it prints exactly one line of JSON to stdout —
 // {"status":"ready","listen_address":"127.0.0.1","query_port":N} — then serves
@@ -51,6 +54,11 @@ type confMenu struct {
 func (m confMenu) RootMenu() []dbserver.RootMenuEntry { return dbserver.DefaultRootMenu() }
 func (m confMenu) TrackDetail() string                { return m.second }
 func (m confMenu) SortMenu() []dbserver.SortMenuEntry { return m.sorts }
+
+// keyDisplay is the device setting's key notation (dbserver.KeyDisplaySource).
+type keyDisplay string
+
+func (k keyDisplay) KeyDisplay() string { return string(k) }
 
 // sortMenuFrom lists an imported library's shown sorts, in menu order.
 func sortMenuFrom(imp []library.SortImport) []dbserver.SortMenuEntry {
@@ -178,6 +186,11 @@ func main() {
 	fixtureJSON := flag.String("fixture-json", "", "path to a tools/rekordbox_dump.py JSON dump to serve")
 	dataDir := flag.String("data-dir", "", "writable directory for per-run state")
 	secondColumn := flag.String("second-column", "bpm", "track-list detail (second) column")
+	keys := os.Getenv("VYNULL_KEY_DISPLAY")
+	if keys == "" {
+		keys = "classic"
+	}
+	flag.StringVar(&keys, "key-display", keys, `key notation, "classic" or "alphanumeric" (default $VYNULL_KEY_DISPLAY, else classic)`)
 	flag.Parse()
 
 	if *fixtureJSON == "" {
@@ -212,6 +225,7 @@ func main() {
 		DeviceNumber: 17, // rekordbox device number, matching the oracle
 		Analysis:     analysisStore,
 		Menu:         confMenu{second: *secondColumn, sorts: sortMenuFrom(bundle.Sorts)},
+		Keys:         keyDisplay(keys),
 		Playlists:    confPlaylists{nodes: dump.Playlists, lib: lib, tags: tagsFromDump(dump.Tags), now: conformanceNow()},
 		Clock:        func() time.Time { return linkHistoryDay },
 		BindHost:     "127.0.0.1", // loopback only

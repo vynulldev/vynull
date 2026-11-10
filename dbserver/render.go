@@ -440,17 +440,20 @@ func (h *Handler) populateLabels(menu uint8) {
 }
 
 func (h *Handler) populateKeys(menu uint8) {
-	keySet := make(map[string]bool)
+	// Each key once, as the device setting names it, with the ID of the
+	// first spelling the library stores for it.
+	classic := h.classicKeys()
+	keySet := make(map[string]string)
 	if h.lib != nil {
 		for _, t := range h.lib.Tracks() {
-			if t.Key != "" {
-				keySet[t.Key] = true
+			if name := keyName(t.Key, classic); t.Key != "" && keySet[name] == "" {
+				keySet[name] = t.Key
 			}
 		}
 	}
 	var items []*menuItem
-	for name := range keySet {
-		items = append(items, &menuItem{ID: h.catID("key", name), Label1: name, ItemType: 0x0f})
+	for name, stored := range keySet {
+		items = append(items, &menuItem{ID: h.catID("key", stored), Label1: name, ItemType: 0x0f})
 	}
 	orderByName(items)
 	h.setPending(menu, items)

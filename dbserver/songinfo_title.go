@@ -57,7 +57,7 @@ func (h *Handler) newSongInfoTitle(t *library.Track, plainArg0 uint32) *songInfo
 		9:  {id("remixer", t.Remixer), t.Remixer, 0x29},
 		10: {id("label", t.Label), t.Label, 0x0e},
 		11: {id("origartist", t.OriginalArtist), t.OriginalArtist, 0x28},
-		12: {id("key", t.Key), t.Key, 0x0f},
+		12: {id("key", t.Key), keyName(t.Key, h.classicKeys()), 0x0f},
 		13: {uint32(t.Bitrate), "", 0x10},
 		14: {0, "", 0x00},
 		15: {color, library.TrackColorName(uint8(color)), 0x13 + color&0xff},

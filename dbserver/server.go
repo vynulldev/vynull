@@ -159,8 +159,9 @@ type Server struct {
 	ExportRoot   string
 	Analysis     *analysis.Store
 	Folders      *pdb.FolderLookup
-	Playlists    PlaylistSource // optional; if nil, PLAYLIST menu falls back to filesystem folders
-	Menu         MenuSource     // optional; if nil, root menu falls back to a built-in default list
+	Playlists    PlaylistSource   // optional; if nil, PLAYLIST menu falls back to filesystem folders
+	Menu         MenuSource       // optional; if nil, root menu falls back to a built-in default list
+	Keys         KeyDisplaySource // optional; if nil, keys are served in Classic notation
 	Cues         *CueStore
 	ReplayDir    string // if set, serve raw response packets from this directory
 	// Transcode tells the decks that FLAC, WAV and AIFF tracks are MP3s, as
@@ -487,6 +488,7 @@ func (s *Server) handleSession(ctx context.Context, conn net.Conn) {
 		rowCache:     &s.rows,
 		clock:        s.Clock,
 		menu:         s.Menu,
+		keys:         s.Keys,
 		cues:         s.Cues,
 		filters:      &s.filters,
 		mytags:       s.MyTags,

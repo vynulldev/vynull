@@ -42,10 +42,10 @@ func (h *Handler) handleGetDeliveryInfo(msg *proto.DBMessage) []*proto.DBMessage
 
 			items = []*menuItem{
 				{ItemType: 0x36}, // composer (ComposerID lookup)
-				{ID: uint32(t.BPM * 100), ItemType: 0x0d},                             // BPM
-				{ID: t.ID, ItemType: 0x23},                                            // DeliveryComment
-				{ID: newKeyID(t.Key), ParentID: keyID, Label2: t.Key, ItemType: 0x0f}, // key
-				{ID: uint32(t.FileTypeID), ItemType: 0x12},                            // file type
+				{ID: uint32(t.BPM * 100), ItemType: 0x0d},                                     // BPM
+				{ID: t.ID, ItemType: 0x23},                                                    // DeliveryComment
+				{ID: newKeyID(t.Key), ParentID: keyID, Label2: track.sortKey, ItemType: 0x0f}, // key
+				{ID: uint32(t.FileTypeID), ItemType: 0x12},                                    // file type
 				{ID: id("genre", t.Genre), Label1: t.Genre, ItemType: 0x06},
 				{ID: id("label", t.Label), Label1: t.Label, ItemType: 0x0e},
 				{ID: id("artist", t.Artist), Label1: t.Artist, ItemType: 0x07},

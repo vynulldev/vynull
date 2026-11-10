@@ -112,6 +112,14 @@ func (s *CDJSettings) GetDevSetting() []byte {
 	return s.cfg.DevSetting.Encode()
 }
 
+// KeyDisplay returns the DEVSETTING key notation, "classic" or
+// "alphanumeric", which the dbserver names keys in (dbserver.KeyDisplaySource).
+func (s *CDJSettings) KeyDisplay() string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.cfg.DevSetting.KeyDisplay
+}
+
 // GetDevSettingDat returns the 32-byte DEVSETTING body for the USB-export
 // DEVSETTING.DAT file (8 magic + 6 fields + 18 padding).
 func (s *CDJSettings) GetDevSettingDat() []byte {

@@ -20,6 +20,7 @@ type trackRows struct {
 	lib       *library.Library
 	rev       uint64
 	detail    string // the configured detail column the rows show
+	classic   bool   // whether the rows name keys in Classic notation
 	transcode bool
 
 	tracks []*library.Track // in library order
@@ -81,7 +82,8 @@ type rowCache struct {
 }
 
 // trackRows returns the library's rows at its current revision, building
-// them when the library or the configured detail column has changed. The
+// them when the library, the configured detail column or the key notation
+// has changed. The
 // revision is read before the rows are built, so a change made meanwhile
 // moves it past theirs and the next request builds again.
 func (h *Handler) trackRows() *trackRows {
@@ -92,20 +94,20 @@ func (h *Handler) trackRows() *trackRows {
 	if h.lib != nil {
 		rev = h.lib.Rev()
 	}
-	detail := h.trackDetailKey()
+	detail, classic := h.trackDetailKey(), h.classicKeys()
 	rc := h.rowCache
 	rc.mu.Lock()
 	defer rc.mu.Unlock()
-	if c := rc.rows; c != nil && c.lib == h.lib && c.rev == rev && c.detail == detail && c.transcode == h.transcode {
+	if c := rc.rows; c != nil && c.lib == h.lib && c.rev == rev && c.detail == detail && c.classic == classic && c.transcode == h.transcode {
 		return c
 	}
-	rc.rows = h.buildTrackRows(rev, detail)
+	rc.rows = h.buildTrackRows(rev, detail, classic)
 	return rc.rows
 }
 
 // buildTrackRows builds every track's base row and category IDs.
-func (h *Handler) buildTrackRows(rev uint64, detail string) *trackRows {
-	c := &trackRows{lib: h.lib, rev: rev, detail: detail, transcode: h.transcode}
+func (h *Handler) buildTrackRows(rev uint64, detail string, classic bool) *trackRows {
+	c := &trackRows{lib: h.lib, rev: rev, detail: detail, classic: classic, transcode: h.transcode}
 	if h.lib != nil {
 		c.tracks = h.lib.Tracks()
 	}

@@ -217,7 +217,7 @@ func searchContent(c *trackRows, idx []int32, tokens []string, names bool) []*me
 		m.ItemType = 0x0f04
 		m.ParentID = m.keyID
 		m.Label1 = labels[n]
-		m.Label2 = c.tracks[matches[n]].Key
+		m.Label2 = m.sortKey // the key, as the device setting names it
 	}
 	return rows
 }
@@ -383,7 +383,7 @@ func (h *Handler) searchTrackItem(t *library.Track) *menuItem {
 		Label2:   fmt.Sprintf("%.1f bpm", t.BPM),
 	}
 	if t.Key != "" {
-		m.Label2 += " - " + t.Key
+		m.Label2 += " - " + keyName(t.Key, h.classicKeys())
 	}
 	return m
 }
@@ -465,14 +465,15 @@ func (h *Handler) handleGetKeyDistances(msg *proto.DBMessage) []*proto.DBMessage
 
 	// The KEY menu is keyed by the 1-24 harmonic index; derive the Camelot
 	// position to compute the compatibility rings, then label them in the
-	// configured (Classic) notation. arg 1 is the selected index, arg 0 the
+	// device setting's notation. arg 1 is the selected index, arg 0 the
 	// distance (0 exact, 1 +relative, 2 +wheel neighbours).
 	key, _ := analysis.KeyAtIndex(int(keyIndex))
+	classic := h.classicKeys()
 	var items []*menuItem
 	for dist, groupKeys := range keyDistanceGroups(key) {
 		names := make([]string, len(groupKeys))
 		for i, k := range groupKeys {
-			names[i] = classicKeyNames[k.Index()-1]
+			names[i] = keyNameAt(k.Index(), classic)
 		}
 		items = append(items, &menuItem{
 			ID:       keyIndex,

@@ -127,7 +127,7 @@ func (h *Handler) hotCueBankTrackItems(bankID, count uint32) []*menuItem {
 		// (link-spec docs/SECONDARY_COLUMNS.md, "String ownership").
 		switch h.trackDetailKey() {
 		case "key":
-			it.Label2 = t.Key
+			it.Label2 = it.sortKey
 		case "bpm":
 			it.Label2 = ""
 		}

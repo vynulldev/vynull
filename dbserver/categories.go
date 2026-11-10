@@ -406,23 +406,15 @@ func (h *Handler) handleGetFilename(msg *proto.DBMessage) []*proto.DBMessage {
 	return h.countReply(msg, items)
 }
 
-// classicKeyNames lists rekordbox's 24 harmonic positions in order, in Classic
-// (musical) notation. The 1-based position is the "new key" index served as
-// the KEY menu's row ID (1A=1, 1B=2, ... 12B=24); the deck reverses it to the
-// configured notation. From link-spec's KEY_NOTATION_ORACLE.md.
-var classicKeyNames = [24]string{
-	"Abm", "B", "Ebm", "F#", "Bbm", "Db", "Fm", "Ab", "Cm", "Eb", "Gm", "Bb",
-	"Dm", "F", "Am", "C", "Em", "G", "Bm", "D", "F#m", "A", "Dbm", "E",
-}
-
 func (h *Handler) handleGetKeys(msg *proto.DBMessage) []*proto.DBMessage {
 	// rekordbox shows all 24 harmonic positions, in wheel order, not just
-	// the keys present in the library.
+	// the keys present in the library, each row's ID its 1-24 key index.
+	classic := h.classicKeys()
 	items := make([]*menuItem, 0, 24)
-	for i, name := range classicKeyNames {
+	for i := 1; i <= 24; i++ {
 		items = append(items, &menuItem{
-			ID:       uint32(i + 1),
-			Label1:   name,
+			ID:       uint32(i),
+			Label1:   keyNameAt(i, classic),
 			ItemType: 0x0f,
 		})
 	}

@@ -48,7 +48,7 @@ func TestServedExportTrack(t *testing.T) {
 	for i, want := range map[int]struct {
 		id    uint32
 		label string
-	}{1: {11, "A"}, 2: {12, "B"}, 5: {15, "8A"}, 8: {13, "G"}, 13: {14, "L"}} {
+	}{1: {11, "A"}, 2: {12, "B"}, 5: {15, "Am"}, 8: {13, "G"}, 13: {14, "L"}} { // the key in Classic notation, with no device setting
 		if rows[i].ID != want.id || rows[i].Label1 != want.label {
 			t.Errorf("row %d = %d %q, want %d %q", i, rows[i].ID, rows[i].Label1, want.id, want.label)
 		}
