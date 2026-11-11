@@ -855,6 +855,8 @@ function renderBeatGridEditor(t) {
   // Re-analyze asks what to recompute (everything / grid / waveform) in its
   // confirmation dialog; while locked only waveform is offered.
   detLine += `
+    <button type="button" class="bg-clear" id="bg-undo" data-locked="${locked ? 1 : 0}" title="Undo the last grid edit (Ctrl+Z)" disabled>UNDO</button>
+    <button type="button" class="bg-clear" id="bg-redo" data-locked="${locked ? 1 : 0}" title="Redo (Ctrl+Shift+Z)" disabled>REDO</button>
     <button type="button" class="bg-clear" id="bg-reanalyze" title="Re-run analysis from the audio file: everything, the grid only, or the waveform only">RE-ANALYZE</button>
     <button type="button" class="bg-clear bg-lock ${locked ? 'active' : ''}" id="bg-lock" title="${locked ? 'Unlock to allow re-analysis and grid edits' : 'Lock to protect this grid from re-analysis and edits'}">${locked ? '🔒 LOCKED' : 'LOCK'}</button>`;
   return `
@@ -903,7 +905,7 @@ function wireBeatGridEditor(trackID) {
   const sec = document.getElementById('beats-section');
   if (!bpmInput || !sec) return;
   const refresh = async (patch) => {
-    const data = await saveBeatOverrides(trackID, patch);
+    const data = await recordGridEdit(trackID, () => saveBeatOverrides(trackID, patch));
     if (!data) return;
     sec.innerHTML = `<h4>BEAT GRID</h4>` + renderBeatGridEditor({
       id: trackID,
@@ -964,9 +966,14 @@ function wireBeatGridEditor(trackID) {
     rean.disabled = true;
     rean.textContent = 'RE-ANALYZING…';
     try {
-      const r = await fetch(`/api/analysis/reanalyze/${trackID}?parts=${parts}`, { method: 'POST' });
-      if (!r.ok) { toast(`RE-ANALYSIS FAILED · ${r.status}`, 'error'); return; }
-      const data = await r.json();
+      let data = null;
+      await recordGridEdit(trackID, async () => {
+        const r = await fetch(`/api/analysis/reanalyze/${trackID}?parts=${parts}`, { method: 'POST' });
+        if (!r.ok) { toast(`RE-ANALYSIS FAILED · ${r.status}`, 'error'); return false; }
+        data = await r.json();
+        return parts !== 'waveform'; // a waveform-only pass leaves the grid alone
+      });
+      if (!data) return;
       toast(`RE-ANALYZED (${parts}) · BPM ${data.bpm.toFixed(2)} · ${data.beat_count} BEATS`, 'success');
       // Drop the cached waveform so the detail drawer pulls a fresh
       // PWV5 (the bytes may have changed after re-analysis), and
@@ -1055,7 +1062,102 @@ function wireBeatGridEditor(trackID) {
   bpmInput.addEventListener('keydown', e => {
     if (e.key === ' ') { e.preventDefault(); onTap(); }
   });
+  document.getElementById('bg-undo').onclick = () => stepGridHistory(-1);
+  document.getElementById('bg-redo').onclick = () => stepGridHistory(1);
+  syncGridHistoryButtons();
 }
+
+// ───────── GRID UNDO / REDO ─────────
+// A grid edit in the drawer (BPM, phase, clearing the override, beat 1, a grid
+// re-analysis) saves the track's grid_snapshot first; Undo and Redo put one back
+// through POST /api/analysis/beatgrid/restore, which refuses if the grid has
+// changed since it was read. The history belongs to the open track.
+const GRID_HISTORY_MAX = 50;
+let gridHistory = { trackID: null, undo: [], redo: [] };
+
+function gridHistoryFor(trackID) {
+  if (gridHistory.trackID !== trackID) gridHistory = { trackID, undo: [], redo: [] };
+  return gridHistory;
+}
+
+// gridSnapshotOf reads a track's grid snapshot and the library session it
+// belongs to, or null.
+async function gridSnapshotOf(trackID) {
+  const r = await fetch('/api/analysis/' + trackID).catch(() => null);
+  const a = r && r.ok ? await r.json().catch(() => null) : null;
+  if (!a || !a.grid_snapshot) return null;
+  return { snapshot: a.grid_snapshot, session: r.headers.get('X-Vynull-Library-Session') || '' };
+}
+
+// recordGridEdit runs edit, which resolves truthy when it changed the grid, and
+// then makes the grid from before it the next Undo. It returns edit's result.
+async function recordGridEdit(trackID, edit) {
+  const before = await gridSnapshotOf(trackID);
+  const result = await edit();
+  if (result && before) {
+    const h = gridHistoryFor(trackID);
+    h.undo.push(before.snapshot);
+    if (h.undo.length > GRID_HISTORY_MAX) h.undo.shift();
+    h.redo = [];
+    syncGridHistoryButtons();
+  }
+  return result;
+}
+
+// stepGridHistory undoes (-1) or redoes (+1) the open track's last grid edit.
+async function stepGridHistory(dir) {
+  const trackID = selectedTrackID;
+  if (trackID == null) return;
+  const h = gridHistoryFor(trackID);
+  const [from, to] = dir < 0 ? [h.undo, h.redo] : [h.redo, h.undo];
+  const what = dir < 0 ? 'UNDO' : 'REDO';
+  if (!from.length) return;
+  const cur = await gridSnapshotOf(trackID);
+  if (!cur) { toast(`${what} FAILED · no grid`, 'error'); return; }
+  const target = from.pop();
+  const r = await fetch('/api/analysis/beatgrid/restore', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'X-Vynull-Library-Session': cur.session },
+    body: JSON.stringify({ track_id: trackID, expected: cur.snapshot, restore: target }),
+  }).catch(() => null);
+  if (!r || !r.ok) {
+    from.push(target);
+    syncGridHistoryButtons();
+    toast(`${what} FAILED · ${r ? await errorText(r) : 'no connection'}`, 'error');
+    return;
+  }
+  to.push(cur.snapshot);
+  const t = (allTracks || []).find(x => x.id === trackID);
+  if (t) {
+    t.bpm = target.library_bpm;
+    t.detected_bpm = target.detected_bpm;
+    t.beat_phase_shift = target.beat_phase_shift;
+  }
+  toast(`${what} · BPM ${(target.library_bpm || target.bpm).toFixed(2)}`, 'success');
+  if (selectedTrackID === trackID) openDetail(trackID);
+}
+
+// syncGridHistoryButtons enables UNDO and REDO by what the open track has.
+function syncGridHistoryButtons() {
+  const h = gridHistory.trackID === selectedTrackID ? gridHistory : { undo: [], redo: [] };
+  for (const [id, list] of [['bg-undo', h.undo], ['bg-redo', h.redo]]) {
+    const b = document.getElementById(id);
+    if (b) b.disabled = b.dataset.locked === '1' || list.length === 0;
+  }
+}
+
+// Ctrl/Cmd+Z undoes a grid edit, Ctrl/Cmd+Shift+Z or Ctrl+Y redoes it, while
+// the drawer is open and not typing.
+document.addEventListener('keydown', e => {
+  if (selectedTrackID == null || !(e.ctrlKey || e.metaKey) || e.altKey) return;
+  const tg = e.target;
+  if (tg && (tg.tagName === 'INPUT' || tg.tagName === 'TEXTAREA' || tg.tagName === 'SELECT' || tg.isContentEditable)) return;
+  const k = e.key.toLowerCase();
+  if (k === 'z' || k === 'y') {
+    e.preventDefault();
+    stepGridHistory(k === 'y' || e.shiftKey ? 1 : -1);
+  }
+});
 
 // ───────── TRACK COLOR PICKER ─────────
 function openColorPicker(anchorEl, trackID, currentColorID) {

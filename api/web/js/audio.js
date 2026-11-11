@@ -398,11 +398,14 @@ async function setDetailDownbeat(targetMs) {
   const trackID = detailWave.trackID;
   if (!trackID) return;
   const target = Math.max(0, Math.min(detailWave.durationMs, targetMs));
-  const r = await fetch('/api/analysis/beatgrid/adjust', {
-    method: 'POST', headers: {'Content-Type':'application/json'},
-    body: JSON.stringify({ track_id: trackID, set_downbeat_ms: target }),
+  const ok = await recordGridEdit(trackID, async () => {
+    const r = await fetch('/api/analysis/beatgrid/adjust', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ track_id: trackID, set_downbeat_ms: target }),
+    });
+    return r.ok;
   });
-  if (!r.ok) { toast('SET DOWNBEAT FAILED', 'error'); return; }
+  if (!ok) { toast('SET DOWNBEAT FAILED', 'error'); return; }
   toast('DOWNBEAT · ' + fmtCueTime(Math.round(target)), 'success');
   if (selectedTrackID === trackID) openDetail(trackID);
 }

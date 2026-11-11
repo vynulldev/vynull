@@ -152,7 +152,7 @@ it from another device on the LAN.
 
 The UI provides a sortable/searchable library table, an editable track-detail
 drawer (metadata, cues, tags, file path, zoom waveform with beat grid +
-beat-jump), a live PLAYERS view of connected CDJs/mixers, playlist + tag
+beat-jump, grid edits with Undo/Redo), a live PLAYERS view of connected CDJs/mixers, playlist + tag
 management, USB export, and a SETTINGS panel that pushes CDJ display settings
 live.
 
