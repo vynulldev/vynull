@@ -378,16 +378,15 @@ func (s *Server) handleTrackPhrases(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	type PhraseInfo struct {
-		Kind       uint16  `json:"kind"`     // 1=intro, 2=up, 3=down, 5=chorus, 6=outro
-		Name       string  `json:"name"`     // human label
-		StartMs    uint32  `json:"start_ms"` // start time in milliseconds
-		EndMs      uint32  `json:"end_ms"`   // end time in milliseconds
+		Kind       uint16  `json:"kind"`           // rekordbox's phrase kind, read by its mood
+		Mood       uint16  `json:"mood,omitempty"` // rekordbox's: 1 high, 2 mid, 3 low; 0 for Vynull's own
+		Name       string  `json:"name"`           // the label, such as "VERSE 2" or "CHORUS 1"
+		Section    string  `json:"section"`        // the label's kind, such as "verse": what UIs colour by
+		StartMs    uint32  `json:"start_ms"`       // start time in milliseconds
+		EndMs      uint32  `json:"end_ms"`         // end time in milliseconds
 		Energy     float64 `json:"energy,omitempty"`
 		HasVocal   bool    `json:"has_vocal"`   // contains singing at the default threshold
 		VocalScore float64 `json:"vocal_score"` // raw score, for the UI's live sensitivity toggle
-	}
-	names := map[uint16]string{
-		1: "INTRO", 2: "UP", 3: "DOWN", 5: "CHORUS", 6: "OUTRO",
 	}
 	out := []PhraseInfo{}
 	if s.Analysis != nil {
@@ -426,20 +425,22 @@ func (s *Server) handleTrackPhrases(w http.ResponseWriter, r *http.Request) {
 			// time), so it stays on the music when the beat grid is edited. Fall
 			// back to mapping beat numbers through the current grid only for older
 			// cached phrases that predate StartMs/EndMs.
-			np := len(res.Phrases)
+			phrases := res.RekordboxPhrases()
+			np := len(phrases)
 			starts := make([]float64, np)
 			ends := make([]float64, np)
-			for i, p := range res.Phrases {
+			for i, p := range phrases {
 				if p.EndMs > 0 {
 					starts[i], ends[i] = p.StartMs, p.EndMs
 				} else {
 					starts[i], ends[i] = beatMs(p.StartBeat), beatMs(p.EndBeat)
 				}
 			}
-			for i := range res.Phrases {
-				name := names[res.Phrases[i].Kind]
+			for i, p := range phrases {
+				name, section := analysis.PhraseLabel(p)
+				name = strings.ToUpper(name)
 				if name == "" {
-					name = fmt.Sprintf("KIND %d", res.Phrases[i].Kind)
+					name = fmt.Sprintf("KIND %d", p.Kind)
 				}
 				start, end := starts[i], ends[i]
 				// Phrases are contiguous sections: each ends exactly where the next
@@ -455,13 +456,15 @@ func (s *Server) handleTrackPhrases(w http.ResponseWriter, r *http.Request) {
 					end = start
 				}
 				out = append(out, PhraseInfo{
-					Kind:       res.Phrases[i].Kind,
+					Kind:       p.Kind,
+					Mood:       p.Mood,
 					Name:       name,
+					Section:    section,
 					StartMs:    uint32(start),
 					EndMs:      uint32(end),
-					Energy:     res.Phrases[i].Energy,
-					HasVocal:   res.Phrases[i].HasVocal,
-					VocalScore: res.Phrases[i].VocalScore,
+					Energy:     p.Energy,
+					HasVocal:   p.HasVocal,
+					VocalScore: p.VocalScore,
 				})
 			}
 		}

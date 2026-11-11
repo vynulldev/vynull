@@ -21,6 +21,13 @@ type Phrase struct {
 	// edit moves beat→time, but a section's audio position doesn't change).
 	StartMs float64
 	EndMs   float64
+
+	// From rekordbox's song structure only, 0 for Vynull's own phrases: the
+	// track's mood (1 high, 2 mid, 3 low), the flags that pick a High-mood
+	// variant, and the beat a fill starts on (0: none). See PhraseLabel.
+	Mood       uint16
+	K1, K2, K3 uint8
+	FillBeat   int
 }
 
 // SetPhraseTimes anchors each phrase's StartMs/EndMs to absolute audio time by
@@ -392,16 +399,25 @@ func ParsePSSI(body []byte) []Phrase {
 		}
 	}
 
+	mood := binary.BigEndian.Uint16(use[0:2])
 	endBeat := int(binary.BigEndian.Uint16(use[8:10]))
 	phrases := make([]Phrase, 0, numEntries)
 	for i := 0; i < numEntries; i++ {
-		off := 14 + i*entrySize
-		startBeat := int(binary.BigEndian.Uint16(use[off+2 : off+4]))
-		kind := binary.BigEndian.Uint16(use[off+4 : off+6])
+		e := use[14+i*entrySize : 14+(i+1)*entrySize]
+		startBeat := int(binary.BigEndian.Uint16(e[2:4]))
 		if startBeat <= 0 {
 			continue // skip degenerate/empty entries
 		}
-		phrases = append(phrases, Phrase{StartBeat: startBeat, Kind: kind})
+		p := Phrase{StartBeat: startBeat, Kind: binary.BigEndian.Uint16(e[4:6]), Mood: mood}
+		// The flags and fill follow at k1 0x07, k2 0x09, k3 0x13, fill 0x15
+		// and its beat at 0x16 (Deep Symmetry's ANLZ analysis, PSSI entry).
+		if len(e) >= 24 {
+			p.K1, p.K2, p.K3 = e[7], e[9], e[19]
+			if e[21] != 0 {
+				p.FillBeat = int(binary.BigEndian.Uint16(e[22:24]))
+			}
+		}
+		phrases = append(phrases, p)
 	}
 	if len(phrases) == 0 {
 		return nil

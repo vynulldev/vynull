@@ -400,12 +400,8 @@
   }
   .detail-phrases .phrase:last-child { border-right: none; }
   .detail-phrases .phrase:hover { filter: brightness(1.15); }
-  .detail-phrases .phrase.kind-1 { background: #5cdada; }                  /* intro - aqua */
-  .detail-phrases .phrase.kind-2 { background: #ffd84d; }                  /* up - yellow */
-  .detail-phrases .phrase.kind-3 { background: #5aa8ff; color: rgba(0,0,0,.8); } /* down - blue */
-  .detail-phrases .phrase.kind-5 { background: #ff6a00; color: var(--ink); }     /* chorus - orange */
-  .detail-phrases .phrase.kind-6 { background: #8a8a92; }                  /* outro - grey */
-  .detail-phrases .phrase.kind-0 { background: var(--wire); color: var(--text3); }
+  /* Each label's colours come from PHRASE_COLORS (drawer.js); this is the rest. */
+  .detail-phrases .phrase.section-none   { background: var(--wire); color: var(--text3); }
   .detail-phrases .phrase.too-narrow { font-size: 0; }
   /* Vocal marker (our lightweight VAD): a small mic in the corner. Explicit
      font-size so it still shows on too-narrow phrases (font-size:0). */

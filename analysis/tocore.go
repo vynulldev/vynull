@@ -4,12 +4,6 @@ package analysis
 
 import "github.com/vynulldev/vynull/core"
 
-// phraseKindName maps the mood_high_phrase enum to the neutral labels used in
-// core.Analysis (mirrors the API's phrase naming in api/analysis.go).
-var phraseKindName = map[uint16]string{
-	1: "intro", 2: "up", 3: "down", 5: "chorus", 6: "outro",
-}
-
 // Core projects the Pioneer-flavoured Result onto the brand-neutral
 // core.Analysis — the DSP facts (tempo, beat grid, key, song structure) a
 // backend re-encodes into its own wire format.
@@ -35,11 +29,12 @@ func (r *Result) Core() *core.Analysis {
 			}
 		}
 	}
-	for _, p := range r.Phrases {
+	for _, p := range r.RekordboxPhrases() {
+		_, section := PhraseLabel(p)
 		a.Phrases = append(a.Phrases, core.Phrase{
 			StartMs: p.StartMs,
 			EndMs:   p.EndMs,
-			Kind:    phraseKindName[p.Kind],
+			Kind:    section,
 		})
 	}
 	return a
