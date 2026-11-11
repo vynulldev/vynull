@@ -298,15 +298,16 @@ func (s *Server) handleAnalysis(w http.ResponseWriter, r *http.Request) {
 	}
 
 	resp := struct {
-		TrackID       uint32     `json:"track_id"`
-		BPM           float64    `json:"bpm"`
-		Key           string     `json:"key"`
-		KeyStandard   string     `json:"key_standard"`
-		Duration      uint16     `json:"duration_sec"`
-		BeatCount     int        `json:"beat_count"`
-		DownbeatIndex int        `json:"downbeat_index"`
-		Beats         []BeatInfo `json:"beats"`
-		Cues          []CueInfo  `json:"cues"`
+		TrackID       uint32        `json:"track_id"`
+		BPM           float64       `json:"bpm"`
+		Key           string        `json:"key"`
+		KeyStandard   string        `json:"key_standard"`
+		Duration      uint16        `json:"duration_sec"`
+		BeatCount     int           `json:"beat_count"`
+		DownbeatIndex int           `json:"downbeat_index"`
+		Beats         []BeatInfo    `json:"beats"`
+		Cues          []CueInfo     `json:"cues"`
+		GridSnapshot  *gridSnapshot `json:"grid_snapshot,omitempty"`
 	}{
 		TrackID:       trackID,
 		BPM:           effectiveBPM,
@@ -317,6 +318,7 @@ func (s *Server) handleAnalysis(w http.ResponseWriter, r *http.Request) {
 		DownbeatIndex: downbeatIdx,
 		Beats:         beats,
 		Cues:          cues,
+		GridSnapshot:  snapshotGrid(s.Library.Track(trackID), result),
 	}
 	writeJSON(w, resp)
 }

@@ -408,6 +408,31 @@ func (s *Store) Set(trackID uint32, r *Result) {
 	s.set(trackID, r, false)
 }
 
+// CompareAndSwap replaces a track's result only if it is still expected, and
+// stops any analysis running for the track. It leaves the disk cache alone, so
+// a caller holding a lock can swap under it and Save after releasing it.
+func (s *Store) CompareAndSwap(trackID uint32, expected, replacement *Result) bool {
+	s.mu.Lock()
+	if expected == nil || replacement == nil || s.results[trackID] != expected {
+		s.mu.Unlock()
+		return false
+	}
+	s.putLocked(trackID, replacement)
+	s.mu.Unlock()
+	s.cancel(trackID)
+	return true
+}
+
+// Save writes a track's current result to the disk cache.
+func (s *Store) Save(trackID uint32) {
+	s.mu.RLock()
+	r, filePath := s.results[trackID], s.pathMap[trackID]
+	s.mu.RUnlock()
+	if r != nil && s.cacheDir != "" && filePath != "" {
+		s.saveToDisk(filePath, r)
+	}
+}
+
 // SetIfAbsent stores r only if the track has no result yet, and reports
 // whether it did. Analysis that fills in a missing result uses it: a result
 // stored while that analysis ran (an import storing rekordbox's own, which it

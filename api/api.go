@@ -136,6 +136,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/analysis/ext/", s.handleExtAnalysis)
 	mux.HandleFunc("/api/analysis/reanalyze/", s.handleReanalyze)
 	mux.HandleFunc("/api/analysis/beatgrid/adjust", s.handleBeatGridAdjust)
+	mux.HandleFunc("/api/analysis/beatgrid/restore", s.handleBeatGridRestore)
 	mux.HandleFunc("/api/analysis/waveform/", s.handleWaveform)
 	mux.HandleFunc("/api/analysis/waveform-png/", s.handleWaveformPNG)
 	mux.HandleFunc("/api/artwork/ext/", s.handleExtArtwork)
