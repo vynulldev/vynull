@@ -118,7 +118,7 @@ func (h *Handler) fillTrackRow(m *menuItem, t *library.Track, ids *catIDs, sv *s
 		ColorID:        uint32(t.ColorID),
 		rating:         uint32(t.Rating),
 		sortBPM:        uint32(math.Round(t.BPM * 100)), // exact for range checks (TRACK FILTER)
-		sortKey:        t.Key,
+		sortKey:        keyName(t.Key, h.classicKeys()),
 		libTrack:       true,
 		autoLoadHotCue: t.AutoLoadHotCue,
 		fileTypeID:     t.FileTypeID,
@@ -142,10 +142,14 @@ func (h *Handler) fillTrackRow(m *menuItem, t *library.Track, ids *catIDs, sv *s
 // newKeyID computes rekordbox's 1-24 "new key" index for a track's key. The
 // index is derived from the musical key (via its Camelot position), not the
 // configured display notation, so a track shown as "C" (Camelot 8B) still maps
-// to 16. Keys interleave A then B per wheel position: 1A=1, 1B=2, ... 8A=15,
-// 8B=16, ... 12A=23, 12B=24. Returns 0 for an unrecognized key.
+// to 16, and so does a stored "08B". Keys interleave A then B per wheel
+// position: 1A=1, 1B=2, ... 8A=15, 8B=16, ... 12A=23, 12B=24. Returns 0 for
+// an unrecognized key.
 func newKeyID(key string) uint32 {
-	k, ok := analysis.KeyByName(key)
+	if i, ok := keyIndexes[key]; ok {
+		return uint32(i)
+	}
+	k, ok := analysis.ParseKey(key)
 	if !ok {
 		// rekordbox reads a key name loosely: a leading root note A-G
 		// (fullwidth too), an optional sharp or flat, then "m" for minor;
@@ -255,18 +259,19 @@ func (h *Handler) applyTrackDetail(m *menuItem, t *library.Track, ids *catIDs) {
 	case "bpm":
 		m.ParentID = tempo
 		m.Label2 = fmt.Sprintf("%.1f bpm", t.BPM)
-		if t.Key != "" {
-			m.Label2 += " - " + t.Key
+		if m.sortKey != "" {
+			m.Label2 += " - " + m.sortKey
 		}
 	case "key":
 		// rekordbox composes "<key> - <bpm> bpm" even for an empty key, but
 		// shows the key alone when the tempo is zero, and a stored negative
 		// tempo by its magnitude (link-spec smart-numeric-boundaries,
-		// rekordbox 7.2.19).
+		// rekordbox 7.2.19). The key is the row's, in the device setting's
+		// notation.
 		m.ParentID = trackKeyID(t, ids)
-		m.Label2 = t.Key
+		m.Label2 = m.sortKey
 		if raw := math.Round(t.BPM * 100); raw != 0 {
-			m.Label2 = fmt.Sprintf("%s - %.1f bpm", t.Key, math.Abs(raw)/100)
+			m.Label2 = fmt.Sprintf("%s - %.1f bpm", m.sortKey, math.Abs(raw)/100)
 		}
 	case "artist":
 		m.ParentID = ids.artist

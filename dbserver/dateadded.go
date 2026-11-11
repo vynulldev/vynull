@@ -105,7 +105,7 @@ func (h *Handler) trackLeaf(msg *proto.DBMessage, keep func(t *library.Track) bo
 			m.sortKey = cutUTF16(m.sortKey, playCountKeyUnits)
 			switch m.ItemType >> 8 {
 			case 0x0f: // Key
-				m.Label2 = cutUTF16(t.Key, playCountKeyUnits)
+				m.Label2 = m.sortKey // the key, already cut
 			case 0x0d: // BPM
 				m.Label2 = fmt.Sprintf("%.1f bpm", t.BPM)
 			}

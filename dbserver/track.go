@@ -123,6 +123,7 @@ func (h *Handler) handleGetMetadata(msg *proto.DBMessage) []*proto.DBMessage {
 	if keyID == 0 && key == "" {
 		keyID = 0x7FFFFFFF
 	}
+	key = keyName(key, h.classicKeys()) // its row names it as the device setting does
 
 	fileType := h.servedFileType(h.resolveFileType(trackID))
 
@@ -948,6 +949,7 @@ func (h *Handler) handleGetTrackInfo(msg *proto.DBMessage) []*proto.DBMessage {
 	if keyID == 0 && key != "" && h.lib != nil {
 		keyID = h.catID("key", key)
 	}
+	key = keyName(key, h.classicKeys()) // its row names it as the device setting does
 
 	dlog.Debugf("dbserver: track info for track %d: path=%s dur=%d bpm=%d", trackID, relPath, duration, tempo)
 

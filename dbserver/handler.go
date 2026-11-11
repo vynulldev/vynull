@@ -44,6 +44,7 @@ type Handler struct {
 	history      *linkHistory     // the Link history, shared by the server's sessions
 	clock        func() time.Time // names a new Link history (nil: time.Now)
 	menu         MenuSource
+	keys         KeyDisplaySource
 	cues         *CueStore
 	// exportTree is a served USB export's playlist tree (its PDB's), which
 	// the PLAYLIST menu serves until the playlist store has playlists of its

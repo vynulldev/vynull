@@ -516,6 +516,7 @@ func main() {
 		Playlists:    playlistSource{ps: playlistStore, lib: lib, tags: tagStore},
 		MyTags:       mytagSource{ts: tagStore},
 		Menu:         menuSource{ms: menuStore},
+		Keys:         cdjSettings,
 		Cues:         cueStore,
 		ReplayDir:    cfg.ReplayDir,
 		Transcode:    cfg.Transcode,
