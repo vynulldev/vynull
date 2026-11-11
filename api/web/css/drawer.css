@@ -192,10 +192,14 @@
     gap: 6px;
     align-items: center;
   }
-  /* Wider picker for the 16-colour CDJ cue palette (9 cells per row). */
-  .color-picker.wrap {
-    flex-wrap: wrap;
-    max-width: 232px;
+  /* The hot-cue colour picker: rekordbox's 4×4 grid, "no colour" below it. */
+  .color-picker.cue-palette {
+    display: grid;
+    grid-template-columns: repeat(4, 18px);
+  }
+  .color-picker.cue-palette .swatch.none {
+    grid-column: 1 / -1;
+    width: auto;
   }
   .color-picker .swatch {
     width: 18px; height: 18px;
