@@ -1206,29 +1206,27 @@ function closeColorPicker() {
 // — that endpoint does a full replace, so we have to send everything the cue
 // already had (time, type, label, loop) with only color_id swapped.
 //
-// CDJ_CUE_PALETTE: the 16 palette indices the on-CDJ hot-cue picker exposes,
-// spaced every 4 through the 62-entry CUE_COLORS rainbow so users get the
-// full spectrum (blues, greens, yellows, oranges, reds, pinks, purples)
-// instead of the consecutive shades-of-blue 0x01..0x08. Includes 0x12
-// (GREEN), which we already know the on-CDJ picker exposes from the
-// 0x42 → 0x12 mapping documented above CUE_COLORS.
-const CDJ_CUE_PALETTE = [
-  0x02, 0x06, 0x0a, 0x0e, 0x12, 0x16, 0x1a, 0x1e,
-  0x22, 0x26, 0x2a, 0x2e, 0x32, 0x36, 0x3a, 0x3e,
+// CUE_PICKER_COLORS: rekordbox's hot-cue colour picker, its 16 colours in its
+// 4×4 order. Each is an exact CUE_COLORS entry.
+const CUE_PICKER_COLORS = [
+  0x31, 0x38, 0x3c, 0x3e, // magenta, purple, lavender, periwinkle
+  0x01, 0x05, 0x09, 0x0e, // blue, sky blue, cyan, teal
+  0x12, 0x16, 0x1a, 0x1e, // emerald, green, lime, yellow green
+  0x20, 0x26, 0x2a, 0x2d, // gold, orange, red, pink
 ];
-// Shared swatch popover for picking a hot-cue colour from CDJ_CUE_PALETTE
-// (plus a "none"/0 swatch). Anchored under anchorEl; onPick(colorID) fires
-// with the chosen palette index (0 = none). Used by both the per-track cue
-// colour picker and the per-cue default-colour picker.
+// Shared swatch popover for picking a hot-cue colour from CUE_PICKER_COLORS,
+// with "no colour" (0) below the grid, where rekordbox has Reset. Anchored
+// under anchorEl; onPick(colorID) fires with the chosen palette index. Used by
+// both the per-track cue colour picker and the per-cue default-colour picker.
 function openCuePalettePopover(anchorEl, currentColorID, onPick) {
   closeColorPicker();
   const menu = document.createElement('div');
-  menu.className = 'color-picker wrap';
+  menu.className = 'color-picker cue-palette';
   const noneHTML = `<div class="swatch none ${currentColorID === 0 ? 'selected' : ''}" data-color="0" title="No color"></div>`;
-  const swatchesHTML = CDJ_CUE_PALETTE.map(id =>
+  const swatchesHTML = CUE_PICKER_COLORS.map(id =>
     `<div class="swatch ${currentColorID === id ? 'selected' : ''}" data-color="${id}" style="background:${CUE_COLORS[id]}" title="Color 0x${id.toString(16).padStart(2,'0')}"></div>`
   ).join('');
-  menu.innerHTML = noneHTML + swatchesHTML;
+  menu.innerHTML = swatchesHTML + noneHTML;
   document.body.appendChild(menu);
   const r = anchorEl.getBoundingClientRect();
   let left = r.left;
