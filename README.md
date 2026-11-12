@@ -152,7 +152,7 @@ it from another device on the LAN.
 
 The UI provides a sortable/searchable library table, an editable track-detail
 drawer (metadata, cues, tags, file path, zoom waveform with beat grid +
-beat-jump), a live PLAYERS view of connected CDJs/mixers, playlist + tag
+beat-jump, grid edits with Undo/Redo), a live PLAYERS view of connected CDJs/mixers, playlist + tag
 management, USB export, and a SETTINGS panel that pushes CDJ display settings
 live.
 
@@ -493,6 +493,19 @@ Manually adjust the beat grid. All operations persist to the analysis cache and 
 // Set beat 1 at specific position (shifts grid + sets downbeat)
 {"track_id": 12345, "set_downbeat_ms": 4975.0}
 ```
+
+#### `POST /api/analysis/beatgrid/restore`
+
+Puts back a beat grid saved for Undo/Redo. `GET /api/analysis/{trackID}` returns
+the track's `grid_snapshot`: send a saved one as `restore`, with the current one
+as `expected`, and the `X-Vynull-Library-Session` header.
+
+```json
+{"track_id": 12345, "expected": {...}, "restore": {...}}
+```
+
+A locked track, or a grid or source file changed since `expected`, is refused
+with 409. Only the grid and BPM settings change; waveforms, cues and phrases stay.
 
 ### Cue Point Endpoints
 

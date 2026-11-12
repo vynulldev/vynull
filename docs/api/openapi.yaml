@@ -509,6 +509,16 @@ paths:
       requestBody: { required: true, content: { application/json: { schema: { type: object, required: [track_id], properties: { track_id: {type: integer, format: int64}, offset_ms: {type: number}, bpm: {type: number}, set_downbeat_ms: {type: number} } } } } }
       responses: { "200": { description: OK, content: { application/json: { schema: { type: object, properties: { ok: {type: boolean}, bpm: {type: number}, beats: {type: integer}, phase_ms: {type: number} } } } } }, "400": { description: No track_id. }, "404": { description: No analysis. }, "409": { description: Track analysis is locked. } }
 
+  /api/analysis/beatgrid/restore:
+    post:
+      tags: [Analysis]
+      summary: Put back a grid saved for Undo/Redo, if the track's grid is still `expected`.
+      description: |
+        Send the X-Vynull-Library-Session header. Only the grid and BPM settings
+        change; waveforms, cues and phrases stay.
+      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [track_id, expected, restore], properties: { track_id: {type: integer, format: int64}, expected: { $ref: "#/components/schemas/GridSnapshot" }, restore: { $ref: "#/components/schemas/GridSnapshot" } } } } } }
+      responses: { "200": { description: OK, content: { application/json: { schema: { type: object, properties: { ok: {type: boolean} } } } } }, "400": { description: Invalid snapshot or no session header. }, "404": { description: No analysis or no track. }, "409": { description: "Track analysis is locked, or its grid, source or session changed." } }
+
   /api/analysis/waveform/{id}:
     parameters: [ { name: id, in: path, required: true, schema: { type: integer, format: int64 } } ]
     get:
@@ -947,6 +957,21 @@ components:
         downbeat_index: { type: integer }
         beats: { type: array, items: { $ref: "#/components/schemas/BeatInfo" } }
         cues: { type: array, items: { $ref: "#/components/schemas/CueInfo" } }
+        grid_snapshot: { $ref: "#/components/schemas/GridSnapshot" }
+
+    GridSnapshot:
+      type: object
+      description: A track's exact grid and BPM settings, for /api/analysis/beatgrid/restore.
+      properties:
+        version: { type: integer, enum: [1] }
+        file_path: { type: string }
+        bpm: { type: number }
+        duration_sec: { type: integer }
+        downbeat_index: { type: integer }
+        beats_ms: { type: array, items: { type: number } }
+        library_bpm: { type: number }
+        detected_bpm: { type: number }
+        beat_phase_shift: { type: integer, minimum: 0, maximum: 3 }
 
     BeatInfo:
       type: object
