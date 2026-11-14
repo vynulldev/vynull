@@ -770,6 +770,30 @@ function renderPlayerPhraseStrip(host, phrases, durMs) {
   host.innerHTML = phraseAbsSegmentsHTML(phrases, totalMs);
 }
 
+// PHRASE_COLORS colours each phrase label the API names. Plain UP (Vynull's
+// own analysis) takes UP 1's colour; a label not here keeps the neutral style.
+const PHRASE_COLORS = {
+  'INTRO': '#e14646', 'INTRO 1': '#c80000', 'INTRO 2': '#c83200',
+  'UP': '#8c32ff', 'UP 1': '#8c32ff', 'UP 2': '#6932ff', 'UP 3': '#5a32ff',
+  'DOWN': '#9b732d',
+  'CHORUS': '#78c37d', 'CHORUS 1': '#0faa00', 'CHORUS 2': '#00aa7d',
+  'OUTRO': '#677587', 'OUTRO 1': '#4879af', 'OUTRO 2': '#5f87af',
+  'BRIDGE': '#e1d741',
+  'VERSE 1': '#506eff', 'VERSE 2': '#5055ff', 'VERSE 3': '#6450ff',
+  'VERSE 4': '#7850ff', 'VERSE 5': '#7e48e5', 'VERSE 6': '#a050ff',
+};
+
+// phraseColorStyle is a phrase segment's colours: its label's, with black or
+// white text, whichever contrasts more (WCAG relative luminance).
+function phraseColorStyle(p) {
+  const hex = PHRASE_COLORS[p.name];
+  if (!hex) return '';
+  const lum = [1, 3, 5].map(i => parseInt(hex.slice(i, i + 2), 16) / 255)
+    .map(c => (c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4))
+    .reduce((sum, c, i) => sum + c * [0.2126, 0.7152, 0.0722][i], 0);
+  return ` background:${hex}; color:${lum > 0.179 ? 'rgba(0,0,0,.8)' : '#fff'};`;
+}
+
 // phraseAbsSegmentsHTML builds absolutely-positioned phrase segments for a
 // full-track strip — each at left = start_ms/totalMs so the strip lines up with
 // the waveform (which maps time→x the same way). Flex tiling would drop the
@@ -783,7 +807,7 @@ function phraseAbsSegmentsHTML(phrases, totalMs) {
     const voc = phraseHasVocal(p) ? ' has-vocal' : '';
     const title = `${p.name} · vocal ${(p.vocal_score || 0).toFixed(2)} · ${fmtPhraseTime(p.start_ms)} – ${fmtPhraseTime(p.end_ms)}`;
     const narrow = widthPct < 4.5 ? 'too-narrow' : '';
-    return `<div class="phrase kind-${p.kind}${voc} ${narrow}" data-vscore="${(p.vocal_score || 0).toFixed(4)}" style="position:absolute; left:${leftPct.toFixed(3)}%; width:${widthPct.toFixed(3)}%" title="${escape(title)}">${escape(p.name)}</div>`;
+    return `<div class="phrase section-${p.section || 'none'}${voc} ${narrow}" data-vscore="${(p.vocal_score || 0).toFixed(4)}" style="position:absolute; left:${leftPct.toFixed(3)}%; width:${widthPct.toFixed(3)}%;${phraseColorStyle(p)}" title="${escape(title)}">${escape(p.name)}</div>`;
   }).join('');
 }
 
@@ -810,7 +834,7 @@ function renderPhraseStripZoom(phrases, startMs, endMs) {
     const voc = phraseHasVocal(p) ? ' has-vocal' : '';
     const title = `${p.name} · vocal ${(p.vocal_score || 0).toFixed(2)} · ${fmtPhraseTime(p.start_ms)} – ${fmtPhraseTime(p.end_ms)}`;
     const narrow = widthPct < 8 ? 'too-narrow' : '';
-    return `<div class="phrase kind-${p.kind}${voc} ${narrow}" data-vscore="${(p.vocal_score || 0).toFixed(4)}" style="position:absolute; left:${leftPct.toFixed(3)}%; width:${widthPct.toFixed(3)}%" title="${escape(title)}">${escape(p.name)}</div>`;
+    return `<div class="phrase section-${p.section || 'none'}${voc} ${narrow}" data-vscore="${(p.vocal_score || 0).toFixed(4)}" style="position:absolute; left:${leftPct.toFixed(3)}%; width:${widthPct.toFixed(3)}%;${phraseColorStyle(p)}" title="${escape(title)}">${escape(p.name)}</div>`;
   }).join('');
 }
 

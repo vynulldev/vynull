@@ -918,8 +918,10 @@ components:
     PhraseInfo:
       type: object
       properties:
-        kind: { type: integer, description: "1=intro,2=up,3=down,5=chorus,6=outro." }
-        name: { type: string }
+        kind: { type: integer, description: "rekordbox's phrase kind, read by its mood: High 1=intro, 2=up, 3=down, 5=chorus, 6=outro; Mid and Low 1=intro, 2-7=verses, 8=bridge, 9=chorus, 10=outro." }
+        mood: { type: integer, enum: [1, 2, 3], description: "rekordbox's mood (1 high, 2 mid, 3 low); absent for Vynull's own phrases." }
+        name: { type: string, description: "The label, as rekordbox names it: e.g. VERSE 2, CHORUS 1, UP 3." }
+        section: { type: string, enum: [intro, verse, up, down, bridge, chorus, outro, ""], description: "The label's kind without a number, which UIs colour by." }
         start_ms: { type: integer, format: int64 }
         end_ms: { type: integer, format: int64 }
         energy: { type: number }
