@@ -331,14 +331,7 @@ func (h *Handler) handleGetWavePreview(msg *proto.DBMessage) []*proto.DBMessage 
 	}
 
 	dlog.Debugf("dbserver: wave preview 0x%04x (no data)", msg.Type)
-	return []*proto.DBMessage{{
-		TxID: msg.TxID, Type: 0x4402,
-		Args: []proto.DBArg{
-			proto.ArgI32(uint32(msg.Type)),
-			proto.ArgI32(0),
-			proto.ArgI32(0),
-		},
-	}}
+	return payloadUnavailable(msg, 0x4402, payloadStatusUnavailable)
 }
 
 func (h *Handler) handleGetWaveDetail(msg *proto.DBMessage) []*proto.DBMessage {
@@ -362,14 +355,7 @@ func (h *Handler) handleGetWaveDetail(msg *proto.DBMessage) []*proto.DBMessage {
 	}
 
 	dlog.Debugf("dbserver: wave detail 0x2904 (no data)")
-	return []*proto.DBMessage{{
-		TxID: msg.TxID, Type: 0x4a02,
-		Args: []proto.DBArg{
-			proto.ArgI32(uint32(msg.Type)),
-			proto.ArgI32(0),
-			proto.ArgI32(0),
-		},
-	}}
+	return payloadUnavailable(msg, 0x4a02, payloadStatusUnavailable)
 }
 
 func (h *Handler) handleGetBeatGrid(msg *proto.DBMessage) []*proto.DBMessage {
@@ -397,16 +383,7 @@ func (h *Handler) handleGetBeatGrid(msg *proto.DBMessage) []*proto.DBMessage {
 	}
 
 	dlog.Debugf("dbserver: beat grid (no data)")
-	return []*proto.DBMessage{{
-		TxID: msg.TxID, Type: 0x4602,
-		Args: []proto.DBArg{
-			proto.ArgI32(0x2204),
-			proto.ArgI32(0),
-			proto.ArgI32(0),
-			proto.ArgBlob(nil),
-			proto.ArgI32(0),
-		},
-	}}
+	return beatGridUnavailable(msg)
 }
 
 // beatGridForTrack returns the beat-grid blob for trackID, applying
@@ -760,15 +737,9 @@ func (h *Handler) handleGetSongStructure(msg *proto.DBMessage) []*proto.DBMessag
 	}
 
 	if data == nil {
-		return []*proto.DBMessage{{
-			TxID: msg.TxID, Type: 0x4502,
-			Args: []proto.DBArg{
-				proto.ArgI32(0x2504),
-				proto.ArgI32(0),
-				proto.ArgI32(0),
-				proto.ArgI32(0),
-			},
-		}}
+		// rekordbox's empty 0x4502 keeps status 0, unlike its other
+		// analysis replies.
+		return payloadUnavailable(msg, 0x4502, 0)
 	}
 
 	// The response is always a 1604-byte blob for 0x2504,
@@ -970,10 +941,16 @@ func (h *Handler) handleGetTrackInfo(msg *proto.DBMessage) []*proto.DBMessage {
 
 func (h *Handler) handleGetCuePoints(msg *proto.DBMessage) []*proto.DBMessage {
 	// 0x2104: legacy (pre-NXS2) cue points, response type 0x4702.
-	// Saved cues are served via the NXS2 path (0x2b04) instead; this older
-	// format is unsupported, so we return an empty list. Modern players use 0x2b04.
+	// Saved cues are served via the NXS2 path (0x2b04) instead; modern
+	// players (NXS2, XDJ-RX3) only ask for that. A track without cues gets
+	// rekordbox's empty 0x4702; legacy records for one with cues aren't
+	// implemented, so it keeps the plain reply.
 	trackID := msgArg(msg, 1)
-	dlog.Debugf("dbserver: cue points 0x2104 track=%d (empty)", trackID)
+	if h.cues == nil || len(h.cues.GetCues(trackID)) == 0 {
+		dlog.Debugf("dbserver: cue points 0x2104 track=%d (none)", trackID)
+		return emptyLegacyCues(msg)
+	}
+	dlog.Debugf("dbserver: cue points 0x2104 track=%d (legacy records not served)", trackID)
 	return []*proto.DBMessage{{
 		TxID: msg.TxID, Type: proto.DBMsgSuccess,
 		Args: []proto.DBArg{proto.ArgI32(uint32(msg.Type)), proto.ArgI32(0)},
