@@ -421,6 +421,10 @@ func (h *Handler) Handle(msg *proto.DBMessage) []*proto.DBMessage {
 		return h.handleGetNXS2CuePoints(msg)
 	case 0x2504: // song structure / phrase analysis
 		return h.handleGetSongStructure(msg)
+	case 0x2a04: // segmented key: no data served, rekordbox's empty reply
+		return payloadUnavailable(msg, 0x4c02, payloadStatusUnavailable)
+	case 0x2304, 0x2404, 0x2604, 0x2704: // commands rekordbox only logs
+		return logOnlyCommand(msg)
 	case 0x3d03: // NXS2 cue/loop data
 		return h.handleGetNXS2Cues(msg)
 	case 0x1708: // DATE ADDED years
