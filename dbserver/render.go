@@ -141,6 +141,14 @@ func (h *Handler) handleRenderMenu(msg *proto.DBMessage) []*proto.DBMessage {
 		},
 	})
 
+	// An eight-argument render may ask track rows for another second column
+	// (render_override.go).
+	column, override := h.renderColumn(msg)
+	var rows *trackRows
+	if override {
+		rows = h.trackRows()
+	}
+
 	// Menu items: 12 args.
 	// Category items (type >= 0x80) use fffa/fffb wrapped strings.
 	// Track/data items use plain strings.
@@ -148,6 +156,14 @@ func (h *Handler) handleRenderMenu(msg *proto.DBMessage) []*proto.DBMessage {
 		if item.songInfoTitle != nil {
 			item = item.songInfoTitle.render(item, msg)
 		}
+		if override {
+			item = h.overrideColumn(rows, item, column)
+			if column == 0x23 && utf16Units(item.Label2) > commentTextMax {
+				dlog.Debugf("dbserver: render of a comment longer than rekordbox's limit left unanswered, as rekordbox does")
+				return nil
+			}
+		}
+		item = capRowText(item)
 		label1 := item.Label1
 		label2 := item.Label2
 		isCategory := item.ItemType >= 0x80 && item.ItemType&0xff != 0x04
@@ -247,11 +263,12 @@ func (h *Handler) handleRenderMenu(msg *proto.DBMessage) []*proto.DBMessage {
 		// Layout per the link-spec ROW_LAYOUT.md "Wire arguments" table.
 		if h.extended {
 			plainLen := func(s string) uint32 { return uint32((utf16Units(s) + 1) * 2) }
+			key := capText(item.sortKey, lookupTextMax)
 			args = append(args,
-				proto.ArgI32(item.keyID),             // 12: original djmdContent.KeyID
-				proto.ArgI32(plainLen(item.sortKey)), // 13: byte length of arg 14
-				proto.ArgStr(item.sortKey),           // 14: key display string
-				proto.ArgI32(item.sortBPM),           // 15: BPM * 100
+				proto.ArgI32(item.keyID),    // 12: original djmdContent.KeyID
+				proto.ArgI32(plainLen(key)), // 13: byte length of arg 14
+				proto.ArgStr(key),           // 14: key display string
+				proto.ArgI32(item.sortBPM),  // 15: BPM * 100
 			)
 		}
 		responses = append(responses, &proto.DBMessage{
