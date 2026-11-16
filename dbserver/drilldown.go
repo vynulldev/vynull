@@ -105,7 +105,8 @@ func (h *Handler) handleNXS2DrillDown(msg *proto.DBMessage) []*proto.DBMessage {
 // As rekordbox (link-spec SEARCH_ORACLE.md): the request is [ctx, sort,
 // declared UTF-16 byte length, query, trailing field], and a declared length
 // of zero or shorter than the query with its NUL gets an argumentless
-// 0x0100; the result holds at most 1,000 rows (searchCeiling).
+// 0x0100; the result holds at most 1,000 rows (searchCeiling), and none
+// unless the context names a rekordbox track (listsNothingForType).
 func (h *Handler) handleSearch(msg *proto.DBMessage) []*proto.DBMessage {
 	var tokens []string
 	if len(msg.Args) >= 4 {
@@ -117,6 +118,10 @@ func (h *Handler) handleSearch(msg *proto.DBMessage) []*proto.DBMessage {
 		tokens = searchQueryTokens(raw)
 	}
 	dlog.Debugf("dbserver: SEARCH tokens=%q", tokens)
+	if listsNothingForType(msg) {
+		dlog.Debugf("dbserver: SEARCH for context track type 0x%02x lists nothing, as rekordbox does", dmstTrackType(msg))
+		tokens = nil
+	}
 
 	var artists, albums, tracks []*menuItem
 	if len(tokens) > 0 {
