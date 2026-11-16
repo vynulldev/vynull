@@ -50,7 +50,8 @@ const (
 	sortTempo                    // ascending BPM, zero last; "BPM - key"
 	sortTone                     // ascending key index, keyless first; "key - BPM"
 	sortDate                     // newest first, undated last; arg 0 is 0
-	sortTitleOrd                 // title order (DEFAULT, ALPHABET and the unused ID 14)
+	sortTitleOrd                 // title order (DEFAULT and ALPHABET)
+	sortBlank                    // title order with the reserved, empty column (ID 14)
 )
 
 // sortSpec describes one rekordbox sort ID.
@@ -255,12 +256,21 @@ func (h *Handler) orderByTrackNumber(items []*menuItem) {
 	slices.SortStableFunc(items, func(a, b *menuItem) int { return cmp.Compare(a.trackPos, b.trackPos) })
 }
 
+// sortReserved is the sort ID rekordbox's SORT menu never offers. A list
+// requested with it is in title order and shows the reserved, empty second
+// column (type 0x00), which an eight-argument render then reconciles like any
+// other (link-spec sort-ids and smart-serving-crosses goldens).
+const sortReserved = 14
+
 // sortSpecFor returns the spec of a sort ID that reorders a track list, or
-// false for DEFAULT and the IDs that keep the list's own order and column (14
-// and anything beyond 17).
+// false for DEFAULT and the IDs that keep the list's own order and column
+// (anything beyond 17).
 func sortSpecFor(order uint32) (sortSpec, bool) {
-	if order == sortDefault {
+	switch order {
+	case sortDefault:
 		return sortSpec{}, false
+	case sortReserved:
+		return sortSpec{column: 0x00, kind: sortBlank}, true
 	}
 	spec, ok := sortSpecs[order]
 	return spec, ok
@@ -294,8 +304,8 @@ type sortEntry struct {
 // prebuilt keys for the rows c holds), and ties are broken by position, which
 // makes the unstable sort stable.
 func sortRows(c *trackRows, items []*menuItem, order uint32, spec sortSpec) {
-	text := spec.kind == sortText || spec.kind == sortTitleOrd
-	if spec.kind == sortTitleOrd {
+	text := spec.kind == sortText || spec.kind == sortTitleOrd || spec.kind == sortBlank
+	if spec.kind == sortTitleOrd || spec.kind == sortBlank {
 		order = sortTitle
 	}
 	var keys []string
@@ -349,7 +359,7 @@ func compareRows(a, b *sortEntry, order uint32, spec sortSpec) int {
 		return -1
 	}
 	switch spec.kind {
-	case sortTitleOrd:
+	case sortTitleOrd, sortBlank:
 		return strings.Compare(a.key, b.key)
 	case sortText:
 		if (a.key == "") != (b.key == "") {

@@ -20,14 +20,17 @@ const trackListCtx = 0x01010301
 // the render of its first page of 12 rows. It runs once per sort a deck
 // commonly picks: the default title order, a text sort and a numeric one.
 // The "changed" case opens it after every library change (a play count, a
-// rating, an analysis result), which the next request's rows must reflect.
+// rating, an analysis result), which the next request's rows must reflect,
+// and "override" renders with an eight-argument render's Artist column.
 func BenchmarkTrackList(b *testing.B) {
 	lib := benchlib.Library(benchlib.Size)
 	for _, bc := range []struct {
-		name    string
-		sort    uint32
-		changed bool
-	}{{"default", 0, false}, {"artist", 2, false}, {"bpm", 4, false}, {"changed", 0, true}} {
+		name     string
+		sort     uint32
+		changed  bool
+		override []uint32 // render arguments 7 and 8
+	}{{"default", 0, false, nil}, {"artist", 2, false, nil}, {"bpm", 4, false, nil}, {"changed", 0, true, nil},
+		{"override", 0, false, []uint32{1, 2}}} {
 		b.Run(bc.name, func(b *testing.B) {
 			h := &Handler{lib: lib}
 			request := &proto.DBMessage{TxID: 1, Type: proto.DBMsgGetTracks,
@@ -35,6 +38,9 @@ func BenchmarkTrackList(b *testing.B) {
 			render := &proto.DBMessage{TxID: 1, Type: proto.DBMsgRenderMenu,
 				Args: []proto.DBArg{proto.ArgI32(trackListCtx), proto.ArgI32(0), proto.ArgI32(12),
 					proto.ArgI32(0), proto.ArgI32(benchlib.Size), proto.ArgI32(0)}}
+			for _, v := range bc.override {
+				render.Args = append(render.Args, proto.ArgI32(v))
+			}
 			h.Handle(request)
 			if got := len(h.Handle(render)); got != 12+2 { // header, rows, footer
 				b.Fatalf("render returned %d messages, want 14", got)
