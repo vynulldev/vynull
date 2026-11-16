@@ -57,3 +57,48 @@ func TestContextTrackTypeRules(t *testing.T) {
 		}
 	}
 }
+
+// rekordbox fills the root menu and SEARCH only for a rekordbox track
+// (context track type 0x01); every other type it answers gets a zero-row
+// menu for both, while its direct Track list still lists every track
+// (link-spec context-track-type-families and context-device-setup-*).
+func TestRootAndSearchOnlyForRekordboxTracks(t *testing.T) {
+	lib := library.New()
+	lib.AddTrack(&library.Track{Title: "Alpha", Artist: "A", FileType: "mp3"})
+	lib.AddTrack(&library.Track{Title: "Alpha Two", Artist: "B", FileType: "mp3"})
+
+	ctx := func(tt uint32) proto.DBArg { return proto.ArgI32(0x01010300 | tt) }
+	root := func(h *Handler, tt uint32) uint32 {
+		return total(h.Handle(&proto.DBMessage{TxID: 1, Type: proto.DBMsgRootMenu, Args: []proto.DBArg{
+			ctx(tt), proto.ArgI32(0), proto.ArgI32(0x05cfffff)}}))
+	}
+	find := func(h *Handler, tt uint32) uint32 {
+		q := utf16Arg("alpha")
+		return total(h.Handle(&proto.DBMessage{TxID: 2, Type: 0x1300, Args: []proto.DBArg{
+			ctx(tt), proto.ArgI32(0), proto.ArgI32(uint32(len(q.Str))), q, proto.ArgI32(0)}}))
+	}
+	tracks := func(h *Handler, tt uint32) uint32 {
+		return total(h.Handle(&proto.DBMessage{TxID: 3, Type: 0x1004, Args: []proto.DBArg{ctx(tt), proto.ArgI32(0)}}))
+	}
+
+	h := &Handler{lib: lib}
+	wantRoot := root(h, 0x01)
+	if wantRoot == 0 {
+		t.Fatal("track type 0x01: empty root menu")
+	}
+	if got := find(h, 0x01); got != 2 {
+		t.Errorf("track type 0x01: SEARCH total %d, want 2", got)
+	}
+	for _, tt := range []uint32{0x00, 0x02, 0x05, 0x06} {
+		h := &Handler{lib: lib}
+		if got := root(h, tt); got != 0 {
+			t.Errorf("track type 0x%02x: root menu total %d, want 0", tt, got)
+		}
+		if got := find(h, tt); got != 0 {
+			t.Errorf("track type 0x%02x: SEARCH total %d, want 0", tt, got)
+		}
+		if got := tracks(h, tt); got != 2 {
+			t.Errorf("track type 0x%02x: TRACK total %d, want 2", tt, got)
+		}
+	}
+}

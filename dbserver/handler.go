@@ -604,7 +604,12 @@ func (h *Handler) handleRootMenu(msg *proto.DBMessage) []*proto.DBMessage {
 	// deck's lists go; other decks keep theirs.
 	h.recentLists().forget(uint8(dmstContext(msg) >> 24))
 	h.noteRootMask(msg)
-	items := h.rootMenu()
+	var items []*menuItem
+	if listsNothingForType(msg) {
+		dlog.Debugf("dbserver: root menu for context track type 0x%02x lists nothing, as rekordbox does", dmstTrackType(msg))
+	} else {
+		items = h.rootMenu()
+	}
 	dlog.Debugf("dbserver: root menu returning %d categories", len(items))
 	return []*proto.DBMessage{{
 		TxID: msg.TxID,

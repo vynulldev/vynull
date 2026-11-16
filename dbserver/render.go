@@ -315,13 +315,24 @@ func dmstTrackType(msg *proto.DBMessage) uint8 {
 // conformance suites context-track-types and context-track-type-families,
 // rekordbox 7.2.19).
 const (
-	trackTypeRekordbox = 0x01 // the only type whose track rows carry the hot-cue auto-load bit
+	// trackTypeRekordbox is the only type whose track rows carry the hot-cue
+	// auto-load bit, and whose root menu and SEARCH list anything.
+	trackTypeRekordbox = 0x01
 )
 
 // silentTrackType reports whether rekordbox ignores a browse request with
 // this context track type: for 0x03 and 0x04 it sends no reply at all, for
 // every request kind, while every other type gets a normal answer.
 func silentTrackType(tt uint8) bool { return tt == 0x03 || tt == 0x04 }
+
+// listsNothingForType reports whether rekordbox answers a root menu (0x1000)
+// or SEARCH (0x1300) request with a zero-row menu because of its context
+// track type: it fills both only for 0x01, a rekordbox track. The other types
+// it answers (0x00, 0x02, 0x05, 0x06) still get their direct Track, category
+// and hierarchy lists. A request with no context argument is left alone.
+func listsNothingForType(msg *proto.DBMessage) bool {
+	return len(msg.Args) > 0 && dmstTrackType(msg) != trackTypeRekordbox
+}
 
 // dmstMenu extracts the menu byte from a DMST arg.
 func dmstMenu(msg *proto.DBMessage) uint8 {
