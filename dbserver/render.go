@@ -230,7 +230,9 @@ func (h *Handler) handleRenderMenu(msg *proto.DBMessage) []*proto.DBMessage {
 					// sets it only when the request's context track type is 0x01.
 					flags10 |= 0x100
 				}
-				flags11 = item.newKeyID // arg 11: converted (Camelot 1-24) key index
+				if keyCategoryRender(msg) {
+					flags11 = item.newKeyID // arg 11: converted (Camelot 1-24) key index
+				}
 			}
 		}
 		// Album menu rows repeat the AlbumID in arg[8] (rekordbox uses it as
@@ -319,6 +321,20 @@ const (
 	// auto-load bit, and whose root menu and SEARCH list anything.
 	trackTypeRekordbox = 0x01
 )
+
+// keyCategory is the KEY category's ID.
+const keyCategory = 12
+
+// keyCategoryRender reports whether a render asks for rows on the KEY
+// category's path, which is when rekordbox puts a track row's converted key
+// index in argument 11: the render's sixth argument is a category ID (its low
+// word; link-spec ROW_LAYOUT.md, "Render reconciliation"), and only KEY fills
+// the index. Decks send 12 for their main lists and 0 for the preview
+// locations, where rekordbox leaves argument 11 zero, as it does for a render
+// with no sixth argument.
+func keyCategoryRender(msg *proto.DBMessage) bool {
+	return len(msg.Args) >= 6 && msg.Args[5].Int()&0xffff == keyCategory
+}
 
 // silentTrackType reports whether rekordbox ignores a browse request with
 // this context track type: for 0x03 and 0x04 it sends no reply at all, for
