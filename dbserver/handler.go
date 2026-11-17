@@ -218,6 +218,9 @@ func (h *Handler) Handle(msg *proto.DBMessage) []*proto.DBMessage {
 		h.ctxTrackType = uint32(dmstTrackType(msg))
 	}
 
+	if resp, handled := malformedSongInfo(msg); handled {
+		return resp
+	}
 	if resp, handled := songInfoContextRule(msg); handled {
 		return resp
 	}

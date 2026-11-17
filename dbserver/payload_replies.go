@@ -77,9 +77,7 @@ func logOnlyCommand(msg *proto.DBMessage) []*proto.DBMessage {
 	if len(msg.Args) == 0 {
 		return nil
 	}
-	switch msg.Args[0].Tag {
-	case proto.ArgInt8, proto.ArgInt16, proto.ArgInt32:
-	default:
+	if !numberArg(msg.Args[0]) {
 		return []*proto.DBMessage{{TxID: msg.TxID, Type: 0x0100}}
 	}
 	if ctx := msg.Args[0].Int(); ctx == 0 || ctx == 0xffffffff {
