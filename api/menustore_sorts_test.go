@@ -61,3 +61,27 @@ func TestMenuStoreImportWithoutSelection(t *testing.T) {
 		t.Errorf("track detail %q, want not_specified", ms.TrackDetail())
 	}
 }
+
+// An imported SORT menu's selected row names the track lists' second column,
+// every column rekordbox can select included; with two selected rows the
+// first in table order wins, as in rekordbox (link-spec
+// multiple-secondary-selections), and a selected sort that names no column
+// leaves the rows title-only.
+func TestImportedTrackColumn(t *testing.T) {
+	for _, c := range []struct {
+		selected []uint32
+		want     string
+	}{
+		{[]uint32{7}, "comments"}, {[]uint32{8}, "time"}, {[]uint32{11}, "original_artist"},
+		{[]uint32{16}, "dj_play_count"}, {[]uint32{17}, "date_added"}, {[]uint32{12}, "key"},
+		{[]uint32{7, 12}, "comments"}, {nil, "not_specified"}, {[]uint32{0}, "not_specified"},
+	} {
+		var imp []library.SortImport
+		for _, id := range []uint32{0, 7, 8, 11, 12, 16, 17} {
+			imp = append(imp, library.SortImport{ID: id, Visible: true, Selected: slices.Contains(c.selected, id)})
+		}
+		if got := ImportedTrackColumn(imp); got != c.want {
+			t.Errorf("selected %v: column %q, want %q", c.selected, got, c.want)
+		}
+	}
+}

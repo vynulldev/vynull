@@ -274,22 +274,22 @@ func (h *Handler) applyTrackDetail(m *menuItem, t *library.Track, ids *catIDs) {
 			m.Label2 = fmt.Sprintf("%s - %.1f bpm", m.sortKey, math.Abs(raw)/100)
 		}
 	case "artist":
-		m.ParentID = ids.artist
+		m.ParentID = lookupID(ids.artist, t.Artist)
 		m.Label2 = t.Artist
 	case "album":
-		m.ParentID = ids.album
+		m.ParentID = lookupID(ids.album, t.Album)
 		m.Label2 = t.Album
 	case "genre":
-		m.ParentID = ids.genre
+		m.ParentID = lookupID(ids.genre, t.Genre)
 		m.Label2 = t.Genre
 	case "label":
-		m.ParentID = ids.label
+		m.ParentID = lookupID(ids.label, t.Label)
 		m.Label2 = t.Label
 	case "remixer":
-		m.ParentID = ids.remixer
+		m.ParentID = lookupID(ids.remixer, t.Remixer)
 		m.Label2 = t.Remixer
 	case "original_artist":
-		m.ParentID = ids.origArtist // the ORIGINAL ARTIST menu's IDs
+		m.ParentID = lookupID(ids.origArtist, t.OriginalArtist) // the ORIGINAL ARTIST menu's IDs
 		m.Label2 = t.OriginalArtist
 	case "time":
 		m.ParentID = uint32(t.Duration.Seconds())
@@ -324,6 +324,15 @@ func (h *Handler) applyTrackDetail(m *menuItem, t *library.Track, ids *catIDs) {
 			m.Label2 = t.DateAdded.Format("2006-01-02")
 		}
 	}
+}
+
+// lookupID is a lookup column's ID for a track: its name's ID, or 0 when the
+// track has none, as rekordbox sends a null lookup.
+func lookupID(id uint32, name string) uint32 {
+	if name == "" {
+		return 0
+	}
+	return id
 }
 
 // markContextType stamps the packed context track type (TT) on every item, so

@@ -11,7 +11,12 @@
 //	  - --fixture-json is a tools/rekordbox_dump.py JSON dump (the same format our
 //	    master.db importer consumes); we load it into a library and serve it.
 //	  - --data-dir is a writable per-run scratch directory.
-//	  - --second-column selects the track-list detail column.
+//	  - --second-column selects the track-list detail column for a dump with no
+//	    SORT menu. A dump that has one (every link-spec fixture) uses the
+//	    column its selected djmdSort row names, as rekordbox does and as
+//	    Vynull's own import does; the harness's value is only a stand-in for
+//	    backends that can't read it (it passes "comment" for a fixture with no
+//	    selected column, which rekordbox serves title-only).
 //	  - --key-display names keys in "classic" (rekordbox's default device
 //	    setting) or "alphanumeric" notation; $VYNULL_KEY_DISPLAY sets its
 //	    default, for suites the adapter starts without it.
@@ -220,11 +225,17 @@ func main() {
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
 
+	second := *secondColumn
+	if len(bundle.Sorts) > 0 {
+		second = api.ImportedTrackColumn(bundle.Sorts)
+	}
+	log.Printf("conformance: track-list second column %q", second)
+
 	db := &dbserver.Server{
 		Library:      lib,
 		DeviceNumber: 17, // rekordbox device number, matching the oracle
 		Analysis:     analysisStore,
-		Menu:         confMenu{second: *secondColumn, sorts: sortMenuFrom(bundle.Sorts)},
+		Menu:         confMenu{second: second, sorts: sortMenuFrom(bundle.Sorts)},
 		Keys:         keyDisplay(keys),
 		Playlists:    confPlaylists{nodes: dump.Playlists, lib: lib, tags: tagsFromDump(dump.Tags), now: conformanceNow()},
 		Clock:        func() time.Time { return linkHistoryDay },

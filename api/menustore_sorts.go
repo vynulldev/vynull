@@ -118,21 +118,30 @@ func (ms *MenuStore) ImportSorts(imp []library.SortImport) {
 		return
 	}
 	items := make([]SortItem, 0, len(imp))
-	column := "not_specified"
 	for _, s := range imp {
 		items = append(items, SortItem{ID: s.ID, Visible: s.Visible})
-		if s.Selected {
-			if key, ok := trackDetailBySort[s.ID]; ok {
-				column = key
-			}
-		}
 	}
+	column := ImportedTrackColumn(imp)
 	ms.mu.Lock()
 	defer ms.mu.Unlock()
 	ms.sorts = normalizeSorts(items)
 	ms.trackDetail = column
 	ms.saveLocked()
 	dlog.Infof("api: imported rekordbox's sort menu (%d sorts) and track column %q", len(imp), column)
+}
+
+// ImportedTrackColumn returns the track-detail column an imported SORT menu
+// selects (its selected djmdSort row), or "not_specified", title-only rows,
+// when it selects none that the track lists can show.
+func ImportedTrackColumn(imp []library.SortImport) string {
+	for _, s := range imp {
+		if s.Selected {
+			if key, ok := trackDetailBySort[s.ID]; ok {
+				return key
+			}
+		}
+	}
+	return "not_specified"
 }
 
 // ResetSorts restores rekordbox's default SORT menu.
