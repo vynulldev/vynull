@@ -20,6 +20,7 @@ const detailPlayer = {
   lastBeat:  -1,     // index of the last beat already scheduled
   lastDraw:  0,
   padsKey:   '',
+  pending:   null,   // {at, cue}: a quantized hot cue jump waiting for its grid step
 };
 const PLAYER_LOOKAHEAD_MS = 150;
 const PLAYER_DRAW_MS = 33;
@@ -72,6 +73,7 @@ function detailPlayerStop(keepUI) {
   detailPlayer.audio = null;
   detailPlayer.trackID = null;
   detailPlayer.loop = null;
+  detailPlayer.pending = null;
   detailPlayer.source = '';
   detailPlayer.lastBeat = -1;
   if (!keepUI) detailPlayerSyncUI();
@@ -100,6 +102,7 @@ function detailPlayerPause() {
   a.pause();
   cancelAnimationFrame(detailPlayer.raf);
   detailPlayer.raf = 0;
+  detailPlayer.pending = null;
   detailPlayerSyncUI();
 }
 function detailPlayerToggle() {
@@ -112,6 +115,7 @@ function detailPlayerOnUserMove(ms) {
   if (!a || detailPlayer.driving || detailPlayer.trackID !== detailWave.trackID) return;
   if (a.readyState >= 1) a.currentTime = Math.max(0, ms) / 1000;
   detailPlayer.lastBeat = -1;
+  detailPlayer.pending = null; // a seek cancels a waiting hot cue jump
   // Moving outside the active loop leaves it, as on a CDJ.
   const lp = detailPlayer.loop;
   if (lp && (ms < lp.start || ms >= lp.end)) detailPlayer.loop = null;
@@ -122,6 +126,18 @@ function detailPlayerTick() {
   const a = detailPlayer.audio;
   if (!a || a.paused || detailPlayer.trackID !== detailWave.trackID) return;
   let ms = a.currentTime * 1000;
+  const pend = detailPlayer.pending;
+  if (pend && ms >= pend.at) {
+    // The quantized hot cue jump's grid step has come: land on the cue, as
+    // far past it as the playhead already is past the step, so the beat
+    // phase carries over.
+    detailPlayer.pending = null;
+    ms = pend.cue.time_ms + (ms - pend.at);
+    a.currentTime = ms / 1000;
+    detailPlayer.loop = detailPlayerCueLoop(pend.cue);
+    detailPlayer.lastBeat = -1;
+    detailPlayerRenderPads(true);
+  }
   const lp = detailPlayer.loop;
   if (lp && ms >= lp.end) {
     a.currentTime = lp.start / 1000;
@@ -182,13 +198,24 @@ function detailPlayerClick(when, accent) {
   osc.stop(when + 0.06);
 }
 
+// detailPlayerCueLoop is the loop a cue starts: its saved loop, or none.
+function detailPlayerCueLoop(cue) {
+  return (cue.type === 'loop' && cue.loop_ms > cue.time_ms) ? { start: cue.time_ms, end: cue.loop_ms } : null;
+}
 // Jump to a cue: seeks and starts playing from it (like pressing a hot-cue
-// pad). A saved loop also becomes the active loop.
+// pad). A saved loop also becomes the active loop. With Q on during
+// playback, the jump waits for the next grid step, as on a CDJ, so the beat
+// carries on (detailPlayerTick makes it).
 function detailPlayerJumpToCue(cue) {
   if (!cue) return;
   const ms = cue.time_ms;
-  const loop = (cue.type === 'loop' && cue.loop_ms > ms) ? { start: ms, end: cue.loop_ms } : null;
+  const loop = detailPlayerCueLoop(cue);
   const wasPlaying = detailPlayerActive();
+  if (wasPlaying && quantizeActive()) {
+    detailPlayer.pending = { at: quantizeNextStep(detailPlayer.audio.currentTime * 1000), cue };
+    detailPlayerRenderPads();
+    return;
+  }
   detailZoomCenterTo(ms);            // seeks via detailPlayerOnUserMove
   detailPlayer.loop = loop;
   if (!wasPlaying) detailPlayerPlay();
@@ -205,6 +232,12 @@ function detailPlayerStepCue(dir) {
   const c = dir > 0 ? cues.find(c => c.time_ms > ms + eps)
                     : cues.slice().reverse().find(c => c.time_ms < ms - eps);
   if (c) { detailZoomCenterTo(c.time_ms); }
+}
+function detailPlayerToggleQuantize() {
+  quantize.on = !quantize.on;
+  if (!quantize.on) detailPlayer.pending = null;
+  saveQuantize();
+  detailPlayerSyncUI();
 }
 function detailPlayerToggleMetro() {
   detailPlayer.metro = !detailPlayer.metro;
@@ -252,6 +285,15 @@ function detailPlayerSyncUI() {
   play.classList.toggle('active', on);
   detailPlayerEl('pl-metro').classList.toggle('active', detailPlayer.metro);
   detailPlayerEl('pl-wav').classList.toggle('active', detailPlayer.transcode);
+  const q = detailPlayerEl('pl-q');
+  if (q) {
+    const grid = !!(detailWave.beats && detailWave.beats.length >= 2);
+    q.classList.toggle('active', quantize.on);
+    q.classList.toggle('no-grid', quantize.on && !grid);
+    q.title = 'Quantize (Q): cues, seeks, loop moves and hot cue jumps while playing land on the beat grid' +
+              (grid ? '' : ' · this track has no beat grid, so nothing snaps');
+    detailPlayerEl('pl-q-step').value = String(quantize.step);
+  }
   detailPlayerSyncInfo();
   detailPlayerRenderPads(true);
 }
@@ -262,7 +304,9 @@ function detailPlayerRenderPads(force) {
   if (!box) return;
   const cues = detailPlayerSortedCues();
   const lp = detailPlayer.loop;
-  const key = cues.map(c => [c.number, c.type, c.time_ms, c.loop_ms].join(':')).join('|') + '|' + (lp ? lp.start : '');
+  const pend = detailPlayer.pending;
+  const key = cues.map(c => [c.number, c.type, c.time_ms, c.loop_ms].join(':')).join('|') + '|' + (lp ? lp.start : '') +
+              '|' + (pend ? pend.cue.number : '');
   if (!force && key === detailPlayer.padsKey && box.childElementCount) return;
   detailPlayer.padsKey = key;
   box.textContent = '';
@@ -275,6 +319,7 @@ function detailPlayerRenderPads(force) {
               (c.type === 'loop' ? ' · loop' : '') + (hot ? ' · key ' + c.number : '');
     if (c.type === 'loop') b.textContent += '⟲';
     if (lp && lp.start === c.time_ms) b.classList.add('active');
+    if (pend && pend.cue.number === c.number) b.classList.add('pending'); // a quantized jump waiting for its step
     b.addEventListener('click', () => { b.blur(); detailPlayerJumpToCue(c); });
     box.appendChild(b);
   }
@@ -286,12 +331,19 @@ function detailPlayerBind(t) {
   on('pl-play', detailPlayerToggle);
   on('pl-metro', detailPlayerToggleMetro);
   on('pl-wav', detailPlayerToggleTranscode);
+  on('pl-q', detailPlayerToggleQuantize);
+  detailPlayerEl('pl-q-step').addEventListener('change', e => {
+    const step = parseFloat(e.currentTarget.value);
+    if (QUANTIZE_STEPS.includes(step)) { quantize.step = step; saveQuantize(); }
+    e.currentTarget.blur();
+  });
   detailPlayer.padsKey = '';
   detailPlayerSyncUI();
 }
 
 // Keyboard (drawer open, not typing): space play/pause · 1–8 hot cues ·
-// [ ] previous/next cue · ←/→ one beat · M metronome · L leave loop.
+// [ ] previous/next cue · ←/→ one beat · M metronome · Q quantize · L leave
+// loop.
 document.addEventListener('keydown', e => {
   if (selectedTrackID == null || detailWave.trackID !== selectedTrackID) return;
   if (e.ctrlKey || e.metaKey || e.altKey) return;
@@ -309,6 +361,7 @@ document.addEventListener('keydown', e => {
   else if (e.key === 'ArrowLeft')  detailJumpBeats(e.shiftKey ? -4 : -1);
   else if (e.key === 'ArrowRight') detailJumpBeats(e.shiftKey ? 4 : 1);
   else if (e.key === 'm' || e.key === 'M') detailPlayerToggleMetro();
+  else if (e.key === 'q' || e.key === 'Q') detailPlayerToggleQuantize();
   else if (e.key === 'l' || e.key === 'L') { detailPlayer.loop = null; detailPlayerSyncUI(); }
   else handled = false;
   if (handled) e.preventDefault();

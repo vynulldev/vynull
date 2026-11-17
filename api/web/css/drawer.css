@@ -349,6 +349,14 @@
     color: var(--orange);
     border-color: var(--orange);
   }
+  .detail-wave .player-controls .no-grid { border-style: dashed; }
+  .detail-wave .player-controls select {
+    background: var(--ink); border: 1px solid var(--wire); color: var(--text2);
+    font-family: inherit; font-size: 11px; line-height: 1; padding: 2px 4px; cursor: pointer;
+  }
+  .detail-wave .player-controls select:hover { color: var(--orange); border-color: var(--orange); }
+  .detail-wave .player-controls select:focus { outline: none; border-color: var(--orange); }
+  .detail-wave .player-controls .pl-pads button.pending { border-style: dashed; border-color: var(--orange); }
   .detail-wave .player-controls .pl-pads { display: inline-flex; flex-wrap: wrap; gap: 4px; margin-left: 6px; }
   .detail-wave .player-controls .pl-pads button { font-size: 11px; padding: 2px 7px; }
   .detail-wave .player-controls .pl-info { color: var(--text3); font-variant-numeric: tabular-nums; text-transform: none; letter-spacing: 0; }
