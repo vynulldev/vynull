@@ -366,6 +366,13 @@ function renderDetail(t, cues, wave, phrases, analysis) {
         <button type="button" id="pl-play" title="Play / pause from the cursor (Space)">▶ PLAY</button>
         <button type="button" id="pl-metro" title="Click on every beat of the analysed grid (M)">METRO</button>
         <button type="button" id="pl-wav" title="Play the ffmpeg-decoded WAV, the same decoder the analysis used, to rule out browser decoder offset">WAV</button>
+        <button type="button" id="pl-q" title="Quantize (Q): cues, seeks, loop moves and hot cue jumps while playing land on the beat grid">Q</button>
+        <select id="pl-q-step" title="Quantize step">
+          <option value="1">1 BEAT</option>
+          <option value="0.5">1/2</option>
+          <option value="0.25">1/4</option>
+          <option value="0.125">1/8</option>
+        </select>
         <span id="pl-pads" class="pl-pads" title="Click or press 1–8 to jump to a cue · [ ] previous/next cue"></span>
         <span style="flex:1"></span>
         <span id="pl-info" class="pl-info"></span>
@@ -480,7 +487,7 @@ function renderDetail(t, cues, wave, phrases, analysis) {
     const scrubTo = clientX => {
       const rect = ov.getBoundingClientRect();
       const frac = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
-      detailZoomCenterTo(frac * detailWave.durationMs);
+      detailZoomCenterTo(quantizeMs(frac * detailWave.durationMs));
     };
     ov.addEventListener('mousedown', e => {
       e.preventDefault();
@@ -525,7 +532,7 @@ function renderDetail(t, cues, wave, phrases, analysis) {
         if (e.shiftKey && !findDetailCueNear(clickMs, 6 * msPerPx)) {
           const num = nextFreeHotCueNumber();
           if (num == null) { toast('ALL HOT CUE SLOTS USED', 'error'); return; }
-          const cue = { number: num, type: 'cue', time_ms: Math.round(clickMs), loop_ms: -1, color_id: defaultCueColorFor(num), label: '' };
+          const cue = { number: num, type: 'cue', time_ms: Math.round(quantizeMs(clickMs)), loop_ms: -1, color_id: defaultCueColorFor(num), label: '' };
           saveDetailCue(cue);
           return;
         }
@@ -533,19 +540,28 @@ function renderDetail(t, cues, wave, phrases, analysis) {
         // Hit-test cue markers (±6px). If we hit one, drag it.
         const hit = findDetailCueNear(clickMs, 6 * msPerPx);
         if (hit) {
-          const startMs = hit.time_ms;
+          const startMs = hit.time_ms, startEnd = hit.loop_ms;
+          const isLoop = hit.type === 'loop' && startEnd > startMs;
           zm.style.cursor = 'ew-resize';
           const onMove = ev => {
             const dx = ev.clientX - e.clientX;
             const newMs = Math.max(0, Math.min(detailWave.durationMs, startMs + dx * msPerPx));
-            hit.time_ms = Math.round(newMs);
+            if (isLoop && quantizeActive()) {
+              // Q moves the whole loop onto the grid, keeping its length in
+              // whole grid steps.
+              const lp = quantizeLoop(newMs, startMs, startEnd);
+              hit.time_ms = Math.round(lp.start);
+              hit.loop_ms = Math.round(lp.end);
+            } else {
+              hit.time_ms = Math.round(quantizeMs(newMs));
+            }
             redrawDetailWaveform();
           };
           const onEnd = () => {
             window.removeEventListener('mousemove', onMove);
             window.removeEventListener('mouseup', onEnd);
             zm.style.cursor = 'grab';
-            if (hit.time_ms !== startMs) saveDetailCue(hit);
+            if (hit.time_ms !== startMs || hit.loop_ms !== startEnd) saveDetailCue(hit);
           };
           window.addEventListener('mousemove', onMove);
           window.addEventListener('mouseup', onEnd);
@@ -562,13 +578,15 @@ function renderDetail(t, cues, wave, phrases, analysis) {
           window.removeEventListener('mousemove', onMove);
           window.removeEventListener('mouseup', onEnd);
           zm.style.cursor = 'grab';
+          // Q lands the playhead on the grid once the pan ends.
+          if (quantizeActive()) detailZoomCenterTo(quantizeMs(detailWave.centerMs));
         };
         zm.style.cursor = 'grabbing';
         window.addEventListener('mousemove', onMove);
         window.addEventListener('mouseup', onEnd);
       });
       zm.style.cursor = 'grab';
-      zm.title = 'Drag to pan · drag a cue marker to move it · shift+click to add a hot cue · alt+click a cue to delete it · ctrl/⌘+click to set the downbeat';
+      zm.title = 'Drag to pan · drag a cue marker to move it · shift+click to add a hot cue · alt+click a cue to delete it · ctrl/⌘+click to set the downbeat · Q snaps them to the beat grid';
     }
 
     document.getElementById('zoom-in').addEventListener('click',  () => detailZoomStep(-1));
@@ -582,7 +600,7 @@ function renderDetail(t, cues, wave, phrases, analysis) {
       saveDetailCue({
         number:   num,
         type:     'cue',
-        time_ms:  Math.round(Math.max(0, Math.min(detailWave.durationMs, detailWave.centerMs))),
+        time_ms:  Math.round(quantizeMs(Math.max(0, Math.min(detailWave.durationMs, detailWave.centerMs)))),
         loop_ms:  -1,
         color_id: defaultCueColorFor(num),
         label:    '',
@@ -592,7 +610,7 @@ function renderDetail(t, cues, wave, phrases, analysis) {
       saveDetailCue({
         number:   nextFreeMemoryCueNumber(),
         type:     'cue',
-        time_ms:  Math.round(Math.max(0, Math.min(detailWave.durationMs, detailWave.centerMs))),
+        time_ms:  Math.round(quantizeMs(Math.max(0, Math.min(detailWave.durationMs, detailWave.centerMs)))),
         loop_ms:  -1,
         color_id: 0, // default colour — the deck paints memory cues its standard green
         label:    '',

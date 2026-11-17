@@ -129,3 +129,74 @@ function detailJumpBeats(delta) {
   }
 }
 
+// ── quantize ──
+// With Q on, cue placement, playhead seeks, loop moves and hot cue jumps while
+// playing land on the beat grid, at the chosen step (1, 1/2, 1/4 or 1/8 beat),
+// as with rekordbox's quantize. Nothing snaps without a grid. Both settings
+// are remembered per browser.
+const QUANTIZE_STEPS = [1, 0.5, 0.25, 0.125];
+const quantize = { on: false, step: 1 };
+(function loadQuantize() {
+  try {
+    quantize.on = localStorage.getItem('quantize') === '1';
+    const step = parseFloat(localStorage.getItem('quantizeStep'));
+    if (QUANTIZE_STEPS.includes(step)) quantize.step = step;
+  } catch (e) {}
+})();
+function saveQuantize() {
+  try {
+    localStorage.setItem('quantize', quantize.on ? '1' : '0');
+    localStorage.setItem('quantizeStep', String(quantize.step));
+  } catch (e) {}
+}
+// quantizeActive reports whether Q snaps now: on, and the track has a grid.
+function quantizeActive() {
+  return quantize.on && !!(detailWave.beats && detailWave.beats.length >= 2);
+}
+// gridPos is a time as a position on the beat grid: beat i at i, with the
+// fraction of the way to the next beat; before the first and after the last
+// beat it extends the nearest interval.
+function gridPos(ms) {
+  const b = detailWave.beats, n = b.length;
+  let i;
+  if (ms <= b[0].time_ms) i = 0;
+  else if (ms >= b[n - 1].time_ms) i = n - 2;
+  else {
+    let lo = 0, hi = n - 1;
+    while (hi - lo > 1) {
+      const mid = (lo + hi) >> 1;
+      if (b[mid].time_ms <= ms) lo = mid; else hi = mid;
+    }
+    i = lo;
+  }
+  const span = b[i + 1].time_ms - b[i].time_ms;
+  return i + (span > 0 ? (ms - b[i].time_ms) / span : 0);
+}
+// gridMs is gridPos's inverse.
+function gridMs(pos) {
+  const b = detailWave.beats, n = b.length;
+  const i = Math.max(0, Math.min(n - 2, Math.floor(pos)));
+  return b[i].time_ms + (pos - i) * (b[i + 1].time_ms - b[i].time_ms);
+}
+// quantizeMs snaps a time to the nearest grid step when Q is active, kept
+// within the track; otherwise it returns the time unchanged.
+function quantizeMs(ms) {
+  if (!quantizeActive()) return ms;
+  const s = quantize.step;
+  return Math.max(0, Math.min(detailWave.durationMs, gridMs(Math.round(gridPos(ms) / s) * s)));
+}
+// quantizeNextStep is the first grid step after a time (where a hot cue jump
+// made while playing lands).
+function quantizeNextStep(ms) {
+  const s = quantize.step;
+  return gridMs((Math.floor(gridPos(ms) / s + 1e-6) + 1) * s);
+}
+// quantizeLoop moves a loop [origStart, origEnd) to start at startMs snapped,
+// keeping its length in whole grid steps (at least one).
+function quantizeLoop(startMs, origStart, origEnd) {
+  const s = quantize.step;
+  const steps = Math.max(1, Math.round((gridPos(origEnd) - gridPos(origStart)) / s));
+  const start = quantizeMs(startMs);
+  return { start, end: Math.min(detailWave.durationMs, gridMs(gridPos(start) + steps * s)) };
+}
+
