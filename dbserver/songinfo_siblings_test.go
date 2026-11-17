@@ -3,6 +3,7 @@
 package dbserver
 
 import (
+	"fmt"
 	"slices"
 	"testing"
 	"time"
@@ -129,5 +130,47 @@ func TestRenderWindowNormalization(t *testing.T) {
 	}
 	if got := render(0xffffffff, 1); got != nil {
 		t.Errorf("render at 0xffffffff = %v, want no reply", got)
+	}
+}
+
+// Play Song Info and Delivery Info answer malformed arguments as rekordbox
+// does (link-spec song-info-sibling-errors): no arguments get no reply, a
+// string or blob context and a blob content ID a bare 0x0100, and a string
+// content ID a zero-row menu.
+func TestMalformedSongInfoRequests(t *testing.T) {
+	ctx, track := proto.ArgI32(0x01010301), proto.ArgI32(10001)
+	str, blob := proto.ArgStr("wrong-type"), proto.ArgBlob([]byte{1, 2, 3, 4})
+	for _, kind := range []uint16{0x2102, 0x2602} {
+		rows := map[uint16]uint32{0x2102: 7, 0x2602: 13}[kind]
+		for _, c := range []struct {
+			name string
+			args []proto.DBArg
+			want string // "none", "0100", or the menu total
+		}{
+			{"no arguments", nil, "none"},
+			{"string context", []proto.DBArg{str, track}, "0100"},
+			{"blob context", []proto.DBArg{blob, track}, "0100"},
+			{"blob content ID", []proto.DBArg{ctx, blob}, "0100"},
+			{"string content ID", []proto.DBArg{ctx, str}, "0"},
+			{"context only", []proto.DBArg{ctx}, "0"},
+			{"well formed", []proto.DBArg{ctx, track}, fmt.Sprint(rows)},
+			{"an extra argument", []proto.DBArg{ctx, track, proto.ArgI32(0xdeadbeef)}, fmt.Sprint(rows)},
+		} {
+			r := siblingsFixture().Handle(&proto.DBMessage{TxID: 1, Type: kind, Args: c.args})
+			var got string
+			switch {
+			case len(r) == 0:
+				got = "none"
+			case r[0].Type == 0x0100 && len(r[0].Args) == 0:
+				got = "0100"
+			case r[0].Type == proto.DBMsgSuccess && r[0].Args[0].Int() == uint32(kind):
+				got = fmt.Sprint(r[0].Args[1].Int())
+			default:
+				got = fmt.Sprintf("%+v", r[0])
+			}
+			if got != c.want {
+				t.Errorf("%#04x %s: got %s, want %s", kind, c.name, got, c.want)
+			}
+		}
 	}
 }
