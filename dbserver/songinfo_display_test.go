@@ -199,3 +199,21 @@ type keyColumnMenu struct{}
 
 func (keyColumnMenu) RootMenu() []RootMenuEntry { return DefaultRootMenu() }
 func (keyColumnMenu) TrackDetail() string       { return "key" }
+
+// A lookup column (artist, album, genre, label, remixer, original artist)
+// shows ID 0 and no text for a track without a value, as rekordbox sends a
+// null lookup (link-spec secondary-album: a track with no album).
+func TestLookupColumnWithoutValue(t *testing.T) {
+	lib := library.New()
+	lib.AddTrack(&library.Track{ID: 1, Title: "Bare"})
+	lib.AddTrack(&library.Track{ID: 2, Title: "Full", Artist: "A", Album: "B", Genre: "C", Label: "D", Remixer: "E", OriginalArtist: "F"})
+	for _, column := range []string{"artist", "album", "genre", "label", "remixer", "original_artist"} {
+		h := &Handler{lib: lib, menu: detailMenu{detail: &column}}
+		if m := h.trackToStdItem(lib.Track(1)); m.ParentID != 0 || m.Label2 != "" {
+			t.Errorf("%s, no value: %d %q, want 0 and no text", column, m.ParentID, m.Label2)
+		}
+		if m := h.trackToStdItem(lib.Track(2)); m.ParentID == 0 || m.Label2 == "" {
+			t.Errorf("%s, a value: %d %q, want its ID and name", column, m.ParentID, m.Label2)
+		}
+	}
+}
