@@ -472,9 +472,13 @@ paths:
   /api/cues/rev:
     get:
       tags: [Analysis]
-      summary: The cue revision (poll to detect changes). It moves on every saved or deleted cue, from a deck or the API.
+      summary: The cue revision and the library's session (poll to detect changes). The revision moves on every saved or deleted cue, from a deck or the API.
+      description: |
+        The revision restarts when Vynull restarts, so compare it only within
+        one library_session (see /api/tracks/rev). GET /api/cues's ETag
+        carries both.
       responses:
-        "200": { description: OK, content: { application/json: { schema: { type: object, properties: { rev: { type: integer, format: int64 } } } } } }
+        "200": { description: OK, content: { application/json: { schema: { type: object, properties: { rev: { type: integer, format: int64 }, library_session: { type: string } } } } } }
 
   /api/analysis/{id}:
     parameters: [ { name: id, in: path, required: true, schema: { type: integer, format: int64 } } ]

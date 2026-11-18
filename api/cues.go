@@ -47,7 +47,9 @@ func importedCuesToInfo(cues []analysis.ImportedCue) []CueInfo {
 }
 
 // handleCuesRev serves just the cue store's revision, which the web UI polls
-// to fetch every cue only when one changed.
+// to fetch every cue only when one changed, and the library session: the
+// revision restarts with every start of the daemon, so it means "unchanged"
+// only within one session, as the track list's does.
 func (s *Server) handleCuesRev(w http.ResponseWriter, r *http.Request) {
 	if !allow(w, r, http.MethodGet) {
 		return
@@ -56,13 +58,26 @@ func (s *Server) handleCuesRev(w http.ResponseWriter, r *http.Request) {
 	if s.Cues != nil {
 		rev = s.Cues.Rev()
 	}
-	writeJSON(w, map[string]uint64{"rev": rev})
+	w.Header().Set("Cache-Control", "no-store")
+	writeJSON(w, struct {
+		Rev            uint64 `json:"rev"`
+		LibrarySession string `json:"library_session,omitempty"`
+	}{rev, s.librarySession()})
+}
+
+// librarySession is the loaded library's session ID, or "" without one.
+func (s *Server) librarySession() string {
+	if s.Library == nil {
+		return ""
+	}
+	return s.Library.SessionID()
 }
 
 // handleAllCues returns a {trackID: [cue, ...]} map of every track that has
 // cues. Used by the web UI's library page to overlay cue markers on every
 // waveform thumbnail in a single round-trip instead of per-row fetches. Its
-// ETag is the cue store's revision, so an unchanged If-None-Match gets 304.
+// ETag is the library session and the cue store's revision, so an unchanged
+// If-None-Match gets 304, and a copy cached before a restart never does.
 func (s *Server) handleAllCues(w http.ResponseWriter, r *http.Request) {
 	if !allow(w, r, http.MethodGet) {
 		return
@@ -71,7 +86,7 @@ func (s *Server) handleAllCues(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, map[string][]CueInfo{})
 		return
 	}
-	etag := fmt.Sprintf(`"cues-%d"`, s.Cues.Rev())
+	etag := fmt.Sprintf(`"cues-%s-%d"`, s.librarySession(), s.Cues.Rev())
 	w.Header().Set("ETag", etag)
 	w.Header().Set("Cache-Control", "no-cache")
 	if r.Header.Get("If-None-Match") == etag {
