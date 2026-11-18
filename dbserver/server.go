@@ -70,6 +70,27 @@ func DefaultRootMenu() []RootMenuEntry {
 	}
 }
 
+// RootMenuFromCategories is the root menu a rekordbox library's category
+// settings (djmdCategory, imported in menu order) give: its shown categories
+// in that order, with the IDs and item types DefaultRootMenu serves. FOLDER
+// is left out, as rekordbox never serves it at the root (link-spec
+// CONFIGURATION.md, "Root construction"), and so is any category the root
+// menu doesn't serve. The deck's capability mask applies after, as for any
+// root menu.
+func RootMenuFromCategories(imp []library.CategoryImport) []RootMenuEntry {
+	byItem := make(map[uint32]RootMenuEntry)
+	for _, e := range DefaultRootMenu() {
+		byItem[rootMenuItems[e.ItemType]] = e
+	}
+	var out []RootMenuEntry
+	for _, c := range imp {
+		if e, ok := byItem[c.MenuItem]; ok && c.Visible {
+			out = append(out, e)
+		}
+	}
+	return out
+}
+
 // MenuSource lets handleRootMenu pull the user-configured root menu.
 // When the Server has no MenuSource wired, handleRootMenu falls back
 // to a hardcoded default set so existing installs keep working.

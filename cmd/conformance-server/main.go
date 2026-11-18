@@ -49,14 +49,15 @@ import (
 	"github.com/vynulldev/vynull/library"
 )
 
-// confMenu supplies the built-in root menu, the harness-selected second
-// (detail) column, and the fixture's own SORT menu (its djmdSort).
+// confMenu supplies the fixture's own root menu (its djmdCategory), its
+// second (detail) column, and its SORT menu (its djmdSort).
 type confMenu struct {
+	root   []dbserver.RootMenuEntry
 	second string
 	sorts  []dbserver.SortMenuEntry
 }
 
-func (m confMenu) RootMenu() []dbserver.RootMenuEntry { return dbserver.DefaultRootMenu() }
+func (m confMenu) RootMenu() []dbserver.RootMenuEntry { return m.root }
 func (m confMenu) TrackDetail() string                { return m.second }
 func (m confMenu) SortMenu() []dbserver.SortMenuEntry { return m.sorts }
 
@@ -230,12 +231,16 @@ func main() {
 		second = api.ImportedTrackColumn(bundle.Sorts)
 	}
 	log.Printf("conformance: track-list second column %q", second)
+	root := dbserver.DefaultRootMenu()
+	if len(bundle.Categories) > 0 {
+		root = dbserver.RootMenuFromCategories(bundle.Categories)
+	}
 
 	db := &dbserver.Server{
 		Library:      lib,
 		DeviceNumber: 17, // rekordbox device number, matching the oracle
 		Analysis:     analysisStore,
-		Menu:         confMenu{second: second, sorts: sortMenuFrom(bundle.Sorts)},
+		Menu:         confMenu{root: root, second: second, sorts: sortMenuFrom(bundle.Sorts)},
 		Keys:         keyDisplay(keys),
 		Playlists:    confPlaylists{nodes: dump.Playlists, lib: lib, tags: tagsFromDump(dump.Tags), now: conformanceNow()},
 		Clock:        func() time.Time { return linkHistoryDay },

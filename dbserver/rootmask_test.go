@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/vynulldev/vynull/library"
 	"github.com/vynulldev/vynull/proto"
 )
 
@@ -69,5 +70,32 @@ func TestRootCapabilityMask(t *testing.T) {
 		if got := rootLabels(t, h, c.args...); !slices.Equal(got, c.want) {
 			t.Errorf("%s: root %q, want %q", c.name, got, c.want)
 		}
+	}
+}
+
+// A rekordbox library's categories give the root menu: rekordbox's defaults
+// give exactly DefaultRootMenu (FOLDER left out), a hidden category is
+// dropped, and the order is the library's.
+func TestRootMenuFromCategories(t *testing.T) {
+	defaults := []library.CategoryImport{}
+	for _, item := range []uint32{4, 11, 5, 1, 2, 3, 27, 20, 17, 19, 24, 15, 13, 16, 18, 9, 10, 6, 8, 14, 7} {
+		defaults = append(defaults, library.CategoryImport{MenuItem: item, Visible: true})
+	}
+	if got := RootMenuFromCategories(defaults); !slices.Equal(got, DefaultRootMenu()) {
+		t.Errorf("rekordbox's default categories: %v, want DefaultRootMenu %v", got, DefaultRootMenu())
+	}
+
+	hidden := slices.Clone(defaults)
+	hidden[0].Visible = false // TRACK
+	got := RootMenuFromCategories(hidden)
+	if len(got) != 19 || got[0].Label != "KEY" {
+		t.Errorf("TRACK hidden: %d categories starting %q, want 19 starting KEY", len(got), got[0].Label)
+	}
+
+	reversed := slices.Clone(defaults)
+	slices.Reverse(reversed)
+	got = RootMenuFromCategories(reversed)
+	if got[0].Label != "YEAR" || got[len(got)-1].Label != "TRACK" {
+		t.Errorf("reversed: %q ... %q, want YEAR ... TRACK", got[0].Label, got[len(got)-1].Label)
 	}
 }

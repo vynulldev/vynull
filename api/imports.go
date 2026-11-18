@@ -538,6 +538,10 @@ func (s *Server) applyImportBundle(w http.ResponseWriter, bundle *library.Import
 	if incSettings && s.Menu != nil && len(bundle.Sorts) > 0 {
 		s.Menu.ImportSorts(bundle.Sorts)
 	}
+	// So is the root menu (djmdCategory).
+	if incSettings && s.Menu != nil && len(bundle.Categories) > 0 {
+		s.Menu.ImportCategories(bundle.Categories)
+	}
 
 	writeJSON(w, result)
 }
