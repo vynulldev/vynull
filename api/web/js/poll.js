@@ -17,7 +17,14 @@ async function refresh() {
   // 304. A low-frequency forced refetch self-heals if any change ever forgot
   // to move a revision.
   pollCount++;
-  const forced = pollCount % 120 === 0;
+  // Both revisions restart with every start of the daemon, so after a restart
+  // an unchanged number no longer means unchanged data: a new library session
+  // refetches both lists (their ETags carry the session too, so the browser's
+  // copies from before the restart don't revalidate).
+  const session = (trackRev && trackRev.library_session) || (cueRev && cueRev.library_session) || '';
+  const restarted = session !== '' && lastLibrarySession !== '' && session !== lastLibrarySession;
+  if (session) lastLibrarySession = session;
+  const forced = pollCount % 120 === 0 || restarted;
   // Cues first — both renderPlayers and renderLibrary read from cuesCache.
   // Snapshot-skip so we only mutate the cache + trigger a re-render when
   // the CDJ (or our own API) has actually saved/deleted a cue.

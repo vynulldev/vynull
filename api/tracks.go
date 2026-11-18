@@ -250,15 +250,11 @@ func (c *trackListCache) gzipped(etag string, rows func() any) []byte {
 // decide whether the full track list is worth refetching.
 func (s *Server) handleTracksRev(w http.ResponseWriter, r *http.Request) {
 	lib, tags := s.tracksRev()
-	session := ""
-	if s.Library != nil {
-		session = s.Library.SessionID()
-	}
 	w.Header().Set("Cache-Control", "no-store")
 	writeJSON(w, struct {
 		Rev            uint64 `json:"rev"`
 		LibrarySession string `json:"library_session,omitempty"`
-	}{lib + tags, session})
+	}{lib + tags, s.librarySession()})
 }
 
 func (s *Server) handleLoadTrack(w http.ResponseWriter, r *http.Request) {

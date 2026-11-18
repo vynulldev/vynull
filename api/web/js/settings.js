@@ -6,6 +6,7 @@ let lastSettingsKey = '';
 let lastTracksKey = '';
 let lastTracksRev = -1; // last track list revision seen; gates full track refetch
 let lastCuesRev = -1;   // last cue revision seen; gates the full cue refetch
+let lastLibrarySession = ''; // the daemon's library session the revisions belong to
 let pollCount = 0;      // poll ticks, for the periodic forced-refetch fallback
 
 // ───────── CDJ MENU CONFIG (modal) ─────────

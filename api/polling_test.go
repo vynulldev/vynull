@@ -118,3 +118,35 @@ func TestCuesRevision(t *testing.T) {
 		t.Errorf("after a save, the old ETag got %d %s; want 200 with track 7's cue", got.Code, got.Body.String())
 	}
 }
+
+// TestCuesRevisionAcrossRestarts checks the cue revision carries the library
+// session, and that the cue list's ETag from one run of the daemon never
+// revalidates on the next: both runs' revisions start at 0, so a browser
+// holding the first run's copy would otherwise keep it.
+func TestCuesRevisionAcrossRestarts(t *testing.T) {
+	run := func() (*Server, http.Handler) {
+		s := &Server{Library: library.New(), Cues: &CueStoreAdapter{Store: dbserver.NewCueStore(t.TempDir())}}
+		return s, s.Handler()
+	}
+	first, h1 := run()
+	second, h2 := run()
+
+	var body struct {
+		Rev            uint64 `json:"rev"`
+		LibrarySession string `json:"library_session"`
+	}
+	if err := json.Unmarshal(get(h2, "/api/cues/rev").Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if body.LibrarySession != second.Library.SessionID() || body.Rev != 0 {
+		t.Errorf("cue revision %+v, want rev 0 and session %q", body, second.Library.SessionID())
+	}
+	if first.Library.SessionID() == second.Library.SessionID() {
+		t.Fatal("two libraries share a session")
+	}
+
+	old := get(h1, "/api/cues").Header().Get("ETag")
+	if got := get(h2, "/api/cues", "If-None-Match", old); got.Code != http.StatusOK {
+		t.Errorf("the first run's ETag %s got %d from the second run, want 200", old, got.Code)
+	}
+}
