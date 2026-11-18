@@ -123,6 +123,11 @@ func (h *Handler) handleSearch(msg *proto.DBMessage) []*proto.DBMessage {
 		tokens = nil
 	}
 
+	// rekordbox searches artists, albums, titles and file names only while
+	// their categories (ARTIST, ALBUM, TRACK, FILE NAME) are enabled
+	// (link-spec SEARCH_ORACLE.md, "Category-controlled domains").
+	enabled := h.enabledCategories()
+	artistsOn, albumsOn, titlesOn, filesOn := enabled[2], enabled[3], enabled[4], enabled[16]
 	var artists, albums, tracks []*menuItem
 	if len(tokens) > 0 {
 		c := h.trackRows()
@@ -132,7 +137,7 @@ func (h *Handler) handleSearch(msg *proto.DBMessage) []*proto.DBMessage {
 		// and albums ahead of matching content rows.
 		seenArtist := make(map[uint32]bool)
 		addArtist := func(name, folded string, id uint32) {
-			if name == "" || !searchMatch(folded, tokens) || seenArtist[id] {
+			if !artistsOn || name == "" || !searchMatch(folded, tokens) || seenArtist[id] {
 				return
 			}
 			seenArtist[id] = true
@@ -144,12 +149,12 @@ func (h *Handler) handleSearch(msg *proto.DBMessage) []*proto.DBMessage {
 			addArtist(t.Artist, text.artist, ids.artist)
 			addArtist(t.Remixer, text.remixer, ids.remixer)
 			addArtist(t.OriginalArtist, text.origArtist, ids.origArtist)
-			if t.Album != "" && searchMatch(text.album, tokens) && !seenAlbum[ids.album] {
+			if albumsOn && t.Album != "" && searchMatch(text.album, tokens) && !seenAlbum[ids.album] {
 				seenAlbum[ids.album] = true
 				albums = append(albums, &menuItem{ID: ids.album, Label1: t.Album, ItemType: 0x02})
 			}
 		}
-		tracks = searchContent(c, c.libraryOrder(), tokens, false)
+		tracks = searchContent(c, c.libraryOrder(), tokens, false, titlesOn, filesOn)
 		sortByID := func(s []*menuItem) {
 			sort.Slice(s, func(i, j int) bool { return s[i].ID < s[j].ID })
 		}
@@ -197,13 +202,14 @@ func searchQueryTokens(raw string) []string {
 }
 
 // searchContent returns the content rows of the tracks at idx, in that
-// order, that match tokens. A content row matches on either Title or file
-// name, and is labelled with whichever matched (title takes precedence);
-// with names, also on its artist, remixer, original artist or album
-// (Search Track's tracks), labelled with its title. It is a standard track
+// order, that match tokens. A content row matches on its Title (with titles)
+// or its file name (with files), and is labelled with whichever matched
+// (title takes precedence); with names, also on its artist, remixer,
+// original artist or album (Search Track's tracks), labelled with its
+// title. It is a standard track
 // row with the Key secondary column showing the key alone, not the
 // "key - bpm" composite.
-func searchContent(c *trackRows, idx []int32, tokens []string, names bool) []*menuItem {
+func searchContent(c *trackRows, idx []int32, tokens []string, names, titles, files bool) []*menuItem {
 	texts := c.searchTexts()
 	var matches []int32
 	var labels []string
@@ -211,9 +217,9 @@ func searchContent(c *trackRows, idx []int32, tokens []string, names bool) []*me
 		t, text := c.tracks[i], &texts[i]
 		named := names && (searchMatch(text.artist, tokens) || searchMatch(text.remixer, tokens) ||
 			searchMatch(text.origArtist, tokens) || searchMatch(text.album, tokens))
-		if named || searchMatch(text.title, tokens) {
+		if named || titles && searchMatch(text.title, tokens) {
 			matches, labels = append(matches, i), append(labels, t.Title)
-		} else if searchMatch(text.file, tokens) {
+		} else if files && searchMatch(text.file, tokens) {
 			matches, labels = append(matches, i), append(labels, baseName(t.FilePath))
 		}
 	}
