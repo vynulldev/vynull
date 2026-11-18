@@ -45,3 +45,17 @@ func ParseRekordboxDate(s string) time.Time {
 	}
 	return t
 }
+
+// storedDateText is a stored date's text when it differs from the date it
+// parsed to, written as YYYY-MM-DD (cut at a NUL, as rekordbox's strings
+// are), or "" when that text is exactly the date or empty: what
+// Track.DateAddedText keeps.
+func storedDateText(stored string, parsed time.Time) string {
+	if i := strings.IndexByte(stored, 0); i >= 0 {
+		stored = stored[:i]
+	}
+	if stored == "" || !parsed.IsZero() && parsed.Format("2006-01-02") == stored {
+		return ""
+	}
+	return stored
+}

@@ -158,8 +158,8 @@ func (h *Handler) handleRenderMenu(msg *proto.DBMessage) []*proto.DBMessage {
 		}
 		if override {
 			item = h.overrideColumn(rows, item, column)
-			if column == 0x23 && utf16Units(item.Label2) > commentTextMax {
-				dlog.Debugf("dbserver: render of a comment longer than rekordbox's limit left unanswered, as rekordbox does")
+			if (column == 0x23 || column == 0x2e) && utf16Units(item.Label2) > commentTextMax {
+				dlog.Debugf("dbserver: render of a comment or date added longer than rekordbox's limit left unanswered, as rekordbox does")
 				return nil
 			}
 		}

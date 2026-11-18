@@ -41,10 +41,7 @@ func (h *Handler) newSongInfoTitle(t *library.Track, plainArg0 uint32) *songInfo
 		}
 		return h.catID(kind, name)
 	}
-	date := ""
-	if !t.DateAdded.IsZero() {
-		date = t.DateAdded.Format("2006-01-02")
-	}
+	date := t.DateAddedString()
 	color := uint32(t.ColorID)
 	return &songInfoTitle{plainArg0: plainArg0, columns: map[uint32]songInfoColumn{
 		2:  {id("artist", t.Artist), t.Artist, 0x07},

@@ -320,9 +320,7 @@ func (h *Handler) applyTrackDetail(m *menuItem, t *library.Track, ids *catIDs) {
 		m.Label2 = t.Comment
 	case "date_added":
 		m.ParentID = t.ID
-		if !t.DateAdded.IsZero() {
-			m.Label2 = t.DateAdded.Format("2006-01-02")
-		}
+		m.Label2 = t.DateAddedString()
 	}
 }
 

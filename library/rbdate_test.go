@@ -53,3 +53,32 @@ func TestParseRekordboxDate(t *testing.T) {
 		}
 	}
 }
+
+// An import keeps a stored date's text only when it isn't the date it parses
+// to, as YYYY-MM-DD: rekordbox serves StockDate as stored, and every
+// canonical date needs nothing extra.
+func TestStoredDateText(t *testing.T) {
+	for _, c := range []struct{ stored, want string }{
+		{"2021-02-02", ""},
+		{"", ""},
+		{"2021/02/02", "2021/02/02"}, // parses (separators are ignored) but reads differently
+		{"dddddddddd", "dddddddddd"}, // no date at all
+		{"2021-02-02\x00tail", ""},   // cut at the NUL
+		{"bad\x00tail", "bad"},
+	} {
+		if got := storedDateText(c.stored, ParseRekordboxDate(c.stored)); got != c.want {
+			t.Errorf("storedDateText(%q) = %q, want %q", c.stored, got, c.want)
+		}
+	}
+	tr := &Track{DateAdded: ParseRekordboxDate("2021-02-02")}
+	if got := tr.DateAddedString(); got != "2021-02-02" {
+		t.Errorf("canonical date: %q", got)
+	}
+	tr.DateAddedText = "2021/02/02"
+	if got := tr.DateAddedString(); got != "2021/02/02" {
+		t.Errorf("stored text: %q, want it as stored", got)
+	}
+	if got := (&Track{}).DateAddedString(); got != "" {
+		t.Errorf("undated: %q", got)
+	}
+}
