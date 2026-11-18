@@ -34,6 +34,8 @@ type MasterDBDump struct {
 	HotCueBankMembers []masterDBHotCueBankMember `json:"hot_cue_bank_members"`
 	// Sorts are the deck's SORT menu and track-list column (djmdSort).
 	Sorts []masterDBSort `json:"sorts"`
+	// Categories are the deck's root menu (djmdCategory).
+	Categories []masterDBCategory `json:"categories"`
 }
 
 // masterDBHotCueBank is one djmdHotCueBanklist node; top-level nodes have
@@ -413,7 +415,7 @@ func ImportMasterDBDump(lib *Library, dump *MasterDBDump) (*ImportBundle, error)
 
 	lib.FinalizeBulk()
 	return &ImportBundle{Result: res, Playlists: playlists, Tags: tags, TagCategories: tagCategories, Colors: colors, Assets: assets, Cues: cues,
-		Sorts: importSorts(dump.Sorts)}, nil
+		Sorts: importSorts(dump.Sorts), Categories: importCategories(dump.Categories)}, nil
 }
 
 // masterDBPlaylistTree turns the flat djmdPlaylist rows into a nested

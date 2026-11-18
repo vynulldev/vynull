@@ -565,6 +565,18 @@ def main():
     except sqlcipher3.dbapi2.OperationalError:
         pass  # Older DBs may not have the djmdSort table
 
+    # The deck's root menu (djmdCategory): one row per category, its
+    # djmdMenuItems ID, Seq (menu order), and Disable (0 shown; MATCHING and
+    # DATE ADDED use bit 1 for something else).
+    out["categories"] = []
+    try:
+        cur.execute("SELECT ID, MenuItemID, Seq, Disable FROM djmdCategory "
+                    "WHERE COALESCE(rb_local_deleted, 0) = 0")
+        out["categories"] = [{"id": str(i), "menu_item_id": str(m), "seq": int(q or 0), "disable": int(d or 0)}
+                             for i, m, q, d in cur.fetchall()]
+    except sqlcipher3.dbapi2.OperationalError:
+        pass  # Older DBs may not have the djmdCategory table
+
     json.dump(out, sys.stdout, indent=2, default=str)
 
 

@@ -25,6 +25,9 @@ type ImportBundle struct {
 	// Sorts is the library's SORT menu and track-list column (rekordbox
 	// master.db's djmdSort), in menu order; empty when the format has none.
 	Sorts []SortImport
+	// Categories is the library's root menu (rekordbox master.db's
+	// djmdCategory), in menu order; empty when the format has none.
+	Categories []CategoryImport
 	// ShareRoot is the share/ root for ANLZ + artwork (a backup-zip extract, or
 	// a master.db's own library folder). SettingsDir holds the *SETTING.DAT
 	// blobs. Both are empty when the format carries no such assets.

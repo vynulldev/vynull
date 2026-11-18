@@ -85,3 +85,53 @@ func TestImportedTrackColumn(t *testing.T) {
 		}
 	}
 }
+
+func visibleKeys(ms *MenuStore) []string {
+	var keys []string
+	for _, m := range ms.Visible() {
+		keys = append(keys, m.Key)
+	}
+	return keys
+}
+
+// An imported root menu takes the library's order and shown categories,
+// keeps Locked ones shown and a label the user changed, follows with the
+// categories the library has no row for, hidden, and survives a reload.
+func TestMenuStoreImportCategories(t *testing.T) {
+	dir := t.TempDir()
+	ms := NewMenuStore(dir)
+	items := ms.All()
+	for i := range items {
+		if items[i].Key == "bpm" {
+			items[i].Label = "TEMPO"
+		}
+	}
+	if err := ms.Replace(items); err != nil {
+		t.Fatal(err)
+	}
+	ms.ImportCategories([]library.CategoryImport{
+		{MenuItem: 5, Visible: true},  // BPM
+		{MenuItem: 27, Visible: true}, // MATCHING
+		{MenuItem: 4, Visible: false}, // TRACK: locked, stays shown
+		{MenuItem: 2, Visible: false}, // ARTIST
+		{MenuItem: 11, Visible: true}, // KEY
+		{MenuItem: 99, Visible: true}, // unknown
+	})
+	want := []string{"bpm", "matching", "track", "key"}
+	if got := visibleKeys(ms); !slices.Equal(got[:4], want) {
+		t.Errorf("shown %v, want %v first", got, want)
+	}
+	for _, m := range ms.All() {
+		switch {
+		case m.Key == "artist" && m.Visible:
+			t.Errorf("artist shown, want hidden")
+		case m.Key == "bpm" && m.Label != "TEMPO":
+			t.Errorf("bpm label %q, want the user's TEMPO", m.Label)
+		case m.Key == "genre" && m.Visible:
+			t.Errorf("genre (no row in the import) shown, want hidden")
+		}
+	}
+	if again := NewMenuStore(dir); !slices.Equal(visibleKeys(again), visibleKeys(ms)) {
+		t.Errorf("after reload %v, want %v", visibleKeys(again), visibleKeys(ms))
+	}
+}
