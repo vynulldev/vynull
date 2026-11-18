@@ -141,27 +141,37 @@ func (h *Handler) handleGetMetadata(msg *proto.DBMessage) []*proto.DBMessage {
 	}
 
 	// rekordbox's sixteen Display Song Info rows, in its order (link-spec
-	// DISPLAY_SONG_INFO_ORACLE). Argument 0 (ParentID) is 1 on the rows whose
-	// category is enabled, 0 on Date Added and Comment.
+	// DISPLAY_SONG_INFO_ORACLE). Argument 0 (ParentID) of each row after the
+	// title is 1 when the row's category (its rekordbox menu item) is
+	// enabled, else 0: a disabled category keeps its row, flagged, and the
+	// default root menu has no Comments or Date Added category (link-spec
+	// CATEGORY_ORACLE.md, "Display Song Info flags").
+	enabled := h.enabledCategories()
+	on := func(menuItem uint32) uint32 {
+		if enabled[menuItem] {
+			return 1
+		}
+		return 0
+	}
 	metaItems := []*menuItem{
 		titleRow,
-		{ID: artistID, Label1: artist, ItemType: 0x0007, ParentID: 1},                  // artist
-		{ID: albumID, Label1: album, ItemType: 0x0002, ParentID: 1, noArtHandle: true}, // album
-		{ID: duration / 1000, ItemType: 0x000b, ParentID: 1},                           // duration (seconds)
-		{ID: tempo, ItemType: 0x000d, ParentID: 1},                                     // BPM (* 100)
-		{ID: keyID, Label1: key, ItemType: 0x000f, ParentID: 1},                        // key
-		{ID: rating, ItemType: 0x000a, ParentID: 1},                                    // rating
+		{ID: artistID, Label1: artist, ItemType: 0x0007, ParentID: on(2)},                  // artist
+		{ID: albumID, Label1: album, ItemType: 0x0002, ParentID: on(3), noArtHandle: true}, // album
+		{ID: duration / 1000, ItemType: 0x000b, ParentID: on(14)},                          // duration (seconds), TIME
+		{ID: tempo, ItemType: 0x000d, ParentID: on(5)},                                     // BPM (* 100)
+		{ID: keyID, Label1: key, ItemType: 0x000f, ParentID: on(11)},                       // key
+		{ID: rating, ItemType: 0x000a, ParentID: on(6)},                                    // rating
 		// Colour: the ID is the colour (0 = none, 1 = Pink ... 8 = Purple) and
 		// the type is 0x13 + that ID, as in the COLOUR menu (0x14 = Pink).
-		{ID: colorID, Label1: library.TrackColorName(uint8(colorID)), ItemType: 0x13 + colorID&0xff, ParentID: 1},
-		{ID: genreID, Label1: genre, ItemType: 0x0006, ParentID: 1},                                      // genre
-		{ID: tID, Label1: dateAdded, ItemType: 0x002e},                                                   // date added
-		{ID: tID, Label1: comment, ItemType: 0x0023},                                                     // comment
-		{ID: bitrate, ItemType: 0x0010, ParentID: 1},                                                     // bitrate
-		{ID: year, ItemType: 0x0011, ParentID: 1},                                                        // year
-		{ID: labelID, Label1: label, ItemType: 0x000e, ParentID: 1},                                      // label
-		{ID: catID("origartist", originalArtist), Label1: originalArtist, ItemType: 0x0028, ParentID: 1}, // original artist
-		{ID: catID("remixer", remixer), Label1: remixer, ItemType: 0x0029, ParentID: 1},                  // remixer
+		{ID: colorID, Label1: library.TrackColorName(uint8(colorID)), ItemType: 0x13 + colorID&0xff, ParentID: on(13)},
+		{ID: genreID, Label1: genre, ItemType: 0x0006, ParentID: on(1)},                                       // genre
+		{ID: tID, Label1: dateAdded, ItemType: 0x002e, ParentID: on(22)},                                      // date added
+		{ID: tID, Label1: comment, ItemType: 0x0023, ParentID: on(21)},                                        // comment
+		{ID: bitrate, ItemType: 0x0010, ParentID: on(15)},                                                     // bitrate
+		{ID: year, ItemType: 0x0011, ParentID: on(7)},                                                         // year
+		{ID: labelID, Label1: label, ItemType: 0x000e, ParentID: on(9)},                                       // label
+		{ID: catID("origartist", originalArtist), Label1: originalArtist, ItemType: 0x0028, ParentID: on(10)}, // original artist
+		{ID: catID("remixer", remixer), Label1: remixer, ItemType: 0x0029, ParentID: on(8)},                   // remixer
 	}
 	// rekordbox's string limits for these rows (DISPLAY_SONG_INFO_ORACLE,
 	// "string paths"): 127 UTF-16 units for the title and lookup names, 255

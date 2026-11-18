@@ -217,3 +217,68 @@ func TestLookupColumnWithoutValue(t *testing.T) {
 		}
 	}
 }
+
+// rootOnlyMenu is a MenuSource serving a given root menu.
+type rootOnlyMenu []RootMenuEntry
+
+func (m rootOnlyMenu) RootMenu() []RootMenuEntry { return m }
+func (rootOnlyMenu) TrackDetail() string         { return "" }
+
+// rootWithout is the default root menu without the categories of the given
+// item types, plus extra entries.
+func rootWithout(itemTypes []uint32, extra ...RootMenuEntry) rootOnlyMenu {
+	var out rootOnlyMenu
+	for _, e := range DefaultRootMenu() {
+		if !slices.Contains(itemTypes, e.ItemType) {
+			out = append(out, e)
+		}
+	}
+	return append(out, extra...)
+}
+
+// A disabled category keeps its Display Song Info row, with argument 0
+// cleared; an enabled DATE ADDED category sets its row's (link-spec
+// CATEGORY_ORACLE.md, "Display Song Info flags"). The deck's capability mask
+// doesn't count: the flags follow the category settings alone.
+func TestDisplaySongInfoCategoryFlags(t *testing.T) {
+	lib := library.New()
+	lib.AddTrack(&library.Track{ID: 10001, Title: "Alpha One", Artist: "Alpha Artist", Genre: "Fixture House"})
+	menu := rootWithout([]uint32{0x80, 0x93}, RootMenuEntry{ID: 24, Label: "DATE ADDED", ItemType: 0x8c}) // no GENRE, BITRATE
+	h := &Handler{lib: lib, menu: menu}
+	h.Handle(&proto.DBMessage{TxID: 1, Type: proto.DBMsgRootMenu, Args: []proto.DBArg{proto.ArgI32(0x01010401), proto.ArgI32(0), proto.ArgI32(0x04ffffff)}})
+	h.Handle(&proto.DBMessage{TxID: 2, Type: proto.DBMsgGetMetadata, Args: []proto.DBArg{proto.ArgI32(0x01020401), proto.ArgI32(10001)}})
+	var parents []uint32
+	for _, r := range h.pendingItems[1:] {
+		parents = append(parents, r.ParentID)
+	}
+	// artist album time bpm key rating colour genre dateadded comment bitrate year label origartist remixer
+	want := []uint32{1, 1, 1, 1, 1, 1, 1, 0, 1, 0, 0, 1, 1, 1, 1}
+	if !slices.Equal(parents, want) {
+		t.Errorf("argument 0 = %v, want %v", parents, want)
+	}
+}
+
+// SEARCH lists artists, albums, titles and file names only while the ARTIST,
+// ALBUM, TRACK and FILE NAME categories are enabled (link-spec
+// SEARCH_ORACLE.md, "Category-controlled domains").
+func TestSearchCategoryDomains(t *testing.T) {
+	lib := library.New()
+	lib.AddTrack(&library.Track{ID: 1, Title: "Alpha Title", Artist: "Alpha Artist", Album: "Alpha Album", FilePath: "/m/alpha-file.mp3"})
+	lib.AddTrack(&library.Track{ID: 2, Title: "Other", Artist: "Beta", FilePath: "/m/alpha-only-in-name.mp3"})
+	for _, c := range []struct {
+		hide []uint32
+		want uint32
+	}{
+		{nil, 4},            // the artist, the album, track 1 by title, track 2 by file name
+		{[]uint32{0x81}, 3}, // no ARTIST
+		{[]uint32{0x82}, 3}, // no ALBUM
+		{[]uint32{0x83}, 4}, // no TRACK: track 1 still matches by file name
+		{[]uint32{0x94}, 3}, // no FILE NAME: track 2 no longer matches
+		{[]uint32{0x83, 0x94}, 2},
+	} {
+		h := &Handler{lib: lib, menu: rootWithout(c.hide)}
+		if got := total(search(h, -1, "alpha")); got != c.want {
+			t.Errorf("hiding %x: SEARCH total %d, want %d", c.hide, got, c.want)
+		}
+	}
+}

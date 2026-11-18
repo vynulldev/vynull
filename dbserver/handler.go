@@ -585,15 +585,36 @@ func (h *Handler) handleNXS2Extension(msg *proto.DBMessage) []*proto.DBMessage {
 // analysis fetches; caching here would break renders on those new
 // connections until they happen to receive their own 0x1000 query.
 func (h *Handler) rootMenu() []*menuItem {
-	entries := DefaultRootMenu()
-	if h.menu != nil {
-		entries = h.menu.RootMenu()
-	}
+	entries := h.rootEntries()
 	items := make([]*menuItem, 0, len(entries))
 	for _, e := range entries {
 		items = append(items, &menuItem{ID: e.ID, Label1: e.Label, ItemType: e.ItemType})
 	}
 	return h.maskRootMenu(items)
+}
+
+// rootEntries is the configured root menu, before any deck's capability mask.
+func (h *Handler) rootEntries() []RootMenuEntry {
+	if h.menu != nil {
+		return h.menu.RootMenu()
+	}
+	return DefaultRootMenu()
+}
+
+// enabledCategories is the set of rekordbox menu items whose category the
+// root menu lists, before a deck's capability mask: rekordbox's Display Song
+// Info and SEARCH read which categories are enabled straight from its
+// category settings (link-spec CATEGORY_ORACLE.md, "Display Song Info flags",
+// and SEARCH_ORACLE.md, "Category-controlled domains").
+func (h *Handler) enabledCategories() map[uint32]bool {
+	entries := h.rootEntries()
+	on := make(map[uint32]bool, len(entries))
+	for _, e := range entries {
+		if item, ok := rootMenuItems[e.ItemType]; ok {
+			on[item] = true
+		}
+	}
+	return on
 }
 
 func (h *Handler) handleRootMenu(msg *proto.DBMessage) []*proto.DBMessage {

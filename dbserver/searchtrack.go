@@ -46,7 +46,7 @@ func (h *Handler) handleSearchTrack(msg *proto.DBMessage) []*proto.DBMessage {
 	var items []*menuItem
 	if len(tokens) > 0 {
 		c := h.trackRows()
-		items = searchContent(c, c.trackOrder(order), tokens, true)
+		items = searchContent(c, c.trackOrder(order), tokens, true, true, true)
 		if order == 0 {
 			items = items[:min(len(items), searchTrackCeiling)]
 		} else {
