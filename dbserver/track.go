@@ -56,9 +56,7 @@ func (h *Handler) handleGetMetadata(msg *proto.DBMessage) []*proto.DBMessage {
 			comment = track.Comment
 			label = track.Label
 			artworkID = track.ArtID
-			if !track.DateAdded.IsZero() {
-				dateAdded = track.DateAdded.Format("2006-01-02")
-			}
+			dateAdded = track.DateAddedString()
 			if track.Duration > 0 {
 				duration = uint32(track.Duration.Seconds()) * 1000
 			}

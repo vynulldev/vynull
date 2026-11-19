@@ -138,7 +138,7 @@ type sortValues struct {
 	tempo                                                            int64 // BPM x 100
 	rating                                                           int64
 	seconds, bitrate, color, plays                                   int64
-	dateAdded                                                        string // YYYY-MM-DD, "" when undated
+	dateAdded                                                        string // Track.DateAddedString: "" when undated
 
 	// pos is the values' index in the library's prebuilt rows, when they
 	// hold them (trackRows.holds).
@@ -154,9 +154,7 @@ func libSortValues(t *library.Track) sortValues {
 		seconds: int64(t.Duration.Seconds()), bitrate: int64(t.Bitrate),
 		color: int64(t.ColorID), plays: int64(t.PlayCount),
 	}
-	if !t.DateAdded.IsZero() {
-		v.dateAdded = t.DateAdded.Format("2006-01-02")
-	}
+	v.dateAdded = t.DateAddedString()
 	return v
 }
 

@@ -40,12 +40,12 @@ func (h *Handler) renderColumn(msg *proto.DBMessage) (byte, bool) {
 // rekordbox's limits on a track row's strings (link-spec
 // BOUNDARY_INVALID_LIFECYCLE_ORACLE.md "Secondary string limits"): a lookup
 // value (artist, album, genre, label, remixer, original artist, key) keeps 127
-// characters and a comment 255. A comment that still takes more than 255
-// UTF-16 units (characters beyond the BMP take two) leaves the whole render
-// unanswered.
+// characters, and a comment or date added 255. One of those that still takes
+// more than 255 UTF-16 units (characters beyond the BMP take two) leaves the
+// whole render unanswered.
 const (
 	lookupTextMax  = 127
-	commentTextMax = 255
+	commentTextMax = 255 // comments and dates added
 )
 
 // capText cuts s to its first n characters.
@@ -125,7 +125,7 @@ func (h *Handler) overrideColumn(c *trackRows, m *menuItem, col byte) *menuItem 
 	case 0x23: // comments and dates carry the track's ID
 		r.ParentID, r.Label2 = m.ID, capText(v.comment, commentTextMax)
 	case 0x2e:
-		r.ParentID, r.Label2 = m.ID, v.dateAdded
+		r.ParentID, r.Label2 = m.ID, capText(v.dateAdded, commentTextMax)
 	case 0x0d:
 		r.ParentID = uint32(v.tempo)
 	case 0x0a:

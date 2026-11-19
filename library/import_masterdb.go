@@ -613,6 +613,7 @@ func masterDBToLibrary(t *masterDBTrack, path string) *Track {
 	// rekordbox reads its dates leniently by position and treats a blank or
 	// malformed one as no date (smart playlists skip such tracks).
 	dateAdded := ParseRekordboxDate(t.DateAdded)
+	dateAddedText := storedDateText(t.DateAdded, dateAdded)
 	dateCreated := ParseRekordboxDate(t.DateCreated)
 	releaseDate := ParseRekordboxDate(t.ReleaseDate)
 	// Preserve the rekordbox djmdContent.ID as the library track ID so served
@@ -639,6 +640,7 @@ func masterDBToLibrary(t *masterDBTrack, path string) *Track {
 		Comment:        t.Comment,
 		Label:          t.Label,
 		DateAdded:      dateAdded,
+		DateAddedText:  dateAddedText,
 		DateCreated:    dateCreated,
 		ReleaseDate:    releaseDate,
 		Bitrate:        t.Bitrate,

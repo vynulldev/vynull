@@ -135,3 +135,37 @@ func TestRenderOverrideStringLimits(t *testing.T) {
 		t.Errorf("the six-argument render went unanswered")
 	}
 }
+
+// A date added stored as text that isn't a date is served as stored, as
+// rekordbox serves its StockDate: in the Date Added column, by the render
+// override (cut to 255 characters, and a render whose text still takes more
+// than 255 UTF-16 units goes unanswered, as for a comment), and in TRACK
+// INFO (link-spec secondary-*-thresholds and secondary-date-added-boundaries).
+func TestDateAddedStoredText(t *testing.T) {
+	lib := library.New()
+	text := strings.Repeat("d", 126)
+	lib.AddTrack(&library.Track{ID: 1, Title: "One", DateAddedText: text})
+	lib.AddTrack(&library.Track{ID: 2, Title: "Two", DateAddedText: strings.Repeat("e", 300)})
+	col := "date_added"
+	h := &Handler{lib: lib, menu: detailMenu{detail: &col}}
+
+	if got := rowColumn(listRows(t, h, 0), 1).text; got != text {
+		t.Errorf("Date Added column %q, want the stored text", got)
+	}
+	// The override from another column (KEY) extracts the date added.
+	hk := &Handler{lib: lib, menu: keyColumnMenu{}}
+	if got := rowColumn(listRows(t, hk, 0, 1, 17), 2).text; got != strings.Repeat("e", 255) {
+		t.Errorf("override: %d characters, want 255", len(got))
+	}
+	lib.AddTrack(&library.Track{ID: 3, Title: "Three", DateAddedText: strings.Repeat("🙂", 128)})
+	if rows := listRows(t, hk, 0, 1, 17); rows != nil {
+		t.Errorf("a 256-unit date added was rendered, want no reply")
+	}
+
+	h.Handle(&proto.DBMessage{TxID: 1, Type: proto.DBMsgGetMetadata, Args: []proto.DBArg{proto.ArgI32(0x01020401), proto.ArgI32(1)}})
+	for _, r := range h.pendingItems {
+		if r.ItemType == 0x2e && r.Label1 != text {
+			t.Errorf("TRACK INFO date added %q, want the stored text", r.Label1)
+		}
+	}
+}

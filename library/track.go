@@ -67,6 +67,10 @@ type Track struct {
 	// track has no key relation). It tells an empty-named key from no key.
 	KeyID     uint32    `json:"key_id,omitempty"`
 	DateAdded time.Time `json:"date_added"`
+	// DateAddedText is the date added as an imported library stored it, kept
+	// only when it isn't DateAdded's YYYY-MM-DD: rekordbox serves its
+	// StockDate as stored, whatever text it holds. See DateAddedString.
+	DateAddedText string `json:"date_added_text,omitempty"`
 	// DateCreated is rekordbox's separate DateCreated, from an import; smart
 	// playlist rules on dateCreated test it (zero when unknown).
 	DateCreated time.Time `json:"date_created,omitempty"`
@@ -116,4 +120,17 @@ func TrackColorName(id uint8) string {
 		return trackColorNames[id]
 	}
 	return ""
+}
+
+// DateAddedString is the track's date added as rekordbox serves it: the
+// imported text when one was kept, else YYYY-MM-DD, or "" for an undated
+// track.
+func (t *Track) DateAddedString() string {
+	switch {
+	case t.DateAddedText != "":
+		return t.DateAddedText
+	case t.DateAdded.IsZero():
+		return ""
+	}
+	return t.DateAdded.Format("2006-01-02")
 }
