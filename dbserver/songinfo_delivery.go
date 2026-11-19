@@ -40,17 +40,27 @@ func (h *Handler) handleGetDeliveryInfo(msg *proto.DBMessage) []*proto.DBMessage
 			track.songInfoTitle = h.newSongInfoTitle(t, t.ID)
 			markContextType([]*menuItem{track}, uint32(dmstTrackType(msg)))
 
+			// Delivery's own fields, with rekordbox's limits (link-spec
+			// SONG_INFO_SIBLINGS_ORACLE.md, "Delivery-only fields and limits"):
+			// the composer's ID even when no artist has it, and its name, and
+			// the lyricist, cut to 127 UTF-16 units; the delivery comment and
+			// the ISRC to 255. The ISRC row's argument 8 says delivery control
+			// is on.
+			control := uint32(0)
+			if t.DeliveryControl {
+				control = 1
+			}
 			items = []*menuItem{
-				{ItemType: 0x36}, // composer (ComposerID lookup)
+				{ID: t.ComposerID, Label1: truncateUTF16(t.Composer, 127), ItemType: 0x36},    // composer (ComposerID lookup)
 				{ID: uint32(t.BPM * 100), ItemType: 0x0d},                                     // BPM
-				{ID: t.ID, ItemType: 0x23},                                                    // DeliveryComment
+				{ID: t.ID, Label1: truncateUTF16(t.DeliveryComment, 255), ItemType: 0x23},     // DeliveryComment
 				{ID: newKeyID(t.Key), ParentID: keyID, Label2: track.sortKey, ItemType: 0x0f}, // key
 				{ID: uint32(t.FileTypeID), ItemType: 0x12},                                    // file type
 				{ID: id("genre", t.Genre), Label1: t.Genre, ItemType: 0x06},
 				{ID: id("label", t.Label), Label1: t.Label, ItemType: 0x0e},
 				{ID: id("artist", t.Artist), Label1: t.Artist, ItemType: 0x07},
-				{ID: t.ID, ItemType: 0x37},       // lyricist
-				{ParentID: t.ID, ItemType: 0x4f}, // DeliveryControl / ISRC
+				{ID: t.ID, Label1: truncateUTF16(t.Lyricist, 127), ItemType: 0x37},                   // lyricist
+				{ParentID: t.ID, Label2: truncateUTF16(t.ISRC, 255), ArtID: control, ItemType: 0x4f}, // DeliveryControl / ISRC
 				track,
 				{ID: id("album", t.Album), Label1: t.Album, ItemType: 0x02, noArtHandle: true},
 				{ID: uint32(t.Duration.Seconds()), ItemType: 0x0b}, // length

@@ -321,7 +321,8 @@ def main():
                c.GenreID, c.ArtistID, c.AlbumID, c.KeyID, c.LabelID,
                rmx.Name AS Remixer, oa.Name AS OrigArtist,
                c.RemixerID, c.OrgArtistID,
-               c.Subtitle AS MixName, aa.Name AS AlbumArtist, cp.Name AS Composer
+               c.Subtitle AS MixName, aa.Name AS AlbumArtist, cp.Name AS Composer,
+               c.ComposerID, c.Lyricist, c.DeliveryComment, c.DeliveryControl, c.ISRC
         FROM djmdContent c
         LEFT JOIN djmdArtist a ON c.ArtistID = a.ID
         LEFT JOIN djmdAlbum al ON c.AlbumID = al.ID
@@ -394,6 +395,14 @@ def main():
             "mix_name":       d.get("MixName") or "",
             "album_artist":   d.get("AlbumArtist") or "",
             "composer":       d.get("Composer") or "",
+            # Delivery Info's own fields: the ComposerID as stored (a dangling
+            # one is still served), Lyricist, DeliveryComment, DeliveryControl
+            # ("ON" in any case turns it on) and ISRC.
+            "composer_id":      str(d.get("ComposerID") or ""),
+            "lyricist":         d.get("Lyricist") or "",
+            "delivery_comment": d.get("DeliveryComment") or "",
+            "delivery_control": d.get("DeliveryControl") or "",
+            "isrc":             d.get("ISRC") or "",
             "remixer_id":     str(d.get("RemixerID") or ""),
             "orig_artist_id": str(d.get("OrgArtistID") or ""),
             # Paths are relative to the rekordbox `share/` root, e.g.

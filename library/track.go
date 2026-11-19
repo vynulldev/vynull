@@ -63,6 +63,14 @@ type Track struct {
 	// artist; ComposerID, which rekordbox's smart playlists call producer).
 	AlbumArtist string `json:"album_artist,omitempty"`
 	Composer    string `json:"composer,omitempty"`
+	// Delivery Info's own fields, from a rekordbox import: the composer's
+	// djmdArtist ID (kept even when no artist has it), the lyricist, the
+	// delivery comment, whether delivery control is on, and the ISRC.
+	ComposerID      uint32 `json:"composer_id,omitempty"`
+	Lyricist        string `json:"lyricist,omitempty"`
+	DeliveryComment string `json:"delivery_comment,omitempty"`
+	DeliveryControl bool   `json:"delivery_control,omitempty"`
+	ISRC            string `json:"isrc,omitempty"`
 	// KeyID is the track's rekordbox key row ID, from an import (0 when the
 	// track has no key relation). It tells an empty-named key from no key.
 	KeyID     uint32    `json:"key_id,omitempty"`
