@@ -5,6 +5,7 @@ package dbserver
 import (
 	"fmt"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -171,6 +172,60 @@ func TestMalformedSongInfoRequests(t *testing.T) {
 			if got != c.want {
 				t.Errorf("%#04x %s: got %s, want %s", kind, c.name, got, c.want)
 			}
+		}
+	}
+}
+
+// Delivery Info serves the track's own Delivery fields with rekordbox's
+// limits (link-spec song-info-delivery-boundaries and -wide-strings): the
+// composer's ID, even dangling, and name and the lyricist cut to 127 UTF-16
+// units, the delivery comment and ISRC to 255 (a surrogate pair split by the
+// cut becomes U+FFFD), and the ISRC row's argument 8 set when delivery
+// control is on.
+func TestDeliveryInfoFields(t *testing.T) {
+	lib := library.New()
+	lib.AddTrack(&library.Track{ID: 1, Title: "One", ComposerID: 1101, Composer: strings.Repeat("c", 128),
+		Lyricist: strings.Repeat("l", 128), DeliveryComment: strings.Repeat("d", 256), ISRC: strings.Repeat("i", 256),
+		DeliveryControl: true})
+	lib.AddTrack(&library.Track{ID: 2, Title: "Two", ComposerID: 999999, Composer: strings.Repeat("🙂", 64)})
+	h := &Handler{lib: lib}
+
+	rows := func(id uint32) map[uint32]*menuItem {
+		h.Handle(&proto.DBMessage{TxID: 1, Type: 0x2602, Args: []proto.DBArg{proto.ArgI32(0x01020401), proto.ArgI32(id)}})
+		out := map[uint32]*menuItem{}
+		for _, r := range h.pendingItems {
+			out[r.ItemType] = r
+		}
+		return out
+	}
+	r := rows(1)
+	if c := r[0x36]; c.ID != 1101 || c.Label1 != strings.Repeat("c", 127) {
+		t.Errorf("composer %d, %d characters; want 1101, 127", c.ID, len(c.Label1))
+	}
+	if l := r[0x37]; l.ID != 1 || len(l.Label1) != 127 {
+		t.Errorf("lyricist %d, %d characters; want the track ID, 127", l.ID, len(l.Label1))
+	}
+	if d := r[0x23]; d.ID != 1 || len(d.Label1) != 255 {
+		t.Errorf("delivery comment %d, %d characters; want the track ID, 255", d.ID, len(d.Label1))
+	}
+	if i := r[0x4f]; i.ParentID != 1 || len(i.Label2) != 255 || i.ArtID != 1 {
+		t.Errorf("ISRC row %d, %d characters, control %d; want the track ID, 255, 1", i.ParentID, len(i.Label2), i.ArtID)
+	}
+
+	r = rows(2)
+	if c, want := r[0x36], strings.Repeat("🙂", 63)+"�"; c.ID != 999999 || c.Label1 != want {
+		t.Errorf("dangling composer %d %q; want 999999 and 63 characters and U+FFFD", c.ID, c.Label1)
+	}
+	if i := r[0x4f]; i.ArtID != 0 || i.Label2 != "" {
+		t.Errorf("no ISRC: control %d, %q; want 0 and empty", i.ArtID, i.Label2)
+	}
+
+	// On the wire: argument 8 of the ISRC row.
+	h.Handle(&proto.DBMessage{TxID: 3, Type: 0x2602, Args: []proto.DBArg{proto.ArgI32(0x01020401), proto.ArgI32(1)}})
+	for _, m := range h.Handle(&proto.DBMessage{TxID: 4, Type: proto.DBMsgRenderMenu, Args: []proto.DBArg{
+		proto.ArgI32(0x01020401), proto.ArgI32(0), proto.ArgI32(13), proto.ArgI32(0), proto.ArgI32(13), proto.ArgI32(12)}}) {
+		if m.Type == 0x4101 && m.Args[6].Int() == 0x4f && m.Args[8].Int() != 1 {
+			t.Errorf("ISRC row argument 8 = %d, want 1", m.Args[8].Int())
 		}
 	}
 }

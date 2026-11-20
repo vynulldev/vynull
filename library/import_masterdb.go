@@ -160,8 +160,15 @@ type masterDBTrack struct {
 	MixName        string `json:"mix_name"`
 	AlbumArtist    string `json:"album_artist"`
 	Composer       string `json:"composer"`
-	RemixerID      string `json:"remixer_id"`
-	OrigArtistID   string `json:"orig_artist_id"`
+	// Delivery Info's own fields (djmdContent ComposerID, Lyricist,
+	// DeliveryComment, DeliveryControl, ISRC).
+	ComposerID      string `json:"composer_id"`
+	Lyricist        string `json:"lyricist"`
+	DeliveryComment string `json:"delivery_comment"`
+	DeliveryControl string `json:"delivery_control"`
+	ISRC            string `json:"isrc"`
+	RemixerID       string `json:"remixer_id"`
+	OrigArtistID    string `json:"orig_artist_id"`
 }
 
 // ImportedAsset pairs a library Track.ID with the rekordbox-relative paths
@@ -622,39 +629,44 @@ func masterDBToLibrary(t *masterDBTrack, path string) *Track {
 	// if the ID is missing or not a uint32.
 	trackID := parseRBID(t.ID)
 	return &Track{
-		ID:             trackID,
-		Title:          t.Title,
-		Artist:         t.Artist,
-		Album:          t.Album,
-		Genre:          t.Genre,
-		Duration:       DurationSec(time.Duration(t.DurationSec) * time.Second),
-		BPM:            t.BPM,
-		Key:            t.Key,
-		Rating:         uint8(t.Rating),
-		Year:           t.Year,
-		TrackNum:       t.TrackNum,
-		DiscNum:        t.DiscNum,
-		FilePath:       path,
-		FileType:       ft,
-		FileSize:       t.FileSize,
-		Comment:        t.Comment,
-		Label:          t.Label,
-		DateAdded:      dateAdded,
-		DateAddedText:  dateAddedText,
-		DateCreated:    dateCreated,
-		ReleaseDate:    releaseDate,
-		Bitrate:        t.Bitrate,
-		SampleRate:     t.SampleRate,
-		PlayCount:      t.PlayCount,
-		ColorID:        uint8(t.ColorID),
-		FileTypeID:     t.FileTypeID,
-		AutoLoadHotCue: t.HotCueAutoLoad != "",
-		Remixer:        t.Remixer,
-		OriginalArtist: t.OriginalArtist,
-		MixName:        t.MixName,
-		KeyID:          parseRBID(t.KeyID),
-		AlbumArtist:    t.AlbumArtist,
-		Composer:       t.Composer,
+		ID:              trackID,
+		Title:           t.Title,
+		Artist:          t.Artist,
+		Album:           t.Album,
+		Genre:           t.Genre,
+		Duration:        DurationSec(time.Duration(t.DurationSec) * time.Second),
+		BPM:             t.BPM,
+		Key:             t.Key,
+		Rating:          uint8(t.Rating),
+		Year:            t.Year,
+		TrackNum:        t.TrackNum,
+		DiscNum:         t.DiscNum,
+		FilePath:        path,
+		FileType:        ft,
+		FileSize:        t.FileSize,
+		Comment:         t.Comment,
+		Label:           t.Label,
+		DateAdded:       dateAdded,
+		DateAddedText:   dateAddedText,
+		DateCreated:     dateCreated,
+		ReleaseDate:     releaseDate,
+		Bitrate:         t.Bitrate,
+		SampleRate:      t.SampleRate,
+		PlayCount:       t.PlayCount,
+		ColorID:         uint8(t.ColorID),
+		FileTypeID:      t.FileTypeID,
+		AutoLoadHotCue:  t.HotCueAutoLoad != "",
+		Remixer:         t.Remixer,
+		OriginalArtist:  t.OriginalArtist,
+		MixName:         t.MixName,
+		KeyID:           parseRBID(t.KeyID),
+		AlbumArtist:     t.AlbumArtist,
+		Composer:        t.Composer,
+		ComposerID:      parseRBID(t.ComposerID),
+		Lyricist:        t.Lyricist,
+		DeliveryComment: t.DeliveryComment,
+		DeliveryControl: strings.EqualFold(t.DeliveryControl, "ON"),
+		ISRC:            t.ISRC,
 	}
 }
 
