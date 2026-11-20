@@ -2,10 +2,7 @@
 
 package dbserver
 
-import (
-	"github.com/vynulldev/vynull/library"
-	"github.com/vynulldev/vynull/proto"
-)
+import "github.com/vynulldev/vynull/proto"
 
 // render_override.go: an eight-argument track render can ask for a second
 // column of its own (link-spec PROTOCOL_REFERENCE.md "Track render override
@@ -60,14 +57,14 @@ func capText(s string, n int) string {
 }
 
 // capRowText applies rekordbox's 127-character limit to a track row whose
-// second column is a lookup or the key, the whole text included (KEY's
-// "key - BPM" is cut too); m itself is left alone.
+// second column is a lookup, the key or the colour, the whole text included
+// (KEY's "key - BPM" is cut too); m itself is left alone.
 func capRowText(m *menuItem) *menuItem {
 	if !m.libTrack || m.ItemType&0xff != 0x04 {
 		return m
 	}
-	switch byte(m.ItemType >> 8) {
-	case 0x07, 0x02, 0x06, 0x0e, 0x29, 0x28, 0x0f:
+	switch col := byte(m.ItemType >> 8); {
+	case col == 0x07, col == 0x02, col == 0x06, col == 0x0e, col == 0x29, col == 0x28, col == 0x0f, isColorColumn(col):
 		if capped := capText(m.Label2, lookupTextMax); capped != m.Label2 {
 			r := *m
 			r.Label2 = capped
@@ -138,7 +135,7 @@ func (h *Handler) overrideColumn(c *trackRows, m *menuItem, col byte) *menuItem 
 		r.ParentID = uint32(v.plays)
 	case 0x13:
 		if v.color >= 1 && v.color <= 8 {
-			r.ParentID, r.Label2 = uint32(v.color), library.TrackColorName(uint8(v.color))
+			r.ParentID, r.Label2 = uint32(v.color), capText(h.colorName(uint8(v.color)), lookupTextMax)
 			r.ItemType = uint32(0x13+v.color)<<8 | 0x04
 		}
 	}

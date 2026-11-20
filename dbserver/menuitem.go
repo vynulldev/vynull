@@ -78,6 +78,15 @@ func (h *Handler) catID(kind, name string) uint32 {
 	return categoryID(h.lib, kind, name)
 }
 
+// colorName is a track colour's name in the served library: the name the
+// library gives it, else the stock name.
+func (h *Handler) colorName(id uint8) string {
+	if h.lib != nil {
+		return h.lib.ColorName(id)
+	}
+	return library.TrackColorName(id)
+}
+
 // categoryID is catID for a library, which may be nil.
 func categoryID(lib *library.Library, kind, name string) uint32 {
 	if lib != nil {
@@ -308,7 +317,7 @@ func (h *Handler) applyTrackDetail(m *menuItem, t *library.Track, ids *catIDs) {
 		//   Label2 = colour name string, empty for no-colour.
 		if t.ColorID >= 1 && t.ColorID <= 8 {
 			m.ParentID = uint32(t.ColorID)
-			m.Label2 = library.TrackColorName(t.ColorID)
+			m.Label2 = h.colorName(t.ColorID)
 			m.ItemType = (uint32(0x13+t.ColorID) << 8) | 0x04
 		} else {
 			m.ParentID = 0x7fffffff

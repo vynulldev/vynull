@@ -36,6 +36,25 @@ type MasterDBDump struct {
 	Sorts []masterDBSort `json:"sorts"`
 	// Categories are the deck's root menu (djmdCategory).
 	Categories []masterDBCategory `json:"categories"`
+	// ColorNames are the track colours' names (djmdColor).
+	ColorNames []masterDBColorName `json:"color_names"`
+}
+
+// masterDBColorName is one djmdColor row: a track colour's ID and name.
+type masterDBColorName struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+}
+
+// importColorNames maps a library's colour rows to their names by colour ID.
+func importColorNames(rows []masterDBColorName) map[uint8]string {
+	names := make(map[uint8]string, len(rows))
+	for _, r := range rows {
+		if id := parseRBID(r.ID); id >= 1 && id <= 8 {
+			names[uint8(id)] = r.Name
+		}
+	}
+	return names
 }
 
 // masterDBHotCueBank is one djmdHotCueBanklist node; top-level nodes have
@@ -422,7 +441,8 @@ func ImportMasterDBDump(lib *Library, dump *MasterDBDump) (*ImportBundle, error)
 
 	lib.FinalizeBulk()
 	return &ImportBundle{Result: res, Playlists: playlists, Tags: tags, TagCategories: tagCategories, Colors: colors, Assets: assets, Cues: cues,
-		Sorts: importSorts(dump.Sorts), Categories: importCategories(dump.Categories)}, nil
+		Sorts: importSorts(dump.Sorts), Categories: importCategories(dump.Categories),
+		ColorNames: importColorNames(dump.ColorNames)}, nil
 }
 
 // masterDBPlaylistTree turns the flat djmdPlaylist rows into a nested

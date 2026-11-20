@@ -282,13 +282,14 @@ func baseName(path string) string {
 // to handleGetTracksByColor.
 func (h *Handler) handleGetColors(msg *proto.DBMessage) []*proto.DBMessage {
 	dlog.Debugf("dbserver: COLOR list (0x100d)")
-	// rekordbox lists the eight named colours (Pink … Purple), title-cased,
-	// with no "no colour" row; each row type is 0x13 + the colour ID.
+	// rekordbox lists the eight named colours (Pink … Purple, or the names
+	// the library gives them), with no "no colour" row; each row type is
+	// 0x13 + the colour ID.
 	items := make([]*menuItem, 0, 8)
 	for id := uint8(1); id <= 8; id++ {
 		items = append(items, &menuItem{
 			ID:       uint32(id),
-			Label1:   library.TrackColorName(id),
+			Label1:   h.colorName(id),
 			ItemType: uint32(0x13 + id),
 		})
 	}

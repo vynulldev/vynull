@@ -574,6 +574,15 @@ def main():
     except sqlcipher3.dbapi2.OperationalError:
         pass  # Older DBs may not have the djmdSort table
 
+    # The track colours' names (djmdColor's Commnt), which rekordbox lets the
+    # user change: one row per colour ID.
+    out["color_names"] = []
+    try:
+        cur.execute("SELECT ID, Commnt FROM djmdColor WHERE COALESCE(rb_local_deleted, 0) = 0")
+        out["color_names"] = [{"id": str(i), "name": n or ""} for i, n in cur.fetchall()]
+    except sqlcipher3.dbapi2.OperationalError:
+        pass  # Older DBs may not have the djmdColor table
+
     # The deck's root menu (djmdCategory): one row per category, its
     # djmdMenuItems ID, Seq (menu order), and Disable (0 shown; MATCHING and
     # DATE ADDED use bit 1 for something else).

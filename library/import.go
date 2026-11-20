@@ -28,6 +28,9 @@ type ImportBundle struct {
 	// Categories is the library's root menu (rekordbox master.db's
 	// djmdCategory), in menu order; empty when the format has none.
 	Categories []CategoryImport
+	// ColorNames are the library's names for its track colours by colour ID
+	// (rekordbox master.db's djmdColor); empty when the format has none.
+	ColorNames map[uint8]string
 	// ShareRoot is the share/ root for ANLZ + artwork (a backup-zip extract, or
 	// a master.db's own library folder). SettingsDir holds the *SETTING.DAT
 	// blobs. Both are empty when the format carries no such assets.

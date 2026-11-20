@@ -145,6 +145,7 @@ func (l *Library) UseOverlay(path, musicDir string) {
 	}
 	l.mu.Unlock()
 	l.loadTagList()
+	l.loadColorNames()
 }
 
 // writeOverlay saves the library as an overlay over its music dir.

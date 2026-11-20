@@ -109,16 +109,20 @@ func (l *Library) changeTagList(edit func(list []uint32) []uint32) bool {
 	return true
 }
 
-// tagListPath is where the tag list persists: beside the track list, or for
-// a library built from a music dir, beside its overlay of edits.
-func (l *Library) tagListPath() string {
+// tagListPath is where the tag list persists, beside the track list.
+func (l *Library) tagListPath() string { return l.sidePath("taglist.json") }
+
+// sidePath is where a file of library data persists: beside the track list,
+// or for a library built from a music dir, beside its overlay of edits; ""
+// for a library that isn't saved.
+func (l *Library) sidePath(name string) string {
 	l.mu.RLock()
 	defer l.mu.RUnlock()
 	switch {
 	case l.dbPath != "":
-		return filepath.Join(filepath.Dir(l.dbPath), "taglist.json")
+		return filepath.Join(filepath.Dir(l.dbPath), name)
 	case l.overlay != nil:
-		return filepath.Join(filepath.Dir(l.overlay.path), "taglist.json")
+		return filepath.Join(filepath.Dir(l.overlay.path), name)
 	}
 	return ""
 }
