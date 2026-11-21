@@ -1286,6 +1286,26 @@ func TruncateFilename(name string, maxLen int) string {
 	return base[:keep] + ext
 }
 
+// uniqueUSBName returns name, or name with " (2)", " (3)", … before its
+// extension (the base shortened to stay within maxLen), for the first variant
+// whose path under dir isn't taken yet, and marks that path taken. Paths
+// compare case-insensitively, as on FAT.
+func uniqueUSBName(taken map[string]bool, dir, name string, maxLen int) string {
+	ext := filepath.Ext(name)
+	base := strings.TrimSuffix(name, ext)
+	try := name
+	for n := 2; taken[strings.ToLower(dir+try)]; n++ {
+		sfx := fmt.Sprintf(" (%d)", n)
+		b := base
+		if keep := max(maxLen-len(sfx)-len(ext), 1); len(b) > keep {
+			b = b[:keep]
+		}
+		try = b + sfx + ext
+	}
+	taken[strings.ToLower(dir+try)] = true
+	return try
+}
+
 // reencodeAudio runs ffmpeg to re-encode `src` into `dst`, choosing the
 // codec based on the destination extension. Used by PrepareUSBLayout to
 // salvage tracks whose source has decode errors the CDJ can't tolerate
@@ -1325,6 +1345,7 @@ func reencodeAudio(src, dst string) error {
 func PrepareUSBLayout(tracks []*Track, srcDir, outDir string, copyFiles bool) error {
 	contentsDir := filepath.Join(outDir, "Contents")
 	now := time.Now().Format("2006-01-02")
+	taken := make(map[string]bool, len(tracks)) // USB paths handed out so far, lower-cased
 
 	for _, t := range tracks {
 		artist := t.Artist
@@ -1384,6 +1405,14 @@ func PrepareUSBLayout(tracks []*Track, srcDir, outDir string, copyFiles bool) er
 				}
 			}
 		}
+
+		// The caps above can give two tracks the same path (two mixes whose
+		// names share their first 40-odd characters, or names that differ
+		// only in case, which FAT folds together). The second copy would
+		// overwrite the first and both rows would play it, so a later
+		// track gets " (2)", " (3)", … instead.
+		nameCap := max(min(48, maxUSBPath-fixed), len(ext)+5)
+		safeName = uniqueUSBName(taken, "/Contents/"+safeArtist+"/"+safeAlbum+"/", safeName, nameCap)
 
 		destDir := filepath.Join(contentsDir, safeArtist, safeAlbum)
 		if err := os.MkdirAll(destDir, 0o755); err != nil {
