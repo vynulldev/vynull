@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 	"unicode/utf16"
@@ -1272,18 +1273,47 @@ func truncateComponent(s string, maxLen int) string {
 	return out
 }
 
-// TruncateFilename shortens a filename to maxLen chars, preserving extension.
+// TruncateFilename shortens a filename to maxLen bytes, preserving extension.
 func TruncateFilename(name string, maxLen int) string {
 	if len(name) <= maxLen {
 		return name
 	}
 	ext := filepath.Ext(name)
-	base := strings.TrimSuffix(name, ext)
-	keep := maxLen - len(ext)
-	if keep < 1 {
-		keep = 1
+	return cutName(strings.TrimSuffix(name, ext), maxLen-len(ext)) + ext
+}
+
+// cutName cuts a file name's base to at most n bytes on a UTF-8 rune
+// boundary, so the cut never splits a character. It keeps at least the first
+// character.
+func cutName(base string, n int) string {
+	if len(base) <= n {
+		return base
 	}
-	return base[:keep] + ext
+	cut := max(n, 1)
+	for cut > 0 && !utf8.RuneStart(base[cut]) {
+		cut--
+	}
+	if cut == 0 {
+		_, cut = utf8.DecodeRuneInString(base)
+	}
+	return base[:cut]
+}
+
+// uniqueUSBName returns name, or for a name whose path under dir is already
+// taken, the first of "name-1", "name-2", … that isn't (the base shortened so
+// the whole name stays within maxLen), and marks the path it returns taken.
+// Paths compare ignoring case, as on FAT. rekordbox names colliding files the
+// same way: "Same Name.mp3" and "Same Name-1.mp3".
+func uniqueUSBName(taken map[string]bool, dir, name string, maxLen int) string {
+	ext := filepath.Ext(name)
+	base := strings.TrimSuffix(name, ext)
+	try := name
+	for n := 1; taken[strings.ToLower(dir+try)]; n++ {
+		sfx := "-" + strconv.Itoa(n)
+		try = cutName(base, maxLen-len(sfx)-len(ext)) + sfx + ext
+	}
+	taken[strings.ToLower(dir+try)] = true
+	return try
 }
 
 // reencodeAudio runs ffmpeg to re-encode `src` into `dst`, choosing the
@@ -1325,6 +1355,7 @@ func reencodeAudio(src, dst string) error {
 func PrepareUSBLayout(tracks []*Track, srcDir, outDir string, copyFiles bool) error {
 	contentsDir := filepath.Join(outDir, "Contents")
 	now := time.Now().Format("2006-01-02")
+	taken := make(map[string]bool, len(tracks)) // USB paths handed out so far, lower-cased
 
 	for _, t := range tracks {
 		artist := t.Artist
@@ -1384,6 +1415,14 @@ func PrepareUSBLayout(tracks []*Track, srcDir, outDir string, copyFiles bool) er
 				}
 			}
 		}
+
+		// Two tracks can land on one path: the same file name in two
+		// folders, two names that share their first 44 characters once
+		// capped, or names that differ only in case, which FAT folds
+		// together. The second copy would overwrite the first and both
+		// rows would play it, so a later track gets "-1", "-2", … instead.
+		nameCap := max(min(48, maxUSBPath-fixed), len(ext)+5)
+		safeName = uniqueUSBName(taken, "/Contents/"+safeArtist+"/"+safeAlbum+"/", safeName, nameCap)
 
 		destDir := filepath.Join(contentsDir, safeArtist, safeAlbum)
 		if err := os.MkdirAll(destDir, 0o755); err != nil {
