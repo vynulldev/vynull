@@ -111,7 +111,7 @@ func (s *Server) libTrackToInfo(t *library.Track) TrackInfo {
 		TrackNum:       t.TrackNum,
 		Rating:         int(t.Rating),
 		ColorID:        t.ColorID,
-		ColorName:      library.TrackColorName(t.ColorID),
+		ColorName:      s.Library.ColorName(t.ColorID),
 		PlayCount:      t.PlayCount,
 		ArtID:          t.ArtID,
 		ArtChecked:     t.ArtChecked,

@@ -231,6 +231,7 @@ func main() {
 		second = api.ImportedTrackColumn(bundle.Sorts)
 	}
 	log.Printf("conformance: track-list second column %q", second)
+	lib.SetColorNames(bundle.ColorNames)
 	root := dbserver.DefaultRootMenu()
 	if len(bundle.Categories) > 0 {
 		root = dbserver.RootMenuFromCategories(bundle.Categories)

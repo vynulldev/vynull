@@ -66,6 +66,10 @@ type Library struct {
 	tagged    map[uint32]struct{}
 	tagListMu sync.Mutex
 
+	// colorNames are the library's own names for its track colours, the
+	// ones that differ from the stock names (colornames.go).
+	colorNames map[uint8]string
+
 	// hotCueBanks holds rekordbox Hot Cue Banks from a master.db import,
 	// persisted beside the track list (hotcuebank.go).
 	hotCueBanks *hotCueBankSet
@@ -417,6 +421,7 @@ func (l *Library) SetDBPath(path string) {
 	l.loadFromDisk()
 	l.loadHotCueBanks()
 	l.loadTagList()
+	l.loadColorNames()
 }
 
 // IncrementPlayCount bumps the play count for trackID by 1 and persists the

@@ -538,9 +538,13 @@ func (s *Server) applyImportBundle(w http.ResponseWriter, bundle *library.Import
 	if incSettings && s.Menu != nil && len(bundle.Sorts) > 0 {
 		s.Menu.ImportSorts(bundle.Sorts)
 	}
-	// So is the root menu (djmdCategory).
+	// So is the root menu (djmdCategory), and so are the names the library
+	// gives its track colours (djmdColor).
 	if incSettings && s.Menu != nil && len(bundle.Categories) > 0 {
 		s.Menu.ImportCategories(bundle.Categories)
+	}
+	if incSettings && len(bundle.ColorNames) > 0 {
+		s.Library.SetColorNames(bundle.ColorNames)
 	}
 
 	writeJSON(w, result)

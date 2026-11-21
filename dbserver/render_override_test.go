@@ -169,3 +169,46 @@ func TestDateAddedStoredText(t *testing.T) {
 		}
 	}
 }
+
+// A library's own colour names are served wherever a colour is named: the
+// COLOR menu, a colour second column (configured or by the render override,
+// cut to 127 characters) and TRACK INFO (link-spec custom-colors,
+// secondary-string-boundaries and display-song-info-boundaries).
+func TestCustomColorNames(t *testing.T) {
+	lib := library.New()
+	lib.AddTrack(&library.Track{ID: 1, Title: "One", ColorID: 1})
+	lib.AddTrack(&library.Track{ID: 2, Title: "Two", ColorID: 8})
+	lib.AddTrack(&library.Track{ID: 3, Title: "Three", ColorID: 2})
+	long := strings.Repeat("o", 128)
+	lib.SetColorNames(map[uint8]string{1: "Fixture Magenta", 8: long})
+	col := "color"
+	h := &Handler{lib: lib, menu: detailMenu{detail: &col}}
+
+	h.Handle(&proto.DBMessage{TxID: 1, Type: 0x100d, Args: []proto.DBArg{proto.ArgI32(overrideCtx), proto.ArgI32(0)}})
+	var colors []string
+	for _, m := range h.pendingItems {
+		colors = append(colors, m.Label1)
+	}
+	if colors[0] != "Fixture Magenta" || colors[1] != "Red" || colors[7] != long {
+		t.Errorf("COLOR menu %q", colors)
+	}
+
+	rows := listRows(t, h, 0)
+	if got := rowColumn(rows, 1).text; got != "Fixture Magenta" {
+		t.Errorf("colour column %q, want Fixture Magenta", got)
+	}
+	if got := rowColumn(rows, 2).text; got != long[:127] {
+		t.Errorf("colour column %d characters, want 127", len(got))
+	}
+	hk := &Handler{lib: lib, menu: keyColumnMenu{}}
+	if got := rowColumn(listRows(t, hk, 0, 1, 15), 2).text; got != long[:127] {
+		t.Errorf("override: %d characters, want 127", len(got))
+	}
+
+	h.Handle(&proto.DBMessage{TxID: 2, Type: proto.DBMsgGetMetadata, Args: []proto.DBArg{proto.ArgI32(0x01020401), proto.ArgI32(1)}})
+	for _, m := range h.pendingItems {
+		if m.ItemType == 0x14 && m.Label1 != "Fixture Magenta" {
+			t.Errorf("TRACK INFO colour %q, want Fixture Magenta", m.Label1)
+		}
+	}
+}
