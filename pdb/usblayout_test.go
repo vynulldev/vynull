@@ -7,50 +7,94 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"unicode/utf8"
 )
 
 // TestPrepareUSBLayoutKeepsCollidingNamesApart lays out tracks whose USB file
-// names collide once capped: two mixes sharing their first 44 characters, and
-// two names that differ only in case (one file on FAT). Before the fix each
-// pair got one path, the second copy overwrote the first, and both PDB rows
-// played the same audio.
+// names collide: two mixes sharing their first 44 characters, two names that
+// differ only in case (one file on FAT), and the same name from two folders.
+// Before the fix each pair got one path, the second copy overwrote the first,
+// and both PDB rows played the same audio. The later track of a pair gets
+// rekordbox's "-1" suffix (rekordbox 7 export: "Same Name.mp3" and
+// "Same Name-1.mp3", "...Shared Title .mp3" and "...Shared Titl-1.mp3").
 func TestPrepareUSBLayoutKeepsCollidingNamesApart(t *testing.T) {
 	src, out := t.TempDir(), t.TempDir()
-	names := []string{
-		"S3RL & Synthwulf - Everybody Wants to be a DJ [Wav File].mp3",
-		"S3RL & Synthwulf - Everybody Wants to be a DJ (S3RL hard mix) [Wav File].mp3",
-		"Intro.mp3",
-		"INTRO.mp3",
+	const long = "Fixture Artist - A Very Long Shared Title For Two Mixes"
+	files := []string{
+		long + " (Mix A).mp3",
+		long + " (Mix B).mp3",
+		long + " (Mix C).mp3",
+		"Case Test.mp3",
+		"CASE TEST.mp3",
+		"one/Same Name.mp3",
+		"two/Same Name.mp3",
+	}
+	want := []string{
+		"Fixture Artist - A Very Long Shared Title Fo.mp3",
+		"Fixture Artist - A Very Long Shared Title -1.mp3",
+		"Fixture Artist - A Very Long Shared Title -2.mp3",
+		"Case Test.mp3",
+		"CASE TEST-1.mp3",
+		"Same Name.mp3",
+		"Same Name-1.mp3",
 	}
 	var tracks []*Track
-	for i, n := range names {
-		p := filepath.Join(src, n)
-		if err := os.WriteFile(p, []byte(n), 0o644); err != nil {
+	for i, f := range files {
+		p := filepath.Join(src, f)
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
 			t.Fatal(err)
 		}
-		tracks = append(tracks, &Track{ID: uint32(i + 1), Artist: "S3RL", Album: "Pack", FilePath: p})
+		if err := os.WriteFile(p, []byte(f), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		tracks = append(tracks, &Track{ID: uint32(i + 1), Artist: "Fixture Artist", Album: "Collisions", FilePath: p})
 	}
 
 	if err := PrepareUSBLayout(tracks, src, out, true); err != nil {
 		t.Fatal(err)
 	}
 
-	seen := map[string]string{}
 	for i, tr := range tracks {
-		key := strings.ToLower(tr.FilePath)
-		if other, dup := seen[key]; dup {
-			t.Errorf("%q and %q share the USB path %s", other, names[i], tr.FilePath)
-		}
-		seen[key] = names[i]
-		if len(tr.FilePath) > 126 {
-			t.Errorf("USB path %q is %d chars, over the 126 cap", tr.FilePath, len(tr.FilePath))
+		if got := "/Contents/Fixture Artist/Collisions/" + want[i]; tr.FilePath != got {
+			t.Errorf("%s: USB path %q, want %q", files[i], tr.FilePath, got)
 		}
 		got, err := os.ReadFile(filepath.Join(out, filepath.FromSlash(tr.FilePath)))
 		if err != nil {
 			t.Fatal(err)
 		}
-		if string(got) != names[i] {
-			t.Errorf("%s plays %q, want %q", tr.FilePath, got, names[i])
+		if string(got) != files[i] {
+			t.Errorf("%s plays %q, want %q", tr.FilePath, got, files[i])
+		}
+	}
+}
+
+// A cut never splits a character: a two-byte "é" that the 48-byte cap or a
+// suffix would cut in half is left out whole.
+func TestPrepareUSBLayoutCutsWholeCharacters(t *testing.T) {
+	src, out := t.TempDir(), t.TempDir()
+	// In the first two names "é" takes bytes 42 and 43: the 44-byte base of
+	// the plain cap keeps it, the 42-byte base before "-1" would split it.
+	// In the third it takes bytes 44 and 45, split by the plain cap.
+	prefix := strings.Repeat("x", 41)
+	var tracks []*Track
+	for i, f := range []string{prefix + "é one.mp3", prefix + "é two.mp3", strings.Repeat("y", 43) + "é.mp3"} {
+		p := filepath.Join(src, f)
+		if err := os.WriteFile(p, []byte(f), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		tracks = append(tracks, &Track{ID: uint32(i + 1), Artist: "Fixture Artist", Album: "Cuts", FilePath: p})
+	}
+
+	if err := PrepareUSBLayout(tracks, src, out, true); err != nil {
+		t.Fatal(err)
+	}
+
+	for i, want := range []string{prefix + "é .mp3", prefix + "-1.mp3", strings.Repeat("y", 43) + ".mp3"} {
+		name := filepath.Base(tracks[i].FilePath)
+		if !utf8.ValidString(name) {
+			t.Errorf("track %d: %q is not valid UTF-8", i+1, name)
+		} else if name != want {
+			t.Errorf("track %d: %q, want %q", i+1, name, want)
 		}
 	}
 }
