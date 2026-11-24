@@ -70,9 +70,13 @@ def open_db(db_path, provided_key):
 def juce_int(s):
     """Read text as rekordbox does an integer attribute (JUCE getIntValue):
     an optionally signed run of leading digits after any spaces, 0 if none,
-    so "1.5" is 1 and "wat" is 0."""
+    so "1.5" is 1, "0x1" is 0 and "wat" is 0, saturated to a signed 32-bit
+    int, so "2147483648" is 2147483647 (link-spec smart-mytag-matrix,
+    rekordbox 7.2.19)."""
     m = re.match(r"\s*([+-]?\d+)", s or "")
-    return int(m.group(1)) if m else 0
+    if not m:
+        return 0
+    return max(-(1 << 31), min(int(m.group(1)), (1 << 31) - 1))
 
 
 def db_int(v, bits=32, signed=True):
@@ -271,12 +275,13 @@ def parse_smartlist(xml_str, tags_by_id):
         a = cnd.attrib
         prop = a.get("PropertyName", "")
         left = a.get("ValueLeft", "")
-        if prop == "myTag" and left:
-            try:
-                uid = str(int(left) & 0xFFFFFFFF)  # signed int32 → unsigned key
-                left = tags_by_id.get(uid, left)
-            except ValueError:
-                pass
+        if prop == "myTag" and left.strip():
+            # rekordbox reads the tag ID as an integer attribute (juce_int),
+            # so a positive ID past the signed range saturates and malformed
+            # text is tag 0; the signed value's bits are djmdMyTag.ID. A blank
+            # value stays blank: it matches nothing either way.
+            uid = str(juce_int(left) & 0xFFFFFFFF)
+            left = tags_by_id.get(uid, uid)
         conds.append({
             "property": prop,
             "operator": juce_int(a.get("Operator", "")),

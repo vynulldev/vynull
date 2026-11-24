@@ -85,3 +85,50 @@ json.dump(out, sys.stdout)
 		}
 	}
 }
+
+// The helper resolves a My Tag condition's value as rekordbox reads it: a
+// signed 32-bit integer attribute whose bits are the tag ID, saturating past
+// the signed range, reading malformed text as tag 0 and a leading number
+// from anything else (link-spec smart-mytag-matrix, rekordbox 7.2.19).
+func TestDumpHelperReadsMyTagValuesLikeRekordbox(t *testing.T) {
+	if _, err := exec.LookPath("python3"); err != nil {
+		t.Skip("python3 not available")
+	}
+	const script = `
+import importlib.util, json, sys, types
+sys.modules["sqlcipher3"] = types.ModuleType("sqlcipher3")
+spec = importlib.util.spec_from_file_location("dump", "../tools/rekordbox_dump.py")
+dump = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(dump)
+tags = {"0": "Zero", "1": "One", "2147483647": "Max", "2147483648": "High", "4294967295": "All"}
+def tag(value):
+    xml = '<NODE Id="1" LogicalOperator="1"><CONDITION PropertyName="myTag" Operator="8" ValueUnit="" ValueLeft="%s" ValueRight=""/></NODE>' % value
+    return dump.parse_smartlist(xml, tags)["conditions"][0]["left"]
+values = ["1", "2147483647", "2147483648", "4294967295", "4294967296", "-2147483648", "-1",
+          "-2147483649", " 001", "+1", " 1 ", "0x1", "1,2147483648", "wat", "", "12345"]
+json.dump({v: tag(v) for v in values}, sys.stdout)
+`
+	raw, err := exec.Command("python3", "-c", script).CombinedOutput()
+	if err != nil {
+		t.Fatalf("python3: %v\n%s", err, raw)
+	}
+	var got map[string]string
+	if err := json.Unmarshal(raw, &got); err != nil {
+		t.Fatalf("decode %s: %v", raw, err)
+	}
+	for value, want := range map[string]string{
+		"1": "One", "2147483647": "Max",
+		// Past the signed range saturates to its top, not the bits above it.
+		"2147483648": "Max", "4294967295": "Max", "4294967296": "Max",
+		// Negative values carry the high bit; underflow saturates to it.
+		"-2147483648": "High", "-1": "All", "-2147483649": "High",
+		" 001": "One", "+1": "One", " 1 ": "One",
+		"0x1": "Zero", "1,2147483648": "One", "wat": "Zero",
+		"":      "",      // blank stays blank and matches nothing
+		"12345": "12345", // no such tag
+	} {
+		if got[value] != want {
+			t.Errorf("ValueLeft %q resolved to %q, want %q", value, got[value], want)
+		}
+	}
+}
